@@ -7,6 +7,7 @@ import Invoices from './pages/Invoices';
 import CustomerDetail from './pages/CustomerDetail';
 import Settings from './pages/Settings';
 import Login from './pages/Login';
+import Home from './pages/Home';
 import Header from './components/Header';
 import { AuthProvider, useAuth } from './components/AuthContext';
 import { UIProvider, useUI } from './components/UIContext';
@@ -46,7 +47,10 @@ function App() {
     <AuthProvider>
       <UIProvider>
         <BrowserRouter>
-          <Layout />
+          <Routes>
+            <Route path="/home" element={<Home />} />
+            <Route path="/*" element={<Layout />} />
+          </Routes>
         </BrowserRouter>
       </UIProvider>
     </AuthProvider>

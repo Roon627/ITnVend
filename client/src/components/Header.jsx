@@ -44,6 +44,7 @@ export default function Header() {
         <div className="flex items-center gap-4">
           <div className="flex items-center gap-3">
             <div className={`h-3 w-3 rounded-full ${online ? 'bg-green-500' : 'bg-red-400'}`} title={online ? 'Online' : 'Offline'} />
+            <a href="/home" target="_blank" rel="noreferrer" className="text-sm px-3 py-2 rounded-md border">Store</a>
             <button className="text-sm px-3 py-2 rounded-md border">Help</button>
             <button className="text-sm px-3 py-2 rounded-md border">Profile</button>
           </div>
