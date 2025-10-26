@@ -1,0 +1,48 @@
+// Lightweight API wrapper with retry logic
+const API_BASE = 'http://localhost:4000/api';
+let authToken = null;
+
+export function setAuthToken(token) {
+  authToken = token;
+  if (token) localStorage.setItem('irnvend_token', token);
+  else localStorage.removeItem('irnvend_token');
+}
+
+// initialize from storage
+const stored = localStorage.getItem('irnvend_token');
+if (stored) authToken = stored;
+
+async function wait(ms) {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+async function fetchWithRetry(path, options = {}, retries = 2, backoff = 200) {
+  let attempt = 0;
+  while (attempt <= retries) {
+    try {
+      if (!options.headers) options.headers = {};
+      if (authToken) options.headers['Authorization'] = `Bearer ${authToken}`;
+      const res = await fetch(`${API_BASE}${path}`, options);
+      if (!res.ok) {
+        const text = await res.text();
+        throw new Error(text || res.statusText);
+      }
+      const contentType = res.headers.get('content-type') || '';
+      if (contentType.includes('application/json')) return res.json();
+      return res;
+    } catch (err) {
+      if (attempt === retries) throw err;
+      await wait(backoff * Math.pow(2, attempt));
+      attempt += 1;
+    }
+  }
+}
+
+export const api = {
+  get: (p) => fetchWithRetry(p, { method: 'GET' }),
+  post: (p, body) => fetchWithRetry(p, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }),
+  put: (p, body) => fetchWithRetry(p, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }),
+  del: (p) => fetchWithRetry(p, { method: 'DELETE' }),
+};
+
+export default api;
