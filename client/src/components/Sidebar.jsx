@@ -1,20 +1,34 @@
 import { NavLink } from 'react-router-dom';
-import { FaFileInvoice } from 'react-icons/fa';
+import { FaFileInvoice, FaBoxOpen, FaUsers, FaCog, FaCashRegister } from 'react-icons/fa';
+import { useUI } from './UIContext';
 
 export default function Sidebar() {
-  const linkClass = ({ isActive }) => `block px-4 py-2 rounded-md font-medium ${isActive ? 'bg-blue-600 text-white' : 'text-gray-700 hover:bg-gray-100'}`;
+  const { sidebarCollapsed } = useUI();
+  const linkClass = ({ isActive }) => `flex items-center px-4 py-2 rounded-md font-medium gap-3 ${isActive ? 'bg-blue-600 text-white' : 'text-gray-700 hover:bg-gray-100'}`;
 
   return (
-    <aside className="w-64 bg-white border-r h-screen p-4 fixed">
-      <h1 className="text-xl font-bold mb-6">ITnVend</h1>
-      <nav className="space-y-2">
-        <NavLink to="/" end className={linkClass}>POS</NavLink>
-        <NavLink to="/invoices" className={linkClass}>
-          <FaFileInvoice className="mr-3" /> Invoices
+    <aside className={`${sidebarCollapsed ? 'w-20' : 'w-64'} bg-white border-r h-screen p-4 fixed transition-width`}> 
+      <div className={`flex items-center ${sidebarCollapsed ? 'justify-center' : 'justify-between'}`}>
+        <h1 className={`text-xl font-bold mb-6 ${sidebarCollapsed ? 'sr-only' : ''}`}>ITnVend</h1>
+        {/* small logo when collapsed */}
+        {sidebarCollapsed && <div className="w-8 h-8 rounded-md bg-gradient-to-br from-teal-400 to-teal-600 flex items-center justify-center text-white font-bold">IT</div>}
+      </div>
+      <nav className="space-y-2 mt-4">
+        <NavLink to="/" end className={linkClass}>
+          <FaCashRegister /> {!sidebarCollapsed && 'POS'}
         </NavLink>
-        <NavLink to="/products" className={linkClass}>Products</NavLink>
-        <NavLink to="/customers" className={linkClass}>Customers</NavLink>
-        <NavLink to="/settings" className={linkClass}>Settings</NavLink>
+        <NavLink to="/invoices" className={linkClass}>
+          <FaFileInvoice /> {!sidebarCollapsed && 'Invoices'}
+        </NavLink>
+        <NavLink to="/products" className={linkClass}>
+          <FaBoxOpen /> {!sidebarCollapsed && 'Products'}
+        </NavLink>
+        <NavLink to="/customers" className={linkClass}>
+          <FaUsers /> {!sidebarCollapsed && 'Customers'}
+        </NavLink>
+        <NavLink to="/settings" className={linkClass}>
+          <FaCog /> {!sidebarCollapsed && 'Settings'}
+        </NavLink>
       </nav>
     </aside>
   );

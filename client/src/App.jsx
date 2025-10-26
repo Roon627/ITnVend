@@ -9,8 +9,8 @@ import Settings from './pages/Settings';
 import Login from './pages/Login';
 import Header from './components/Header';
 import { AuthProvider, useAuth } from './components/AuthContext';
+import { UIProvider, useUI } from './components/UIContext';
 import { Navigate } from 'react-router-dom';
-
 function App() {
   function AdminOnly({ children }) {
     const { user } = useAuth();
@@ -19,27 +19,36 @@ function App() {
     return children;
   }
 
+  function Layout() {
+    const { sidebarCollapsed } = useUI();
+    return (
+      <div className="flex">
+        <Sidebar />
+        <div className={`flex-1 ${sidebarCollapsed ? 'ml-20' : 'ml-64'} min-h-screen flex flex-col`}>
+          <Header />
+          <main className="flex-1">
+            <Routes>
+              <Route path="/" element={<POS />} />
+              <Route path="/products" element={<Products />} />
+              <Route path="/invoices" element={<Invoices />} />
+              <Route path="/customers" element={<Customers />} />
+              <Route path="/customers/:id" element={<CustomerDetail />} />
+              <Route path="/settings" element={<AdminOnly><Settings /></AdminOnly>} />
+              <Route path="/login" element={<Login />} />
+            </Routes>
+          </main>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <AuthProvider>
-      <BrowserRouter>
-        <div className="flex">
-          <Sidebar />
-          <div className="flex-1 ml-64 min-h-screen flex flex-col">
-            <Header />
-            <main className="flex-1">
-              <Routes>
-                <Route path="/" element={<POS />} />
-                <Route path="/products" element={<Products />} />
-                <Route path="/invoices" element={<Invoices />} />
-                <Route path="/customers" element={<Customers />} />
-                <Route path="/customers/:id" element={<CustomerDetail />} />
-                <Route path="/settings" element={<AdminOnly><Settings /></AdminOnly>} />
-                <Route path="/login" element={<Login />} />
-              </Routes>
-            </main>
-          </div>
-        </div>
-      </BrowserRouter>
+      <UIProvider>
+        <BrowserRouter>
+          <Layout />
+        </BrowserRouter>
+      </UIProvider>
     </AuthProvider>
   );
 }

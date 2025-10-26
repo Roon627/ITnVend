@@ -1,9 +1,12 @@
 import { useEffect, useState } from 'react';
 import api from '../lib/api';
+import { useUI } from './UIContext';
+import { FaBars } from 'react-icons/fa';
 
 export default function Header() {
   const [outlet, setOutlet] = useState('ITnVend');
   const [online, setOnline] = useState(navigator.onLine);
+  const { toggleSidebar } = useUI();
 
   useEffect(() => {
     api.get('/settings').then((s) => {
@@ -24,6 +27,14 @@ export default function Header() {
     <header className="bg-white border-b">
       <div className="container mx-auto px-6 py-4 flex items-center justify-between">
         <div className="flex items-center gap-3">
+          <button
+            className="p-2 rounded-md hover:bg-gray-100"
+            onClick={() => toggleSidebar()}
+            aria-label="Toggle sidebar"
+            title="Toggle sidebar"
+          >
+            <FaBars />
+          </button>
           <div className="w-10 h-10 rounded-md bg-gradient-to-br from-teal-400 to-teal-600 flex items-center justify-center text-white font-bold">IT</div>
           <div>
             <h1 className="text-lg font-semibold">{outlet}</h1>
