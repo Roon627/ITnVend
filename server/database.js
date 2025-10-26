@@ -48,6 +48,25 @@ export async function setupDatabase() {
             current_outlet_id INTEGER DEFAULT 1
         );
 
+        -- email settings for sending notifications/quotes
+        CREATE TABLE IF NOT EXISTS settings_email (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            provider TEXT,
+            api_key TEXT,
+            email_from TEXT,
+            email_to TEXT
+        );
+
+        CREATE TABLE IF NOT EXISTS quotes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            company_name TEXT,
+            contact_name TEXT,
+            email TEXT,
+            phone TEXT,
+            details TEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+
         CREATE TABLE IF NOT EXISTS outlets (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT NOT NULL,

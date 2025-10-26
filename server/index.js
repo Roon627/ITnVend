@@ -235,7 +235,9 @@ app.get('/api/settings', async (req, res) => {
                 invoice_template: settings.invoice_template
             };
         }
-        res.json({ ...settings, outlet });
+        // also include email settings if present
+        const emailCfg = await db.get('SELECT provider, api_key, email_from, email_to FROM settings_email ORDER BY id DESC LIMIT 1');
+        res.json({ ...settings, outlet, email: emailCfg || null });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
@@ -243,13 +245,76 @@ app.get('/api/settings', async (req, res) => {
 
 app.put('/api/settings', authMiddleware, requireRole('admin'), async (req, res) => {
     try {
-        const { outlet_name, currency, gst_rate, store_address, invoice_template, current_outlet_id } = req.body;
+        const { outlet_name, currency, gst_rate, store_address, invoice_template, current_outlet_id, email_provider, email_api_key, email_from, email_to } = req.body;
         await db.run(
             `UPDATE settings SET outlet_name = ?, currency = ?, gst_rate = ?, store_address = ?, invoice_template = ?, current_outlet_id = COALESCE(?, current_outlet_id) WHERE id = 1`,
             [outlet_name, currency, gst_rate || 0.0, store_address || null, invoice_template || null, current_outlet_id || null]
         );
+        // update email config if provided (store as last row in settings_email)
+        if (email_provider || email_api_key || email_from || email_to) {
+            await db.run('INSERT INTO settings_email (provider, api_key, email_from, email_to) VALUES (?, ?, ?, ?)', [email_provider || null, email_api_key || null, email_from || null, email_to || null]);
+        }
         const settings = await db.get('SELECT * FROM settings WHERE id = 1');
-        res.json(settings);
+        const emailCfg = await db.get('SELECT provider, api_key, email_from, email_to FROM settings_email ORDER BY id DESC LIMIT 1');
+        res.json({ ...settings, email: emailCfg || null });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Quote endpoints (public submit, admin list)
+app.post('/api/quotes', async (req, res) => {
+    try {
+        const { company_name, contact_name, email: contact_email, phone, details } = req.body;
+        if (!contact_name || !contact_email) return res.status(400).json({ error: 'Missing contact name or email' });
+        const result = await db.run('INSERT INTO quotes (company_name, contact_name, email, phone, details) VALUES (?, ?, ?, ?, ?)', [company_name || null, contact_name, contact_email, phone || null, details || null]);
+        const quote = await db.get('SELECT * FROM quotes WHERE id = ?', [result.lastID]);
+
+        // attempt to send an email notification if configured (SendGrid)
+        const emailCfg = await db.get('SELECT provider, api_key, email_from, email_to FROM settings_email ORDER BY id DESC LIMIT 1');
+        if (emailCfg && emailCfg.provider === 'sendgrid' && emailCfg.api_key) {
+            try {
+                const sgApiKey = emailCfg.api_key;
+                const from = emailCfg.email_from || contact_email;
+                const to = emailCfg.email_to || emailCfg.email_from || contact_email;
+                const subject = `Quotation request from ${contact_name}${company_name ? ' @ ' + company_name : ''}`;
+                const bodyHtml = `<p>New quotation request received:</p>
+                    <ul>
+                      <li><strong>Company:</strong> ${company_name || '—'}</li>
+                      <li><strong>Contact:</strong> ${contact_name}</li>
+                      <li><strong>Email:</strong> ${contact_email}</li>
+                      <li><strong>Phone:</strong> ${phone || '—'}</li>
+                      <li><strong>Details:</strong> ${details || '—'}</li>
+                    </ul>`;
+
+                // send via SendGrid REST API
+                await fetch('https://api.sendgrid.com/v3/mail/send', {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${sgApiKey}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        personalizations: [{ to: [{ email: to }], subject }],
+                        from: { email: from },
+                        content: [{ type: 'text/html', value: bodyHtml }]
+                    })
+                });
+            } catch (err) {
+                console.warn('Failed to send quote notification email:', err.message || err);
+            }
+        }
+
+        res.status(201).json(quote);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.get('/api/quotes', authMiddleware, requireRole('admin'), async (req, res) => {
+    try {
+        const quotes = await db.all('SELECT * FROM quotes ORDER BY created_at DESC');
+        res.json(quotes);
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
