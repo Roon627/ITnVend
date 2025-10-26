@@ -10,7 +10,10 @@ export default function Home() {
     api.get('/products').then((p) => {
       if (!mounted) return;
       setProducts(p || []);
-    }).catch(() => {}).finally(() => mounted && setLoading(false));
+    }).catch(() => {
+      if (!mounted) return;
+      setProducts([]);
+    }).finally(() => mounted && setLoading(false));
     return () => { mounted = false; };
   }, []);
 
@@ -34,7 +37,7 @@ export default function Home() {
                 <div key={p.id} className="bg-white rounded-lg p-4 shadow">
                   <div className="flex items-center justify-between">
                     <h4 className="font-semibold">{p.name}</h4>
-                    <div className="text-lg font-bold">{p.price}</div>
+                    <div className="text-lg font-bold">${(p.price || 0).toFixed(2)}</div>
                   </div>
                   <p className="text-sm text-gray-500 mt-2">Stock: {p.stock ?? '—'}</p>
                   <div className="mt-4 flex items-center gap-2">
