@@ -1,5 +1,6 @@
 import { NavLink } from 'react-router-dom';
-import { FaFileInvoice, FaBoxOpen, FaUsers, FaCog, FaCashRegister } from 'react-icons/fa';
+import { FaFileInvoice, FaBoxOpen, FaUsers, FaCog, FaCashRegister, FaUserCog } from 'react-icons/fa';
+import { useAuth } from './AuthContext';
 import { useUI } from './UIContext';
 
 export default function Sidebar() {
@@ -26,6 +27,18 @@ export default function Sidebar() {
         <NavLink to="/customers" className={linkClass}>
           <FaUsers /> {!sidebarCollapsed && 'Customers'}
         </NavLink>
+        {/** only show Staff link to admin users */}
+        {(() => {
+          const { user } = useAuth();
+          if (user && user.role === 'admin') {
+            return (
+              <NavLink to="/staff" className={linkClass}>
+                <FaUserCog /> {!sidebarCollapsed && 'Staff'}
+              </NavLink>
+            );
+          }
+          return null;
+        })()}
         <NavLink to="/settings" className={linkClass}>
           <FaCog /> {!sidebarCollapsed && 'Settings'}
         </NavLink>

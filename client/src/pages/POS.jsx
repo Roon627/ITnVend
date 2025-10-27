@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import api from '../lib/api';
 import { useToast } from '../components/ToastContext';
+import { useSettings } from '../components/SettingsContext';
 
 export default function POS() {
   const [products, setProducts] = useState([]);
@@ -8,7 +9,7 @@ export default function POS() {
   const [cart, setCart] = useState([]);
   const [selectedCustomerId, setSelectedCustomerId] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
-  const [settings, setSettings] = useState(null);
+  const { settings: globalSettings, formatCurrency } = useSettings();
 
   const toast = useToast();
 
@@ -18,7 +19,6 @@ export default function POS() {
       setCustomers(data);
       if (data.length > 0) setSelectedCustomerId(data[0].id);
     }).catch(() => toast.push('Failed to load customers', 'error'));
-    api.get('/settings').then((s) => setSettings(s)).catch(() => {});
   }, []);
 
   const addToCart = (product) => {
@@ -39,25 +39,26 @@ export default function POS() {
     });
   };
 
-  const handleCheckout = async () => {
+  const handleCheckout = async (type = 'invoice') => {
     if (!selectedCustomerId || cart.length === 0) {
       alert('Please select a customer and add items to the cart.');
       return;
     }
     try {
-      const newInvoice = await api.post('/invoices', { customerId: selectedCustomerId, items: cart });
-      window.open(`/api/invoices/${newInvoice.id}/pdf`);
+      const payload = { customerId: Number(selectedCustomerId), items: cart, type };
+      const created = await api.post('/invoices', payload);
+      window.open(`/api/invoices/${created.id}/pdf`);
       api.get('/products').then(setProducts);
       setCart([]);
-      toast.push('Invoice created', 'info');
+      toast.push(type === 'invoice' ? 'Invoice created' : 'Quote generated', 'info');
     } catch (err) {
-      toast.push('Failed to create invoice', 'error');
+      toast.push(type === 'invoice' ? 'Failed to create invoice' : 'Failed to create quote', 'error');
     }
   };
 
   const filtered = products.filter((p) => p.name.toLowerCase().includes(searchTerm.toLowerCase()));
   const cartTotal = cart.reduce((t, i) => t + i.price * i.quantity, 0);
-  const gstRate = settings?.outlet?.gst_rate ?? 0;
+  const gstRate = globalSettings?.outlet?.gst_rate ?? globalSettings?.gst_rate ?? 0;
   const taxAmount = +(cartTotal * (gstRate / 100));
   const totalWithTax = +(cartTotal + taxAmount);
 
@@ -82,7 +83,7 @@ export default function POS() {
                   <div key={p.id} className={`border rounded-lg p-4 flex flex-col items-center text-center transition-all duration-300 ${p.stock > 0 ? 'hover:shadow-xl hover:scale-105' : 'opacity-50'}`}>
                     <div className="flex-grow">
                       <h3 className="font-bold text-lg text-gray-800">{p.name}</h3>
-                      <p className="text-gray-600 font-semibold">${p.price.toFixed(2)}</p>
+                      <p className="text-gray-600 font-semibold">{formatCurrency(p.price)}</p>
                       <p className={`text-sm font-medium ${p.stock > 10 ? 'text-green-600' : 'text-red-600'}`}>{p.stock > 0 ? `${p.stock} in stock` : 'Out of stock'}</p>
                     </div>
                     <button onClick={() => addToCart(p)} disabled={p.stock <= 0} className="mt-4 w-full bg-blue-500 text-white px-4 py-2 rounded-md hover:bg-blue-600 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed">Add</button>
@@ -107,10 +108,10 @@ export default function POS() {
                   <div key={item.id} className="flex justify-between items-center bg-gray-50 p-2 rounded-lg">
                     <div>
                       <p className="font-semibold">{item.name}</p>
-                      <p className="text-sm text-gray-600">${item.price.toFixed(2)} x {item.quantity}</p>
+                      <p className="text-sm text-gray-600">{formatCurrency(item.price)} x {item.quantity}</p>
                     </div>
                     <div className="flex items-center gap-2">
-                      <p className="font-bold text-lg">${(item.price * item.quantity).toFixed(2)}</p>
+                      <p className="font-bold text-lg">{formatCurrency(item.price * item.quantity)}</p>
                       <button onClick={() => removeFromCart(item.id)} className="text-red-500 hover:text-red-700 font-bold text-xl">&times;</button>
                     </div>
                   </div>
@@ -121,18 +122,31 @@ export default function POS() {
                   <div className="space-y-2 mb-4">
                     <div className="flex justify-between font-medium text-base">
                       <span>Subtotal</span>
-                      <span>${cartTotal.toFixed(2)}</span>
+                      <span>{formatCurrency(cartTotal)}</span>
                     </div>
                     <div className="flex justify-between text-sm text-gray-600">
                       <span>Tax ({gstRate}%)</span>
-                      <span>${taxAmount.toFixed(2)}</span>
+                      <span>{formatCurrency(taxAmount)}</span>
                     </div>
                     <div className="flex justify-between font-bold text-xl">
                       <span>Total</span>
-                      <span>${totalWithTax.toFixed(2)}</span>
+                      <span>{formatCurrency(totalWithTax)}</span>
                     </div>
                   </div>
-                  <button onClick={handleCheckout} className="w-full bg-green-500 text-white px-4 py-3 rounded-lg font-bold text-lg hover:bg-green-600 transition-colors disabled:bg-gray-400">Checkout & Invoice</button>
+                  <div className="flex flex-col gap-3">
+                    <button
+                      onClick={() => handleCheckout('invoice')}
+                      className="w-full bg-green-500 text-white px-4 py-3 rounded-lg font-bold text-lg hover:bg-green-600 transition-colors disabled:bg-gray-400"
+                    >
+                      Create Invoice
+                    </button>
+                    <button
+                      onClick={() => handleCheckout('quote')}
+                      className="w-full bg-blue-500 text-white px-4 py-3 rounded-lg font-semibold hover:bg-blue-600 transition-colors disabled:bg-gray-400"
+                    >
+                      Generate Quote
+                    </button>
+                  </div>
                 </div>
               )}
             </div>
