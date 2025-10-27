@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { api, setAuthToken } from '../lib/api';
 import { useAuth } from '../components/AuthContext';
+import { useToast } from '../components/ToastContext';
 
 export default function Staff() {
   const [staff, setStaff] = useState([]);
@@ -13,6 +14,8 @@ export default function Staff() {
   const [activityOpen, setActivityOpen] = useState(false);
   const [activityEntries, setActivityEntries] = useState([]);
   const [activityLoading, setActivityLoading] = useState(false);
+  const toast = useToast();
+  const [roleErrors, setRoleErrors] = useState({});
 
   async function load() {
     setLoading(true);
@@ -64,11 +67,18 @@ export default function Staff() {
       // optimistic update locally
       const updatedStaff = staff.map(x => x.id === staffId ? { ...x, roles: roles.filter(r => newRoles.includes(r.id)) } : x);
       setStaff(updatedStaff);
+      // reload staff list from server to ensure consistency
+      await load();
       // reload activity for this staff if open
       if (activityOpen) await loadActivity(staffId);
     } catch (err) {
       console.error(err);
-      setError(err.message || String(err));
+      const msg = err?.message || String(err);
+      setError(msg);
+      toast?.push('Failed to update roles: ' + msg, 'error');
+      // show inline banner for this staff row
+      setRoleErrors(prev => ({ ...prev, [staffId]: msg }));
+      setTimeout(() => setRoleErrors(prev => { const c = { ...prev }; delete c[staffId]; return c; }), 6000);
     }
   }
 
@@ -109,13 +119,13 @@ export default function Staff() {
       // set token for client and update auth context
       setAuthToken(res.token);
       // also update AuthContext if available
-      if (typeof window !== 'undefined' && window.__IRNVEND_SWITCH_USER__) {
-        window.__IRNVEND_SWITCH_USER__(res.token, res.role, s.username);
+      if (typeof window !== 'undefined' && window.__ITNVEND_SWITCH_USER__) {
+        window.__ITNVEND_SWITCH_USER__(res.token, res.role, s.username);
       }
       // fallback localStorage updates
-      localStorage.setItem('irnvend_role', res.role);
-  localStorage.setItem('irnvend_token', res.token);
-  localStorage.setItem('irnvend_username', s.username);
+      localStorage.setItem('ITnvend_role', res.role);
+  localStorage.setItem('ITnvend_token', res.token);
+  localStorage.setItem('ITnvend_username', s.username);
       // quick reload to reflect new permissions
       location.reload();
     } catch (err) {
@@ -192,6 +202,13 @@ export default function Staff() {
                   <button className="text-sm px-3 py-1 bg-red-100 rounded" onClick={() => remove(s.id)}>Delete</button>
                 </td>
               </tr>
+            ))}
+            {!loading && Object.keys(roleErrors).length > 0 && staff.map(s => (
+              roleErrors[s.id] ? (
+                <tr key={`err-${s.id}`}>
+                  <td colSpan="6" className="px-4 py-2 bg-yellow-50 text-sm text-yellow-800">Role update failed: {roleErrors[s.id]}</td>
+                </tr>
+              ) : null
             ))}
           </tbody>
         </table>

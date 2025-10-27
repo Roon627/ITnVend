@@ -294,14 +294,20 @@ export default function Invoices() {
     }
   };
 
-  const bulkDownloadPdfs = () => {
+  const bulkDownloadPdfs = async () => {
     if (selectedIds.size === 0) {
       push('No invoices selected', 'error');
       return;
     }
     if (!confirm(`Open PDF for ${selectedIds.size} documents in new tabs?`)) return;
+    
     for (const id of Array.from(selectedIds)) {
-      window.open(`http://localhost:4000/api/invoices/${id}/pdf`, '_blank');
+      try {
+        const linkResp = await api.post(`/invoices/${id}/pdf-link`);
+        window.open(linkResp.url, '_blank');
+      } catch (err) {
+        push(`Failed to open PDF for invoice ${id}`, 'error');
+      }
     }
   };
 
@@ -582,14 +588,19 @@ export default function Invoices() {
                   <td className="p-4 whitespace-nowrap text-sm text-gray-500">{invoice.outlet_name || '—'}</td>
                   <td className="p-4 whitespace-nowrap text-right">
                     <div className="flex items-center justify-end gap-3">
-                      <a
-                        href={`http://localhost:4000/api/invoices/${invoice.id}/pdf`}
-                        target="_blank"
-                        rel="noreferrer"
+                      <button
+                        onClick={async () => {
+                          try {
+                            const linkResp = await api.post(`/invoices/${invoice.id}/pdf-link`);
+                            window.open(linkResp.url, '_blank');
+                          } catch (err) {
+                            push('Failed to open PDF', 'error');
+                          }
+                        }}
                         className="text-blue-600 hover:underline"
                       >
                         PDF
-                      </a>
+                      </button>
                       {invoice.type === 'quote' && (
                         <button
                           onClick={() => handleConvertQuote(invoice)}

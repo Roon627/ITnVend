@@ -99,7 +99,19 @@ export default function CustomerDetail() {
                 </div>
                 <div className="text-right">
                   <p className="font-semibold">{formatCurrency(invoice.total)}</p>
-                  <Link to={`/invoices/${invoice.id}/pdf`} target="_blank" className="text-blue-500 hover:underline text-sm">View PDF</Link>
+                  <button onClick={async () => {
+                    try {
+                      const resp = await api.post(`/invoices/${invoice.id}/pdf-link`);
+                      if (resp && resp.url) {
+                        window.open(resp.url, '_blank');
+                      } else {
+                        toast('Failed to create PDF link', 'error');
+                      }
+                    } catch (err) {
+                      console.error(err);
+                      toast('Failed to open PDF', 'error');
+                    }
+                  }} className="text-blue-500 hover:underline text-sm">View PDF</button>
                 </div>
               </li>
             ))

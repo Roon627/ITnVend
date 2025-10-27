@@ -1,4 +1,4 @@
-# IRnVend MVP (Node + Express backend, React Vite frontend)
+# ITnVend MVP (Node + Express backend, React Vite frontend)
 
 This repository contains a minimal, runnable MVP for a small-business POS with quotations and invoices.
 

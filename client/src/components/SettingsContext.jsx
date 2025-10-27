@@ -36,7 +36,7 @@ export function SettingsProvider({ children }) {
       setSettings(response);
     } catch (error) {
       console.error("Failed to fetch settings:", error);
-      // Keep default settings on error
+      // Keep default settings on error - don't retry automatically
     } finally {
       setLoading(false);
     }

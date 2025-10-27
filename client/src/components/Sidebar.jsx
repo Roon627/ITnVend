@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router-dom';
-import { FaFileInvoice, FaBoxOpen, FaUsers, FaCog, FaCashRegister, FaUserCog } from 'react-icons/fa';
+import { FaFileInvoice, FaBoxOpen, FaUsers, FaCog, FaCashRegister, FaUserCog, FaCalculator, FaChartBar } from 'react-icons/fa';
 import { useAuth } from './AuthContext';
 import { useUI } from './UIContext';
 
@@ -27,6 +27,30 @@ export default function Sidebar() {
         <NavLink to="/customers" className={linkClass}>
           <FaUsers /> {!sidebarCollapsed && 'Customers'}
         </NavLink>
+        {/** show Accounting link to accounts, manager, and admin users */}
+        {(() => {
+          const { user } = useAuth();
+          if (user && ['accounts', 'manager', 'admin'].includes(user.role)) {
+            return (
+              <NavLink to="/accounting" className={linkClass}>
+                <FaCalculator /> {!sidebarCollapsed && 'Accounting'}
+              </NavLink>
+            );
+          }
+          return null;
+        })()}
+        {/** show Reports link to manager and admin users */}
+        {(() => {
+          const { user } = useAuth();
+          if (user && ['manager', 'admin'].includes(user.role)) {
+            return (
+              <NavLink to="/reports" className={linkClass}>
+                <FaChartBar /> {!sidebarCollapsed && 'Reports'}
+              </NavLink>
+            );
+          }
+          return null;
+        })()}
         {/** only show Staff link to admin users */}
         {(() => {
           const { user } = useAuth();

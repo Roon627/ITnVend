@@ -1,5 +1,6 @@
 import express from 'express';
 import cors from 'cors';
+import os from 'os';
 import { setupDatabase } from './database.js';
 import { generateInvoicePdf } from './invoice-service.js';
 import nodemailer from 'nodemailer';
@@ -10,7 +11,21 @@ import crypto from 'crypto';
 const app = express();
 const port = 4000;
 
-app.use(cors());
+app.use(cors({ origin: true, credentials: true }));
+
+// Cookie helpers: use secure, SameSite=None in production so cookies work cross-site over HTTPS
+const IN_PROD = process.env.NODE_ENV === 'production';
+function setRefreshCookie(res, token) {
+    const opts = { httpOnly: true, path: '/', maxAge: 60 * 24 * 60 * 60 * 1000, sameSite: IN_PROD ? 'none' : 'lax', secure: IN_PROD };
+    res.cookie('ITnvend_refresh', token, opts);
+    // keep legacy name for a short transition window
+    res.cookie('irnvend_refresh', token, opts);
+}
+function clearRefreshCookie(res) {
+    const opts = { httpOnly: true, path: '/', expires: new Date(0), sameSite: IN_PROD ? 'none' : 'lax', secure: IN_PROD };
+    res.cookie('ITnvend_refresh', '', opts);
+    res.cookie('irnvend_refresh', '', opts);
+}
 app.use(express.json());
 // Simple request logging for diagnostics
 app.use((req, res, next) => {
@@ -19,7 +34,7 @@ app.use((req, res, next) => {
 });
 
 app.get('/', (req, res) => {
-    res.send('IRnVend API is running...');
+    res.send('ITnVend API is running...');
 });
 
 // Health endpoint
@@ -111,7 +126,7 @@ function authMiddleware(req, res, next) {
 function requireRole(required) {
     // supports a minimum role (string) or explicit array of allowed roles
     const rank = (r) => {
-        const map = { cashier: 1, manager: 2, admin: 3 };
+        const map = { cashier: 1, accounts: 2, manager: 3, admin: 4 };
         return map[r] || 0;
     };
     return (req, res, next) => {
@@ -241,16 +256,23 @@ app.post('/api/login', async (req, res) => {
             const roleName = (roles && roles[0] && roles[0].name) ? roles[0].name : 'staff';
             // create JWT token (long lived)
             const token = jwt.sign({ username: staff.username, role: roleName, staffId: staff.id }, JWT_SECRET, { expiresIn: '30d' });
+            // create a refresh token and persist its hash
+            const refreshToken = crypto.randomBytes(32).toString('hex');
+            const rhash = crypto.createHash('sha256').update(refreshToken).digest('hex');
+            const expiresAt = new Date(Date.now() + 60 * 24 * 60 * 60 * 1000).toISOString(); // 60 days
+            try { await db.run('INSERT INTO refresh_tokens (staff_id, token_hash, expires_at) VALUES (?, ?, ?)', [staff.id, rhash, expiresAt]); } catch (e) { /* ignore */ }
             // keep session map for compatibility
             sessions.set(token, { username: staff.username, role: roleName, staffId: staff.id });
             await logActivity('staff', staff.id, 'login', staff.username, 'staff login');
+            // set HttpOnly refresh token cookie (helper sets both new + legacy names)
+            setRefreshCookie(res, refreshToken);
             return res.json({ token, role: roleName });
         }
 
         // fallback to demo in-memory users for compatibility
         const user = users.find((u) => u.username === username && u.password === password);
         if (!user) return res.status(401).json({ error: 'Invalid credentials' });
-    // create JWT for demo users as well
+    // create JWT for demo users as well (no refresh token persisted)
     const demoToken = jwt.sign({ username: user.username, role: user.role }, JWT_SECRET, { expiresIn: '30d' });
     sessions.set(demoToken, { username: user.username, role: user.role });
     res.json({ token: demoToken, role: user.role });
@@ -456,15 +478,36 @@ app.get('/api/settings', async (req, res) => {
     }
 });
 
-app.put('/api/settings', authMiddleware, requireRole('admin'), async (req, res) => {
+// Allow managers to edit a subset of settings. Admins can edit everything.
+app.put('/api/settings', authMiddleware, requireRole(['admin', 'manager']), async (req, res) => {
     try {
         const { outlet_name, currency, gst_rate, store_address, invoice_template, current_outlet_id,
             email_provider, email_api_key, email_from, email_to,
-            smtp_host, smtp_port, smtp_user, smtp_pass } = req.body;
+            smtp_host, smtp_port, smtp_user, smtp_pass,
+            email_template_invoice, email_template_quote, email_template_quote_request } = req.body;
+
+        // Define fields managers are allowed to update
+        const managerAllowed = ['currency', 'gst_rate', 'store_address', 'invoice_template', 'current_outlet_id', 'outlet_name'];
+
+        // If caller is manager, ensure they only change allowed fields
+        if (req.user && req.user.role === 'manager') {
+            const provided = Object.keys(req.body || {});
+            const disallowed = provided.filter(p => !managerAllowed.includes(p));
+            if (disallowed.length > 0) {
+                return res.status(403).json({ error: 'Managers may not modify the following settings: ' + disallowed.join(', ') });
+            }
+        }
+
         await db.run(
-            `UPDATE settings SET outlet_name = ?, currency = ?, gst_rate = ?, store_address = ?, invoice_template = ?, current_outlet_id = COALESCE(?, current_outlet_id) WHERE id = 1`,
-            [outlet_name, currency, gst_rate || 0.0, store_address || null, invoice_template || null, current_outlet_id || null]
+            `UPDATE settings SET outlet_name = COALESCE(?, outlet_name), currency = COALESCE(?, currency), gst_rate = COALESCE(?, gst_rate), store_address = COALESCE(?, store_address), invoice_template = COALESCE(?, invoice_template), email_template_invoice = COALESCE(?, email_template_invoice), email_template_quote = COALESCE(?, email_template_quote), email_template_quote_request = COALESCE(?, email_template_quote_request), current_outlet_id = COALESCE(?, current_outlet_id) WHERE id = 1`,
+            [outlet_name || null, currency || null, gst_rate || null, store_address || null, invoice_template || null, email_template_invoice || null, email_template_quote || null, email_template_quote_request || null, current_outlet_id || null]
         );
+
+        // Only admins may update email configuration and email templates
+        if (req.user && req.user.role !== 'admin' && (email_provider || email_api_key || email_from || email_to || smtp_host || smtp_port || smtp_user || smtp_pass || email_template_invoice || email_template_quote || email_template_quote_request)) {
+            return res.status(403).json({ error: 'Only administrators may modify email/SMTP settings' });
+        }
+
         // update email config if provided (store as last row in settings_email)
         if (email_provider || email_api_key || email_from || email_to || smtp_host || smtp_port || smtp_user || smtp_pass) {
             await db.run('INSERT INTO settings_email (provider, api_key, email_from, email_to, smtp_host, smtp_port, smtp_user, smtp_pass) VALUES (?, ?, ?, ?, ?, ?, ?, ?)', [
@@ -483,6 +526,26 @@ app.put('/api/settings', authMiddleware, requireRole('admin'), async (req, res) 
         res.json({ ...settings, email: emailCfg || null });
     } catch (err) {
         res.status(500).json({ error: err.message });
+    }
+});
+
+// Test SMTP/sendgrid settings by sending a small test email. Admin only.
+app.post('/api/settings/test-smtp', authMiddleware, requireRole('admin'), async (req, res) => {
+    try {
+        const emailCfg = await db.get('SELECT * FROM settings_email ORDER BY id DESC LIMIT 1');
+        if (!emailCfg) return res.status(400).json({ error: 'No email configuration found' });
+        // send a test email to configured recipient or to the provided one
+        const to = req.body.to || emailCfg.email_to || emailCfg.email_from;
+        if (!to) return res.status(400).json({ error: 'No recipient configured to send test email to' });
+
+    const subject = 'ITnVend SMTP test message';
+    const html = `<p>This is a test message from ITnVend to verify email settings.</p><p>If you receive this, SMTP is configured correctly.</p>`;
+
+        await sendNotificationEmail(subject, html, to);
+        res.json({ success: true, to });
+    } catch (err) {
+        console.warn('SMTP test failed', err?.message || err);
+        res.status(500).json({ error: err.message || String(err) });
     }
 });
 
@@ -753,6 +816,35 @@ app.delete('/api/invoices/:id', authMiddleware, requireRole('admin'), async (req
 
 app.get('/api/invoices/:id/pdf', async (req, res) => {
     try {
+        // Allow access either via a short-lived signed pdf_token or via Authorization Bearer token
+        const pdfToken = req.query.pdf_token;
+        let authorized = false;
+        if (pdfToken) {
+            try {
+                const payload = jwt.verify(pdfToken, JWT_SECRET);
+                if (String(payload.invoiceId) === String(req.params.id)) authorized = true;
+            } catch (err) {
+                // invalid pdf token
+            }
+        }
+        if (!authorized) {
+            // fallback to Authorization header (regular JWT access)
+            const auth = req.headers.authorization;
+            if (auth && auth.startsWith('Bearer ')) {
+                try {
+                    const token = auth.replace('Bearer ', '');
+                    const payload = jwt.verify(token, JWT_SECRET);
+                    // basic validation: allow if token verifies
+                    authorized = true;
+                } catch (err) {
+                    // invalid bearer
+                }
+            }
+        }
+        if (!authorized) {
+            return res.status(401).send('Unauthorized: missing valid pdf token or Authorization header');
+        }
+
         const invoice = await db.get('SELECT * FROM invoices WHERE id = ?', [req.params.id]);
         if (!invoice) {
             return res.status(404).send('Invoice not found');
@@ -796,6 +888,19 @@ app.get('/api/invoices/:id/pdf', async (req, res) => {
 
     } catch (error) {
         res.status(500).json({ error: error.message });
+    }
+});
+
+// Create a short-lived signed link for viewing/downloading invoice PDFs in a new tab
+app.post('/api/invoices/:id/pdf-link', authMiddleware, async (req, res) => {
+    try {
+        const id = req.params.id;
+        // issue a short-lived token (5 minutes)
+        const pdfToken = jwt.sign({ invoiceId: id }, JWT_SECRET, { expiresIn: '5m' });
+        const url = `${req.protocol}://${req.get('host')}/api/invoices/${id}/pdf?pdf_token=${encodeURIComponent(pdfToken)}`;
+        res.json({ url });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
     }
 });
 
@@ -1011,6 +1116,71 @@ app.post('/api/staff/:id/roles', authMiddleware, requireRole('admin'), async (re
     }
 });
 
+// Refresh token exchange - rotate refresh token for a new JWT
+app.post('/api/token/refresh', async (req, res) => {
+    try {
+        // read refresh token from HttpOnly cookie OR accept a fallback refresh token in request body (useful for dev)
+        const cookieHeader = req.headers.cookie || '';
+        const match = cookieHeader.split(';').map(c => c.trim()).find(c => c.startsWith('ITnvend_refresh=') || c.startsWith('irnvend_refresh='));
+        let refreshToken = null;
+        if (match) {
+            refreshToken = decodeURIComponent(match.split('=')[1] || '');
+        }
+        // fallback: allow refresh token in request body (note: less secure; intended for local/dev compatibility)
+        if (!refreshToken && req.body && req.body.refreshToken) {
+            refreshToken = req.body.refreshToken;
+            console.warn('Using refresh token provided in request body for refresh (fallback)');
+        }
+        if (!refreshToken) return res.status(400).json({ error: 'Missing refresh token (cookie or request body)' });
+        const hash = crypto.createHash('sha256').update(refreshToken).digest('hex');
+        const row = await db.get('SELECT * FROM refresh_tokens WHERE token_hash = ?', [hash]);
+        if (!row) return res.status(401).json({ error: 'Invalid refresh token' });
+        if (new Date(row.expires_at) < new Date()) {
+            // expired - remove
+            try { await db.run('DELETE FROM refresh_tokens WHERE id = ?', [row.id]); } catch (e) {}
+            // clear cookie (helper clears both names)
+            clearRefreshCookie(res);
+            return res.status(401).json({ error: 'Refresh token expired' });
+        }
+        const staff = await db.get('SELECT * FROM staff WHERE id = ?', [row.staff_id]);
+        if (!staff) return res.status(401).json({ error: 'Staff not found' });
+        // determine staff role
+        const roles = await db.all('SELECT r.name FROM roles r JOIN staff_roles sr ON sr.role_id = r.id WHERE sr.staff_id = ?', [staff.id]);
+        const roleName = (roles && roles[0] && roles[0].name) ? roles[0].name : 'staff';
+        // issue new JWT
+        const token = jwt.sign({ username: staff.username, role: roleName, staffId: staff.id }, JWT_SECRET, { expiresIn: '30d' });
+        // rotate refresh token
+        const newRefresh = crypto.randomBytes(32).toString('hex');
+        const newHash = crypto.createHash('sha256').update(newRefresh).digest('hex');
+        const expiresAt = new Date(Date.now() + 60 * 24 * 60 * 60 * 1000).toISOString(); // 60 days
+        await db.run('UPDATE refresh_tokens SET token_hash = ?, expires_at = ? WHERE id = ?', [newHash, expiresAt, row.id]);
+        // update session map for compatibility
+        sessions.set(token, { username: staff.username, role: roleName, staffId: staff.id });
+        // set rotated refresh token cookie
+    // set rotated refresh token cookie (helper sets both names with appropriate options)
+    setRefreshCookie(res, newRefresh);
+        res.json({ token, role: roleName });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Logout: clear refresh tokens for current authenticated staff and clear cookie
+app.post('/api/token/logout', authMiddleware, async (req, res) => {
+    try {
+        const staffId = req.user?.staffId;
+        if (staffId) {
+            try { await db.run('DELETE FROM refresh_tokens WHERE staff_id = ?', [staffId]); } catch (e) { }
+        }
+        // clear cookie
+    // clear both cookie names for safety
+    clearRefreshCookie(res);
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
 // Admin: switch/impersonate staff - returns a token for the specified staff
 app.post('/api/staff/:id/switch', authMiddleware, requireRole('admin'), async (req, res) => {
     const { id } = req.params;
@@ -1020,8 +1190,15 @@ app.post('/api/staff/:id/switch', authMiddleware, requireRole('admin'), async (r
         const roles = await db.all('SELECT r.name FROM roles r JOIN staff_roles sr ON sr.role_id = r.id WHERE sr.staff_id = ?', [id]);
     const roleName = (roles && roles[0] && roles[0].name) ? roles[0].name : 'staff';
     const token = jwt.sign({ username: staff.username, role: roleName, staffId: staff.id }, JWT_SECRET, { expiresIn: '30d' });
+    // also create a refresh token for the impersonated session and set cookie
+    const refreshToken = crypto.randomBytes(32).toString('hex');
+    const rhash = crypto.createHash('sha256').update(refreshToken).digest('hex');
+    const expiresAt = new Date(Date.now() + 60 * 24 * 60 * 60 * 1000).toISOString(); // 60 days
+    try { await db.run('INSERT INTO refresh_tokens (staff_id, token_hash, expires_at) VALUES (?, ?, ?)', [staff.id, rhash, expiresAt]); } catch (e) { /* ignore */ }
     sessions.set(token, { username: staff.username, role: roleName, staffId: staff.id });
         await logActivity('staff', id, 'impersonated', req.user?.username, `impersonated ${staff.username}`);
+    // set refresh cookie(s) using helper
+    setRefreshCookie(res, refreshToken);
         res.json({ token, role: roleName });
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -1038,6 +1215,681 @@ app.get('/api/staff/:id/activity', authMiddleware, requireRole('admin'), async (
         res.status(500).json({ error: err.message });
     }
 });
+
+// ==================== ACCOUNTING ENDPOINTS ====================
+
+// Chart of Accounts endpoints
+app.get('/api/accounts/chart', authMiddleware, requireRole('accounts'), async (req, res) => {
+    try {
+        const accounts = await db.all(`
+            SELECT id, account_number, name, type, category, description, is_active, parent_account_id,
+                   (SELECT name FROM chart_of_accounts WHERE id = parent_account_id) as parent_name
+            FROM chart_of_accounts
+            ORDER BY account_number
+        `);
+        res.json(accounts);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.post('/api/accounts/chart', authMiddleware, requireRole('accounts'), async (req, res) => {
+    const { account_number, name, type, category, description, parent_account_id } = req.body;
+    try {
+        const result = await db.run(`
+            INSERT INTO chart_of_accounts (account_number, name, type, category, description, parent_account_id, is_active)
+            VALUES (?, ?, ?, ?, ?, ?, 1)
+        `, [account_number, name, type, category, description, parent_account_id]);
+        
+        await logActivity('chart_of_accounts', result.lastID, 'created', req.user?.username, `Created account: ${name}`);
+        res.json({ id: result.lastID, message: 'Account created successfully' });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.put('/api/accounts/chart/:id', authMiddleware, requireRole('accounts'), async (req, res) => {
+    const { id } = req.params;
+    const { account_number, name, type, category, description, parent_account_id, is_active } = req.body;
+    try {
+        await db.run(`
+            UPDATE chart_of_accounts 
+            SET account_number = ?, name = ?, type = ?, category = ?, description = ?, parent_account_id = ?, is_active = ?
+            WHERE id = ?
+        `, [account_number, name, type, category, description, parent_account_id, is_active, id]);
+        
+        await logActivity('chart_of_accounts', id, 'updated', req.user?.username, `Updated account: ${name}`);
+        res.json({ message: 'Account updated successfully' });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.delete('/api/accounts/chart/:id', authMiddleware, requireRole('accounts'), async (req, res) => {
+    const { id } = req.params;
+    try {
+        // Check if account has transactions
+        const hasTransactions = await db.get('SELECT COUNT(*) as count FROM general_ledger WHERE account_id = ?', [id]);
+        if (hasTransactions.count > 0) {
+            return res.status(400).json({ error: 'Cannot delete account with existing transactions' });
+        }
+        
+        await db.run('DELETE FROM chart_of_accounts WHERE id = ?', [id]);
+        await logActivity('chart_of_accounts', id, 'deleted', req.user?.username, 'Deleted account');
+        res.json({ message: 'Account deleted successfully' });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Journal Entries endpoints
+app.get('/api/accounts/journal-entries', authMiddleware, requireRole('accounts'), async (req, res) => {
+    const { page = 1, limit = 50, start_date, end_date } = req.query;
+    const offset = (page - 1) * limit;
+    
+    try {
+        let query = `
+            SELECT je.id, je.entry_date, je.description, je.reference, je.created_by, je.created_at,
+                   s.username as created_by_name,
+                   SUM(CASE WHEN jel.debit > 0 THEN jel.debit ELSE 0 END) as total_debit,
+                   SUM(CASE WHEN jel.credit > 0 THEN jel.credit ELSE 0 END) as total_credit
+            FROM journal_entries je
+            LEFT JOIN staff s ON je.created_by = s.id
+            LEFT JOIN journal_entry_lines jel ON je.id = jel.journal_entry_id
+        `;
+        let params = [];
+        
+        if (start_date && end_date) {
+            query += ' WHERE je.entry_date BETWEEN ? AND ?';
+            params.push(start_date, end_date);
+        }
+        
+        query += ' GROUP BY je.id ORDER BY je.entry_date DESC, je.created_at DESC LIMIT ? OFFSET ?';
+        params.push(limit, offset);
+        
+        const entries = await db.all(query, params);
+        
+        // Get line items for each entry
+        for (const entry of entries) {
+            entry.lines = await db.all(`
+                SELECT jel.*, coa.account_number, coa.name as account_name
+                FROM journal_entry_lines jel
+                JOIN chart_of_accounts coa ON jel.account_id = coa.id
+                WHERE jel.journal_entry_id = ?
+                ORDER BY jel.id
+            `, [entry.id]);
+        }
+        
+        res.json(entries);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.post('/api/accounts/journal-entries', authMiddleware, requireRole('accounts'), async (req, res) => {
+    const { entry_date, description, reference, lines } = req.body;
+    
+    try {
+        // Validate that debits equal credits
+        const totalDebit = lines.reduce((sum, line) => sum + (line.debit || 0), 0);
+        const totalCredit = lines.reduce((sum, line) => sum + (line.credit || 0), 0);
+        
+        if (Math.abs(totalDebit - totalCredit) > 0.01) {
+            return res.status(400).json({ error: 'Debits must equal credits' });
+        }
+        
+        // Start transaction
+        await db.run('BEGIN TRANSACTION');
+        
+        // Insert journal entry
+        const entryResult = await db.run(`
+            INSERT INTO journal_entries (entry_date, description, reference, created_by)
+            VALUES (?, ?, ?, ?)
+        `, [entry_date, description, reference, req.user?.staffId]);
+        
+        const entryId = entryResult.lastID;
+        
+        // Insert line items and general ledger entries
+        for (const line of lines) {
+            // Insert journal entry line
+            const lineResult = await db.run(`
+                INSERT INTO journal_entry_lines (journal_entry_id, account_id, debit, credit, description)
+                VALUES (?, ?, ?, ?, ?)
+            `, [entryId, line.account_id, line.debit || 0, line.credit || 0, line.description]);
+            
+            // Insert general ledger entry
+            await db.run(`
+                INSERT INTO general_ledger (account_id, transaction_date, transaction_type, reference, 
+                                          debit, credit, description, journal_entry_id)
+                VALUES (?, ?, 'journal', ?, ?, ?, ?, ?)
+            `, [line.account_id, entry_date, reference, line.debit || 0, line.credit || 0, 
+                line.description || description, entryId]);
+        }
+        
+        await db.run('COMMIT');
+        await logActivity('journal_entries', entryId, 'created', req.user?.username, `Created journal entry: ${description}`);
+        res.json({ id: entryId, message: 'Journal entry created successfully' });
+    } catch (err) {
+        await db.run('ROLLBACK');
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.put('/api/accounts/journal-entries/:id', authMiddleware, requireRole('accounts'), async (req, res) => {
+    const { id } = req.params;
+    const { entry_date, description, reference, lines } = req.body;
+    
+    try {
+        // Validate that debits equal credits
+        const totalDebit = lines.reduce((sum, line) => sum + (line.debit || 0), 0);
+        const totalCredit = lines.reduce((sum, line) => sum + (line.credit || 0), 0);
+        
+        if (Math.abs(totalDebit - totalCredit) > 0.01) {
+            return res.status(400).json({ error: 'Debits must equal credits' });
+        }
+        
+        // Start transaction
+        await db.run('BEGIN TRANSACTION');
+        
+        // Update journal entry
+        await db.run(`
+            UPDATE journal_entries 
+            SET entry_date = ?, description = ?, reference = ?
+            WHERE id = ?
+        `, [entry_date, description, reference, id]);
+        
+        // Delete existing lines and ledger entries
+        await db.run('DELETE FROM journal_entry_lines WHERE journal_entry_id = ?', [id]);
+        await db.run('DELETE FROM general_ledger WHERE journal_entry_id = ?', [id]);
+        
+        // Insert new line items and general ledger entries
+        for (const line of lines) {
+            // Insert journal entry line
+            await db.run(`
+                INSERT INTO journal_entry_lines (journal_entry_id, account_id, debit, credit, description)
+                VALUES (?, ?, ?, ?, ?)
+            `, [id, line.account_id, line.debit || 0, line.credit || 0, line.description]);
+            
+            // Insert general ledger entry
+            await db.run(`
+                INSERT INTO general_ledger (account_id, transaction_date, transaction_type, reference, 
+                                          debit, credit, description, journal_entry_id)
+                VALUES (?, ?, 'journal', ?, ?, ?, ?, ?)
+            `, [line.account_id, entry_date, reference, line.debit || 0, line.credit || 0, 
+                line.description || description, id]);
+        }
+        
+        await db.run('COMMIT');
+        await logActivity('journal_entries', id, 'updated', req.user?.username, `Updated journal entry: ${description}`);
+        res.json({ message: 'Journal entry updated successfully' });
+    } catch (err) {
+        await db.run('ROLLBACK');
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.delete('/api/accounts/journal-entries/:id', authMiddleware, requireRole('accounts'), async (req, res) => {
+    const { id } = req.params;
+    try {
+        await db.run('BEGIN TRANSACTION');
+        
+        // Delete journal entry lines and ledger entries
+        await db.run('DELETE FROM journal_entry_lines WHERE journal_entry_id = ?', [id]);
+        await db.run('DELETE FROM general_ledger WHERE journal_entry_id = ?', [id]);
+        await db.run('DELETE FROM journal_entries WHERE id = ?', [id]);
+        
+        await db.run('COMMIT');
+        await logActivity('journal_entries', id, 'deleted', req.user?.username, 'Deleted journal entry');
+        res.json({ message: 'Journal entry deleted successfully' });
+    } catch (err) {
+        await db.run('ROLLBACK');
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// General Ledger endpoints
+app.get('/api/accounts/general-ledger', authMiddleware, requireRole('accounts'), async (req, res) => {
+    const { account_id, start_date, end_date, page = 1, limit = 100 } = req.query;
+    const offset = (page - 1) * limit;
+    
+    try {
+        let query = `
+            SELECT gl.id, gl.transaction_date, gl.transaction_type, gl.reference, gl.debit, gl.credit, 
+                   gl.description, gl.balance, gl.journal_entry_id,
+                   coa.account_number, coa.name as account_name
+            FROM general_ledger gl
+            JOIN chart_of_accounts coa ON gl.account_id = coa.id
+            WHERE 1=1
+        `;
+        let params = [];
+        
+        if (account_id) {
+            query += ' AND gl.account_id = ?';
+            params.push(account_id);
+        }
+        
+        if (start_date && end_date) {
+            query += ' AND gl.transaction_date BETWEEN ? AND ?';
+            params.push(start_date, end_date);
+        }
+        
+        query += ' ORDER BY gl.transaction_date DESC, gl.id DESC LIMIT ? OFFSET ?';
+        params.push(limit, offset);
+        
+        const entries = await db.all(query, params);
+        res.json(entries);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Get account balance
+app.get('/api/accounts/balance/:account_id', authMiddleware, requireRole('accounts'), async (req, res) => {
+    const { account_id } = req.params;
+    const { as_of_date } = req.query;
+    
+    try {
+        let query = `
+            SELECT 
+                SUM(debit) as total_debit,
+                SUM(credit) as total_credit,
+                (SUM(debit) - SUM(credit)) as balance
+            FROM general_ledger 
+            WHERE account_id = ?
+        `;
+        let params = [account_id];
+        
+        if (as_of_date) {
+            query += ' AND transaction_date <= ?';
+            params.push(as_of_date);
+        }
+        
+        const result = await db.get(query, params);
+        res.json(result);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Accounts Payable endpoints
+app.get('/api/accounts/payable', authMiddleware, requireRole('accounts'), async (req, res) => {
+    const { status = 'all', vendor_id, page = 1, limit = 50 } = req.query;
+    const offset = (page - 1) * limit;
+    
+    try {
+        let query = `
+            SELECT ap.id, ap.vendor_id, ap.invoice_number, ap.invoice_date, ap.due_date, ap.amount, 
+                   ap.paid_amount, ap.status, ap.description, ap.created_at,
+                   v.name as vendor_name, v.email as vendor_email
+            FROM accounts_payable ap
+            JOIN vendors v ON ap.vendor_id = v.id
+            WHERE 1=1
+        `;
+        let params = [];
+        
+        if (status !== 'all') {
+            query += ' AND ap.status = ?';
+            params.push(status);
+        }
+        
+        if (vendor_id) {
+            query += ' AND ap.vendor_id = ?';
+            params.push(vendor_id);
+        }
+        
+        query += ' ORDER BY ap.due_date ASC, ap.created_at DESC LIMIT ? OFFSET ?';
+        params.push(limit, offset);
+        
+        const invoices = await db.all(query, params);
+        res.json(invoices);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.post('/api/accounts/payable', authMiddleware, requireRole('accounts'), async (req, res) => {
+    const { vendor_id, invoice_number, invoice_date, due_date, amount, description } = req.body;
+    
+    try {
+        const result = await db.run(`
+            INSERT INTO accounts_payable (vendor_id, invoice_number, invoice_date, due_date, amount, 
+                                        paid_amount, status, description)
+            VALUES (?, ?, ?, ?, ?, 0, 'unpaid', ?)
+        `, [vendor_id, invoice_number, invoice_date, due_date, amount, description]);
+        
+        await logActivity('accounts_payable', result.lastID, 'created', req.user?.username, `Created payable invoice: ${invoice_number}`);
+        res.json({ id: result.lastID, message: 'Payable invoice created successfully' });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.put('/api/accounts/payable/:id/payment', authMiddleware, requireRole('accounts'), async (req, res) => {
+    const { id } = req.params;
+    const { payment_amount, payment_date, payment_method, reference } = req.body;
+    
+    try {
+        await db.run('BEGIN TRANSACTION');
+        
+        // Update paid amount
+        await db.run(`
+            UPDATE accounts_payable 
+            SET paid_amount = paid_amount + ?, 
+                status = CASE WHEN paid_amount + ? >= amount THEN 'paid' ELSE 'partial' END
+            WHERE id = ?
+        `, [payment_amount, payment_amount, id]);
+        
+        // Record payment in general ledger (assuming payment from checking account)
+        const payable = await db.get('SELECT * FROM accounts_payable WHERE id = ?', [id]);
+        
+        // Get accounts payable account (2000) and cash/checking account (1001)
+        const apAccount = await db.get('SELECT id FROM chart_of_accounts WHERE account_number = 2000');
+        const cashAccount = await db.get('SELECT id FROM chart_of_accounts WHERE account_number = 1001');
+        
+        if (apAccount && cashAccount) {
+            // Debit accounts payable, credit cash
+            await db.run(`
+                INSERT INTO general_ledger (account_id, transaction_date, transaction_type, reference, 
+                                          debit, credit, description)
+                VALUES (?, ?, 'payment', ?, ?, 0, ?)
+            `, [apAccount.id, payment_date, reference, payment_amount, `Payment for invoice ${payable.invoice_number}`]);
+            
+            await db.run(`
+                INSERT INTO general_ledger (account_id, transaction_date, transaction_type, reference, 
+                                          debit, credit, description)
+                VALUES (?, ?, 'payment', ?, 0, ?, ?)
+            `, [cashAccount.id, payment_date, reference, payment_amount, `Payment for invoice ${payable.invoice_number}`]);
+        }
+        
+        await db.run('COMMIT');
+        await logActivity('accounts_payable', id, 'payment', req.user?.username, `Recorded payment: ${payment_amount}`);
+        res.json({ message: 'Payment recorded successfully' });
+    } catch (err) {
+        await db.run('ROLLBACK');
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Accounts Receivable endpoints
+app.get('/api/accounts/receivable', authMiddleware, requireRole('accounts'), async (req, res) => {
+    const { status = 'all', customer_id, page = 1, limit = 50 } = req.query;
+    const offset = (page - 1) * limit;
+    
+    try {
+        let query = `
+            SELECT ar.id, ar.customer_id, ar.invoice_id, ar.amount, ar.paid_amount, ar.status, 
+                   ar.due_date, ar.created_at,
+                   c.name as customer_name, c.email as customer_email,
+                   i.invoice_number, i.total as invoice_total
+            FROM accounts_receivable ar
+            JOIN customers c ON ar.customer_id = c.id
+            LEFT JOIN invoices i ON ar.invoice_id = i.id
+            WHERE 1=1
+        `;
+        let params = [];
+        
+        if (status !== 'all') {
+            query += ' AND ar.status = ?';
+            params.push(status);
+        }
+        
+        if (customer_id) {
+            query += ' AND ar.customer_id = ?';
+            params.push(customer_id);
+        }
+        
+        query += ' ORDER BY ar.due_date ASC, ar.created_at DESC LIMIT ? OFFSET ?';
+        params.push(limit, offset);
+        
+        const receivables = await db.all(query, params);
+        res.json(receivables);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.put('/api/accounts/receivable/:id/payment', authMiddleware, requireRole('accounts'), async (req, res) => {
+    const { id } = req.params;
+    const { payment_amount, payment_date, payment_method, reference } = req.body;
+    
+    try {
+        await db.run('BEGIN TRANSACTION');
+        
+        // Update paid amount
+        await db.run(`
+            UPDATE accounts_receivable 
+            SET paid_amount = paid_amount + ?, 
+                status = CASE WHEN paid_amount + ? >= amount THEN 'paid' ELSE 'partial' END
+            WHERE id = ?
+        `, [payment_amount, payment_amount, id]);
+        
+        // Record payment in general ledger
+        const receivable = await db.get('SELECT * FROM accounts_receivable WHERE id = ?', [id]);
+        
+        // Get accounts receivable account (1100) and cash/checking account (1001)
+        const arAccount = await db.get('SELECT id FROM chart_of_accounts WHERE account_number = 1100');
+        const cashAccount = await db.get('SELECT id FROM chart_of_accounts WHERE account_number = 1001');
+        
+        if (arAccount && cashAccount) {
+            // Debit cash, credit accounts receivable
+            await db.run(`
+                INSERT INTO general_ledger (account_id, transaction_date, transaction_type, reference, 
+                                          debit, credit, description)
+                VALUES (?, ?, 'payment', ?, ?, 0, ?)
+            `, [cashAccount.id, payment_date, reference, payment_amount, `Payment received for invoice ${receivable.invoice_id}`]);
+            
+            await db.run(`
+                INSERT INTO general_ledger (account_id, transaction_date, transaction_type, reference, 
+                                          debit, credit, description)
+                VALUES (?, ?, 'payment', ?, 0, ?, ?)
+            `, [arAccount.id, payment_date, reference, payment_amount, `Payment received for invoice ${receivable.invoice_id}`]);
+        }
+        
+        await db.run('COMMIT');
+        await logActivity('accounts_receivable', id, 'payment', req.user?.username, `Recorded payment: ${payment_amount}`);
+        res.json({ message: 'Payment recorded successfully' });
+    } catch (err) {
+        await db.run('ROLLBACK');
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Financial Reports endpoints
+app.get('/api/accounts/reports/trial-balance', authMiddleware, requireRole('accounts'), async (req, res) => {
+    const { as_of_date } = req.query;
+    
+    try {
+        let dateCondition = '';
+        let params = [];
+        
+        if (as_of_date) {
+            dateCondition = ' AND gl.transaction_date <= ?';
+            params.push(as_of_date);
+        }
+        
+        const accounts = await db.all(`
+            SELECT 
+                coa.id, coa.account_number, coa.name, coa.type, coa.category,
+                COALESCE(SUM(gl.debit), 0) as debit_total,
+                COALESCE(SUM(gl.credit), 0) as credit_total,
+                (COALESCE(SUM(gl.debit), 0) - COALESCE(SUM(gl.credit), 0)) as balance
+            FROM chart_of_accounts coa
+            LEFT JOIN general_ledger gl ON coa.id = gl.account_id ${dateCondition}
+            GROUP BY coa.id, coa.account_number, coa.name, coa.type, coa.category
+            ORDER BY coa.account_number
+        `, params);
+        
+        res.json(accounts);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.get('/api/accounts/reports/balance-sheet', authMiddleware, requireRole('accounts'), async (req, res) => {
+    const { as_of_date } = req.query;
+    
+    try {
+        let dateCondition = '';
+        let params = [];
+        
+        if (as_of_date) {
+            dateCondition = ' AND gl.transaction_date <= ?';
+            params.push(as_of_date);
+        }
+        
+        // Get asset accounts
+        const assets = await db.all(`
+            SELECT 
+                coa.account_number, coa.name, coa.category,
+                (COALESCE(SUM(gl.debit), 0) - COALESCE(SUM(gl.credit), 0)) as balance
+            FROM chart_of_accounts coa
+            LEFT JOIN general_ledger gl ON coa.id = gl.account_id ${dateCondition}
+            WHERE coa.type = 'asset'
+            GROUP BY coa.id, coa.account_number, coa.name, coa.category
+            HAVING balance != 0
+            ORDER BY coa.account_number
+        `, params);
+        
+        // Get liability accounts
+        const liabilities = await db.all(`
+            SELECT 
+                coa.account_number, coa.name, coa.category,
+                (COALESCE(SUM(gl.credit), 0) - COALESCE(SUM(gl.debit), 0)) as balance
+            FROM chart_of_accounts coa
+            LEFT JOIN general_ledger gl ON coa.id = gl.account_id ${dateCondition}
+            WHERE coa.type = 'liability'
+            GROUP BY coa.id, coa.account_number, coa.name, coa.category
+            HAVING balance != 0
+            ORDER BY coa.account_number
+        `, params);
+        
+        // Get equity accounts
+        const equity = await db.all(`
+            SELECT 
+                coa.account_number, coa.name, coa.category,
+                (COALESCE(SUM(gl.credit), 0) - COALESCE(SUM(gl.debit), 0)) as balance
+            FROM chart_of_accounts coa
+            LEFT JOIN general_ledger gl ON coa.id = gl.account_id ${dateCondition}
+            WHERE coa.type = 'equity'
+            GROUP BY coa.id, coa.account_number, coa.name, coa.category
+            HAVING balance != 0
+            ORDER BY coa.account_number
+        `, params);
+        
+        const totalAssets = assets.reduce((sum, acc) => sum + acc.balance, 0);
+        const totalLiabilities = liabilities.reduce((sum, acc) => sum + acc.balance, 0);
+        const totalEquity = equity.reduce((sum, acc) => sum + acc.balance, 0);
+        
+        res.json({
+            assets,
+            liabilities,
+            equity,
+            totals: {
+                assets: totalAssets,
+                liabilities: totalLiabilities,
+                equity: totalEquity,
+                liabilitiesAndEquity: totalLiabilities + totalEquity
+            }
+        });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.get('/api/accounts/reports/profit-loss', authMiddleware, requireRole('accounts'), async (req, res) => {
+    const { start_date, end_date } = req.query;
+    
+    try {
+        let dateCondition = ' AND gl.transaction_date BETWEEN ? AND ?';
+        let params = [start_date, end_date];
+        
+        // Get revenue accounts
+        const revenue = await db.all(`
+            SELECT 
+                coa.account_number, coa.name, coa.category,
+                COALESCE(SUM(gl.credit), 0) - COALESCE(SUM(gl.debit), 0) as amount
+            FROM chart_of_accounts coa
+            LEFT JOIN general_ledger gl ON coa.id = gl.account_id ${dateCondition}
+            WHERE coa.type = 'revenue'
+            GROUP BY coa.id, coa.account_number, coa.name, coa.category
+            HAVING amount != 0
+            ORDER BY coa.account_number
+        `, params);
+        
+        // Get expense accounts
+        const expenses = await db.all(`
+            SELECT 
+                coa.account_number, coa.name, coa.category,
+                COALESCE(SUM(gl.debit), 0) - COALESCE(SUM(gl.credit), 0) as amount
+            FROM chart_of_accounts coa
+            LEFT JOIN general_ledger gl ON coa.id = gl.account_id ${dateCondition}
+            WHERE coa.type = 'expense'
+            GROUP BY coa.id, coa.account_number, coa.name, coa.category
+            HAVING amount != 0
+            ORDER BY coa.account_number
+        `, params);
+        
+        const totalRevenue = revenue.reduce((sum, acc) => sum + acc.amount, 0);
+        const totalExpenses = expenses.reduce((sum, acc) => sum + acc.amount, 0);
+        const netIncome = totalRevenue - totalExpenses;
+        
+        res.json({
+            revenue,
+            expenses,
+            totals: {
+                revenue: totalRevenue,
+                expenses: totalExpenses,
+                netIncome: netIncome
+            }
+        });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Tax rates endpoints
+app.get('/api/accounts/tax-rates', authMiddleware, requireRole('accounts'), async (req, res) => {
+    try {
+        const taxRates = await db.all('SELECT * FROM tax_rates ORDER BY name');
+        res.json(taxRates);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.post('/api/accounts/tax-rates', authMiddleware, requireRole('accounts'), async (req, res) => {
+    const { name, rate, type, is_active } = req.body;
+    try {
+        const result = await db.run(`
+            INSERT INTO tax_rates (name, rate, type, is_active)
+            VALUES (?, ?, ?, ?)
+        `, [name, rate, type, is_active ? 1 : 0]);
+        
+        await logActivity('tax_rates', result.lastID, 'created', req.user?.username, `Created tax rate: ${name}`);
+        res.json({ id: result.lastID, message: 'Tax rate created successfully' });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.put('/api/accounts/tax-rates/:id', authMiddleware, requireRole('accounts'), async (req, res) => {
+    const { id } = req.params;
+    const { name, rate, type, is_active } = req.body;
+    try {
+        await db.run(`
+            UPDATE tax_rates 
+            SET name = ?, rate = ?, type = ?, is_active = ?
+            WHERE id = ?
+        `, [name, rate, type, is_active ? 1 : 0, id]);
+        
+        await logActivity('tax_rates', id, 'updated', req.user?.username, `Updated tax rate: ${name}`);
+        res.json({ message: 'Tax rate updated successfully' });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// ==================== END ACCOUNTING ENDPOINTS ====================
 
 export default app;
 

@@ -1,15 +1,15 @@
 // Lightweight API wrapper with retry logic
-const API_BASE = 'http://localhost:4000/api';
+const API_BASE = '/api';
 let authToken = null;
 
 export function setAuthToken(token) {
   authToken = token;
-  if (token) localStorage.setItem('irnvend_token', token);
-  else localStorage.removeItem('irnvend_token');
+  if (token) localStorage.setItem('ITnvend_token', token);
+  else localStorage.removeItem('ITnvend_token');
 }
 
 // initialize from storage
-const stored = localStorage.getItem('irnvend_token');
+const stored = localStorage.getItem('ITnvend_token');
 if (stored) authToken = stored;
 
 async function wait(ms) {
@@ -21,8 +21,10 @@ async function fetchWithRetry(path, options = {}, retries = 2, backoff = 200) {
   while (attempt <= retries) {
     try {
       if (!options.headers) options.headers = {};
-      if (authToken) options.headers['Authorization'] = `Bearer ${authToken}`;
-      const res = await fetch(`${API_BASE}${path}`, options);
+        if (authToken) options.headers['Authorization'] = `Bearer ${authToken}`;
+        // include credentials so HttpOnly refresh cookie is sent
+        options.credentials = 'include';
+        const res = await fetch(`${API_BASE}${path}`, options);
       if (!res.ok) {
         const text = await res.text();
         throw new Error(text || res.statusText);

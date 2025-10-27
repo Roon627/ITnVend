@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import api from '../lib/api';
 import { useToast } from '../components/ToastContext';
-import { useSettings } from '../components/SettingsContext';
+import { useAuth } from '../components/AuthContext';
 
 const CURRENCY_OPTIONS = [
   { code: 'MVR', label: 'MVR - Maldivian Rufiyaa' },
@@ -29,6 +29,9 @@ const DEFAULT_FORM = {
   smtp_port: '',
   smtp_user: '',
   smtp_pass: '',
+  email_template_invoice: '',
+  email_template_quote: '',
+  email_template_quote_request: '',
 };
 
 const DEFAULT_NEW_OUTLET = {
@@ -40,8 +43,23 @@ const DEFAULT_NEW_OUTLET = {
 };
 
 export default function Settings() {
-  const { settings: globalSettings, loading: settingsLoading, refreshSettings } = useSettings();
   const { push } = useToast();
+  const { user } = useAuth();
+  const isManager = user && user.role === 'manager';
+
+  const [globalSettings, setGlobalSettings] = useState(null);
+  const [settingsLoading, setSettingsLoading] = useState(true);
+  const refreshSettings = async () => {
+    try {
+      const s = await api.get('/settings');
+      setGlobalSettings(s);
+    } catch (err) {
+      console.error('Failed to load settings', err);
+      push('Failed to load settings', 'error');
+    } finally {
+      setSettingsLoading(false);
+    }
+  };
 
   const [outlets, setOutlets] = useState([]);
   const [selectedOutletId, setSelectedOutletId] = useState(null);
@@ -63,6 +81,10 @@ export default function Settings() {
   useEffect(() => {
     fetchOutlets();
   }, [fetchOutlets]);
+
+  useEffect(() => {
+    refreshSettings();
+  }, []);
 
   const defaultSettings = useMemo(() => ({
     outlet_name: globalSettings?.outlet_name ?? '',
@@ -98,6 +120,9 @@ export default function Settings() {
       smtp_port: globalSettings.email?.smtp_port ?? '',
       smtp_user: globalSettings.email?.smtp_user ?? '',
       smtp_pass: '',
+      email_template_invoice: globalSettings.email_template_invoice ?? globalSettings.invoice_template ?? '',
+      email_template_quote: globalSettings.email_template_quote ?? '',
+      email_template_quote_request: globalSettings.email_template_quote_request ?? '',
     });
   }, [globalSettings, defaultSettings]);
 
@@ -166,6 +191,9 @@ export default function Settings() {
         smtp_port: formState.smtp_port || null,
         smtp_user: formState.smtp_user || null,
         smtp_pass: formState.smtp_pass || null,
+        email_template_invoice: formState.email_template_invoice || null,
+        email_template_quote: formState.email_template_quote || null,
+        email_template_quote_request: formState.email_template_quote_request || null,
       });
 
       await Promise.all([refreshSettings(), fetchOutlets()]);
@@ -177,6 +205,26 @@ export default function Settings() {
       console.error(err);
       setStatus('error');
       push('Failed to save settings', 'error');
+    }
+  };
+
+  const useGmailPreset = () => {
+    updateField('email_provider', 'smtp');
+    updateField('smtp_host', 'smtp.gmail.com');
+    updateField('smtp_port', 587);
+    push('Gmail preset applied. Use your full Gmail address as SMTP user and an App Password.', 'info');
+  };
+
+  const testSmtp = async () => {
+    setStatus('saving');
+    try {
+      const r = await api.post('/settings/test-smtp', {});
+      push(`Test message sent to ${r.to}`, 'info');
+      setStatus('idle');
+    } catch (err) {
+      console.error('SMTP test failed', err);
+      push('SMTP test failed: ' + (err?.message || String(err)), 'error');
+      setStatus('error');
     }
   };
 
@@ -210,8 +258,8 @@ export default function Settings() {
         <section className="space-y-2">
           <h3 className="text-lg font-medium text-gray-800">Outlet Management</h3>
           <label className="block text-sm font-medium text-gray-700">Active Outlet</label>
-          <div className="flex flex-col sm:flex-row gap-3 sm:items-center">
-            <select
+            <div className="flex flex-col sm:flex-row gap-3 sm:items-center">
+             <select
               value={selectedOutletId ?? ''}
               onChange={handleSelectOutlet}
               className="block w-full sm:w-64 border rounded px-3 py-2 bg-white shadow-sm"
@@ -226,8 +274,10 @@ export default function Settings() {
             <button
               onClick={() => setCreatingOutlet((current) => !current)}
               className="px-3 py-2 border rounded text-sm font-medium hover:bg-gray-50"
+              disabled={isManager}
+              title={isManager ? 'Only administrators may create outlets' : 'Create new outlet'}
             >
-              {creatingOutlet ? 'Cancel' : 'New Outlet'}
+              {creatingOutlet ? 'Cancel' : (isManager ? 'New Outlet (Admin only)' : 'New Outlet')}
             </button>
           </div>
         </section>
@@ -276,16 +326,18 @@ export default function Settings() {
                 rows={4}
               />
             </div>
-            <div className="text-right">
+              <div className="text-right">
               <button
                 onClick={createOutlet}
                 className="bg-blue-600 text-white px-4 py-2 rounded-md text-sm font-semibold hover:bg-blue-700"
+                disabled={isManager}
+                title={isManager ? 'Only administrators may create outlets' : ''}
               >
-                Create and Activate
+                {isManager ? 'Admin only' : 'Create and Activate'}
               </button>
             </div>
           </section>
-        )}
+    )}
 
         <section className="space-y-4 pt-4 border-t">
           <h3 className="text-lg font-medium text-gray-800">
@@ -295,7 +347,6 @@ export default function Settings() {
             <div>
               <label className="block text-sm font-medium text-gray-700">Outlet Name</label>
               <input
-                type="text"
                 value={formState.outlet_name}
                 onChange={(e) => updateField('outlet_name', e.target.value)}
                 className="mt-1 block w-full border rounded-md px-3 py-2 shadow-sm"
@@ -355,6 +406,7 @@ export default function Settings() {
                 value={formState.email_provider}
                 onChange={(e) => updateField('email_provider', e.target.value)}
                 className="mt-1 block w-full border rounded-md px-3 py-2 bg-white shadow-sm"
+                disabled={isManager}
               >
                 <option value="">(None)</option>
                 <option value="sendgrid">SendGrid (API)</option>
@@ -368,6 +420,7 @@ export default function Settings() {
                 value={formState.email_from}
                 onChange={(e) => updateField('email_from', e.target.value)}
                 className="mt-1 block w-full border rounded-md px-3 py-2 shadow-sm"
+                disabled={isManager}
               />
             </div>
             <div className="sm:col-span-2">
@@ -377,37 +430,63 @@ export default function Settings() {
                 value={formState.email_to}
                 onChange={(e) => updateField('email_to', e.target.value)}
                 className="mt-1 block w-full border rounded-md px-3 py-2 shadow-sm"
+                disabled={isManager}
               />
             </div>
-            <div className="sm:col-span-2">
-              <label className="block text-sm font-medium text-gray-700">API Key (e.g., SendGrid)</label>
-              <input
-                type="password"
-                value={formState.email_api_key}
-                onChange={(e) => updateField('email_api_key', e.target.value)}
-                className="mt-1 block w-full border rounded-md px-3 py-2 shadow-sm"
-              />
-            </div>
+            {formState.email_provider === 'sendgrid' && (
+              <div className="sm:col-span-2">
+                <label className="block text-sm font-medium text-gray-700">API Key (e.g., SendGrid)</label>
+                <input
+                  type="password"
+                  value={formState.email_api_key}
+                  onChange={(e) => updateField('email_api_key', e.target.value)}
+                  className="mt-1 block w-full border rounded-md px-3 py-2 shadow-sm"
+                  disabled={isManager}
+                />
+              </div>
+            )}
             {formState.email_provider === 'smtp' && (
               <>
                 <div>
                   <label className="block text-sm font-medium text-gray-700">SMTP Host</label>
-                  <input type="text" value={formState.smtp_host} onChange={(e) => updateField('smtp_host', e.target.value)} className="mt-1 block w-full border rounded-md px-3 py-2 shadow-sm" />
+                  <input type="text" value={formState.smtp_host} onChange={(e) => updateField('smtp_host', e.target.value)} className="mt-1 block w-full border rounded-md px-3 py-2 shadow-sm" disabled={isManager} />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700">SMTP Port</label>
-                  <input type="number" value={formState.smtp_port} onChange={(e) => updateField('smtp_port', e.target.value)} className="mt-1 block w-full border rounded-md px-3 py-2 shadow-sm" />
+                  <input type="number" value={formState.smtp_port} onChange={(e) => updateField('smtp_port', e.target.value)} className="mt-1 block w-full border rounded-md px-3 py-2 shadow-sm" disabled={isManager} />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700">SMTP User</label>
-                  <input type="text" value={formState.smtp_user} onChange={(e) => updateField('smtp_user', e.target.value)} className="mt-1 block w-full border rounded-md px-3 py-2 shadow-sm" />
+                  <input type="text" value={formState.smtp_user} onChange={(e) => updateField('smtp_user', e.target.value)} className="mt-1 block w-full border rounded-md px-3 py-2 shadow-sm" disabled={isManager} />
                 </div>
                 <div className="sm:col-span-2">
                   <label className="block text-sm font-medium text-gray-700">SMTP Password</label>
-                  <input type="password" value={formState.smtp_pass} onChange={(e) => updateField('smtp_pass', e.target.value)} className="mt-1 block w-full border rounded-md px-3 py-2 shadow-sm" />
+                  <input type="password" value={formState.smtp_pass} onChange={(e) => updateField('smtp_pass', e.target.value)} className="mt-1 block w-full border rounded-md px-3 py-2 shadow-sm" disabled={isManager} />
+                </div>
+                <div className="sm:col-span-2 flex items-center gap-3">
+                  <button className="px-3 py-2 bg-gray-100 rounded" onClick={useGmailPreset} disabled={isManager}>Use Gmail preset</button>
+                  <button className="px-3 py-2 bg-blue-600 text-white rounded" onClick={testSmtp} disabled={isManager || status === 'saving'}>{status === 'saving' ? 'Testing…' : 'Test SMTP'}</button>
                 </div>
               </>
             )}
+          </div>
+
+          <div className="mt-4">
+            <h4 className="text-md font-medium mb-2">Email Templates</h4>
+            <div className="grid grid-cols-1 gap-3">
+              <div>
+                <label className="block text-sm font-medium text-gray-700">Invoice Email Template</label>
+                <textarea value={formState.email_template_invoice} onChange={(e) => updateField('email_template_invoice', e.target.value)} className="mt-1 block w-full border rounded-md px-3 py-2 shadow-sm font-mono" rows={4} />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700">Quote Email Template</label>
+                <textarea value={formState.email_template_quote} onChange={(e) => updateField('email_template_quote', e.target.value)} className="mt-1 block w-full border rounded-md px-3 py-2 shadow-sm font-mono" rows={4} />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700">Quote Request Notification Template</label>
+                <textarea value={formState.email_template_quote_request} onChange={(e) => updateField('email_template_quote_request', e.target.value)} className="mt-1 block w-full border rounded-md px-3 py-2 shadow-sm font-mono" rows={4} />
+              </div>
+            </div>
           </div>
         </section>
 

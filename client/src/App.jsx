@@ -16,6 +16,8 @@ import Header from './components/Header';
 import PublicProducts from './pages/PublicProducts';
 import Cart from './pages/Cart';
 import Checkout from './pages/Checkout';
+import Accounting from './pages/Accounting';
+import Reports from './pages/Reports';
 import { AuthProvider, useAuth } from './components/AuthContext';
 import { UIProvider, useUI } from './components/UIContext';
 
@@ -28,7 +30,7 @@ function App() {
 
   function RoleGuard({ minRole, children }) {
     const { user } = useAuth();
-    const rank = (r) => ({ cashier: 1, manager: 2, admin: 3 }[r] || 0);
+    const rank = (r) => ({ cashier: 1, accounts: 2, manager: 3, admin: 4 }[r] || 0);
     if (!user) return <Navigate to="/login" replace />;
     if (rank(user.role) < rank(minRole)) return <div className="p-6 text-red-600">Access denied</div>;
     return children;
@@ -90,7 +92,10 @@ function App() {
                       <Route path="/customers" element={<Customers />} />
                       <Route path="/customers/:id" element={<CustomerDetail />} />
                       <Route path="/staff" element={<RoleGuard minRole="admin"><Staff /></RoleGuard>} />
-                      <Route path="/settings" element={<RoleGuard minRole="admin"><Settings /></RoleGuard>} />
+                      <Route path="/accounting" element={<RoleGuard minRole="accounts"><Accounting /></RoleGuard>} />
+                      <Route path="/reports" element={<RoleGuard minRole="manager"><Reports /></RoleGuard>} />
+                      {/* Allow managers to open Settings; server enforces per-field permissions */}
+                      <Route path="/settings" element={<RoleGuard minRole="manager"><Settings /></RoleGuard>} />
                       <Route path="*" element={<Navigate to="/" replace />} />
                     </Routes>
                   </AdminLayout>

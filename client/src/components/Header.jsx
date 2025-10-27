@@ -2,11 +2,15 @@ import { useEffect, useState } from 'react';
 import api from '../lib/api';
 import { useUI } from './UIContext';
 import { FaBars } from 'react-icons/fa';
+import { useAuth } from './AuthContext';
+import { useToast } from './ToastContext';
 
 export default function Header() {
   const [outlet, setOutlet] = useState('ITnVend');
   const [online, setOnline] = useState(navigator.onLine);
   const { toggleSidebar } = useUI();
+  const { reauthRequired, attemptRefresh } = useAuth();
+  const toast = useToast();
 
   useEffect(() => {
     api.get('/settings').then((s) => {
@@ -25,6 +29,11 @@ export default function Header() {
 
   return (
     <header className="bg-white border-b">
+      {reauthRequired && (
+        <div className="bg-yellow-100 text-yellow-800 px-4 py-2 text-sm text-center">
+          Your session needs re-authentication. <button className="underline ml-2" onClick={async () => { const ok = await attemptRefresh(); if (!ok) { toast.push('Please log in again', 'error'); window.location.href = '/login'; } }}>Try refresh</button>
+        </div>
+      )}
       <div className="container mx-auto px-6 py-4 flex items-center justify-between">
         <div className="flex items-center gap-3">
           <button

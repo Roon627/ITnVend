@@ -74,6 +74,9 @@ export async function setupDatabase() {
             gst_rate REAL DEFAULT 0.0,
             store_address TEXT,
             invoice_template TEXT,
+            email_template_invoice TEXT,
+            email_template_quote TEXT,
+            email_template_quote_request TEXT,
             current_outlet_id INTEGER DEFAULT 1
         );
 
@@ -178,6 +181,137 @@ export async function setupDatabase() {
             FOREIGN KEY (staff_id) REFERENCES staff(id),
             FOREIGN KEY (role_id) REFERENCES roles(id)
         );
+        
+        -- Refresh tokens for long-lived sessions (hashed)
+        CREATE TABLE IF NOT EXISTS refresh_tokens (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            staff_id INTEGER,
+            token_hash TEXT,
+            expires_at DATETIME,
+            FOREIGN KEY (staff_id) REFERENCES staff(id)
+        );
+
+        -- Accounting System Tables
+        CREATE TABLE IF NOT EXISTS chart_of_accounts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            account_code TEXT UNIQUE NOT NULL,
+            account_name TEXT NOT NULL,
+            account_type TEXT NOT NULL, -- Asset, Liability, Equity, Revenue, Expense
+            category TEXT, -- Current Assets, Fixed Assets, etc.
+            is_active INTEGER DEFAULT 1,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE TABLE IF NOT EXISTS general_ledger (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            account_id INTEGER,
+            transaction_date DATE NOT NULL,
+            description TEXT,
+            debit REAL DEFAULT 0,
+            credit REAL DEFAULT 0,
+            reference_type TEXT, -- invoice, payment, journal, etc.
+            reference_id INTEGER,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (account_id) REFERENCES chart_of_accounts(id)
+        );
+
+        CREATE TABLE IF NOT EXISTS journal_entries (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            entry_date DATE NOT NULL,
+            description TEXT NOT NULL,
+            reference TEXT,
+            total_debit REAL NOT NULL DEFAULT 0,
+            total_credit REAL NOT NULL DEFAULT 0,
+            status TEXT DEFAULT 'draft', -- draft, posted, voided
+            created_by INTEGER,
+            approved_by INTEGER,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (created_by) REFERENCES staff(id),
+            FOREIGN KEY (approved_by) REFERENCES staff(id)
+        );
+
+        CREATE TABLE IF NOT EXISTS journal_entry_lines (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            journal_entry_id INTEGER,
+            account_id INTEGER,
+            description TEXT,
+            debit REAL DEFAULT 0,
+            credit REAL DEFAULT 0,
+            FOREIGN KEY (journal_entry_id) REFERENCES journal_entries(id),
+            FOREIGN KEY (account_id) REFERENCES chart_of_accounts(id)
+        );
+
+        CREATE TABLE IF NOT EXISTS accounts_payable (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            vendor_id INTEGER,
+            invoice_number TEXT,
+            invoice_date DATE,
+            due_date DATE,
+            amount REAL NOT NULL,
+            paid_amount REAL DEFAULT 0,
+            status TEXT DEFAULT 'pending', -- pending, partial, paid, overdue
+            notes TEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (vendor_id) REFERENCES vendors(id)
+        );
+
+        CREATE TABLE IF NOT EXISTS accounts_receivable (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            customer_id INTEGER,
+            invoice_id INTEGER,
+            amount REAL NOT NULL,
+            paid_amount REAL DEFAULT 0,
+            due_date DATE,
+            status TEXT DEFAULT 'pending', -- pending, partial, paid, overdue
+            notes TEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (customer_id) REFERENCES customers(id),
+            FOREIGN KEY (invoice_id) REFERENCES invoices(id)
+        );
+
+        CREATE TABLE IF NOT EXISTS bank_accounts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            account_name TEXT NOT NULL,
+            account_number TEXT,
+            bank_name TEXT,
+            currency TEXT DEFAULT 'MVR',
+            opening_balance REAL DEFAULT 0,
+            current_balance REAL DEFAULT 0,
+            is_active INTEGER DEFAULT 1,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE TABLE IF NOT EXISTS bank_transactions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            bank_account_id INTEGER,
+            transaction_date DATE NOT NULL,
+            description TEXT,
+            amount REAL NOT NULL,
+            transaction_type TEXT, -- deposit, withdrawal, transfer
+            reference_type TEXT,
+            reference_id INTEGER,
+            reconciled INTEGER DEFAULT 0,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (bank_account_id) REFERENCES bank_accounts(id)
+        );
+
+        CREATE TABLE IF NOT EXISTS tax_rates (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            tax_name TEXT NOT NULL,
+            rate REAL NOT NULL,
+            tax_type TEXT, -- gst, vat, income_tax, etc.
+            is_active INTEGER DEFAULT 1,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE TABLE IF NOT EXISTS financial_periods (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            period_name TEXT NOT NULL,
+            start_date DATE NOT NULL,
+            end_date DATE NOT NULL,
+            is_closed INTEGER DEFAULT 0,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
     `);
 
     // ensure a default settings row exists with id = 1
@@ -206,6 +340,20 @@ export async function setupDatabase() {
     const hasCurrentOutlet = settingsInfo.some(c => c.name === 'current_outlet_id');
     if (!hasCurrentOutlet) {
         await db.run('ALTER TABLE settings ADD COLUMN current_outlet_id INTEGER DEFAULT 1');
+    }
+
+    // Add email template columns if missing
+    const hasInvoiceTemplateCol = settingsInfo.some(c => c.name === 'email_template_invoice');
+    if (!hasInvoiceTemplateCol) {
+        try { await db.run("ALTER TABLE settings ADD COLUMN email_template_invoice TEXT"); } catch (e) { /* ignore */ }
+    }
+    const hasQuoteTemplateCol = settingsInfo.some(c => c.name === 'email_template_quote');
+    if (!hasQuoteTemplateCol) {
+        try { await db.run("ALTER TABLE settings ADD COLUMN email_template_quote TEXT"); } catch (e) { /* ignore */ }
+    }
+    const hasQuoteReqTemplateCol = settingsInfo.some(c => c.name === 'email_template_quote_request');
+    if (!hasQuoteReqTemplateCol) {
+        try { await db.run("ALTER TABLE settings ADD COLUMN email_template_quote_request TEXT"); } catch (e) { /* ignore */ }
     }
 
     const invoiceInfo = await db.all("PRAGMA table_info('invoices')");
@@ -303,6 +451,69 @@ export async function setupDatabase() {
             await stmt.run(p.name, p.price, p.stock, p.category, p.subcategory);
         }
         await stmt.finalize();
+    }
+
+    // Seed default roles if not exist
+    const roleCount = await db.get('SELECT COUNT(*) as c FROM roles');
+    if (!roleCount || roleCount.c === 0) {
+        const roles = ['admin', 'manager', 'cashier', 'accounts'];
+        const roleStmt = await db.prepare('INSERT INTO roles (name) VALUES (?)');
+        for (const role of roles) {
+            await roleStmt.run(role);
+        }
+        await roleStmt.finalize();
+    } else {
+        // Ensure 'accounts' role exists even if other roles were already seeded
+        const accountsRole = await db.get('SELECT id FROM roles WHERE name = ?', ['accounts']);
+        if (!accountsRole) {
+            await db.run('INSERT INTO roles (name) VALUES (?)', ['accounts']);
+        }
+    }
+
+    // Seed chart of accounts if empty
+    const coaCount = await db.get('SELECT COUNT(*) as c FROM chart_of_accounts');
+    if (!coaCount || coaCount.c === 0) {
+        const chartOfAccounts = [
+            // Assets
+            { code: '1000', name: 'Cash', type: 'Asset', category: 'Current Assets' },
+            { code: '1100', name: 'Bank Account', type: 'Asset', category: 'Current Assets' },
+            { code: '1200', name: 'Accounts Receivable', type: 'Asset', category: 'Current Assets' },
+            { code: '1300', name: 'Inventory', type: 'Asset', category: 'Current Assets' },
+            { code: '1400', name: 'Prepaid Expenses', type: 'Asset', category: 'Current Assets' },
+            { code: '1500', name: 'Fixed Assets', type: 'Asset', category: 'Fixed Assets' },
+            { code: '1600', name: 'Accumulated Depreciation', type: 'Asset', category: 'Fixed Assets' },
+
+            // Liabilities
+            { code: '2000', name: 'Accounts Payable', type: 'Liability', category: 'Current Liabilities' },
+            { code: '2100', name: 'Loans Payable', type: 'Liability', category: 'Current Liabilities' },
+            { code: '2200', name: 'Taxes Payable', type: 'Liability', category: 'Current Liabilities' },
+            { code: '2300', name: 'Accrued Expenses', type: 'Liability', category: 'Current Liabilities' },
+
+            // Equity
+            { code: '3000', name: 'Owner\'s Equity', type: 'Equity', category: 'Equity' },
+            { code: '3100', name: 'Retained Earnings', type: 'Equity', category: 'Equity' },
+
+            // Revenue
+            { code: '4000', name: 'Sales Revenue', type: 'Revenue', category: 'Revenue' },
+            { code: '4100', name: 'Service Revenue', type: 'Revenue', category: 'Revenue' },
+            { code: '4200', name: 'Other Income', type: 'Revenue', category: 'Revenue' },
+
+            // Expenses
+            { code: '5000', name: 'Cost of Goods Sold', type: 'Expense', category: 'Cost of Sales' },
+            { code: '5100', name: 'Operating Expenses', type: 'Expense', category: 'Operating Expenses' },
+            { code: '5200', name: 'Salaries and Wages', type: 'Expense', category: 'Operating Expenses' },
+            { code: '5300', name: 'Rent Expense', type: 'Expense', category: 'Operating Expenses' },
+            { code: '5400', name: 'Utilities', type: 'Expense', category: 'Operating Expenses' },
+            { code: '5500', name: 'Marketing and Advertising', type: 'Expense', category: 'Operating Expenses' },
+            { code: '5600', name: 'Depreciation Expense', type: 'Expense', category: 'Operating Expenses' },
+            { code: '5700', name: 'Taxes and Licenses', type: 'Expense', category: 'Operating Expenses' },
+        ];
+
+        const coaStmt = await db.prepare('INSERT INTO chart_of_accounts (account_code, account_name, account_type, category) VALUES (?, ?, ?, ?)');
+        for (const account of chartOfAccounts) {
+            await coaStmt.run(account.code, account.name, account.type, account.category);
+        }
+        await coaStmt.finalize();
     }
 
     return db;
