@@ -158,6 +158,18 @@ export async function setupDatabase() {
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP
         );
 
+        -- Notifications for in-app alerting
+        CREATE TABLE IF NOT EXISTS notifications (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER,
+            type TEXT,
+            message TEXT,
+            link TEXT,
+            is_read INTEGER DEFAULT 0,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (user_id) REFERENCES staff(id)
+        );
+
         -- Staff & roles
         CREATE TABLE IF NOT EXISTS roles (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -386,6 +398,40 @@ export async function setupDatabase() {
     }
     if (!custCols.includes('address')) {
         try { await db.run('ALTER TABLE customers ADD COLUMN address TEXT'); } catch (e) { /* ignore */ }
+    }
+
+    // Ensure products table has an optional 'image' column used by some UI paths
+    const productInfo = await db.all("PRAGMA table_info('products')");
+    const prodCols = productInfo.map(c => c.name);
+    if (!prodCols.includes('image')) {
+        try { await db.run("ALTER TABLE products ADD COLUMN image TEXT"); } catch (e) { /* ignore */ }
+    }
+    // Add optional 'description' column for product details
+    if (!prodCols.includes('description')) {
+        try { await db.run("ALTER TABLE products ADD COLUMN description TEXT"); } catch (e) { /* ignore */ }
+    }
+    // Add optional SKU, barcode and purchase cost columns (added carefully)
+    if (!prodCols.includes('sku')) {
+        try { await db.run("ALTER TABLE products ADD COLUMN sku TEXT"); } catch (e) { /* ignore */ }
+    }
+    if (!prodCols.includes('barcode')) {
+        try { await db.run("ALTER TABLE products ADD COLUMN barcode TEXT"); } catch (e) { /* ignore */ }
+    }
+    if (!prodCols.includes('cost')) {
+        try { await db.run("ALTER TABLE products ADD COLUMN cost REAL DEFAULT 0"); } catch (e) { /* ignore */ }
+    }
+    // Create a UNIQUE index on sku if there are no duplicate SKUs
+    try {
+        const dup = await db.get("SELECT sku, COUNT(*) as c FROM products WHERE sku IS NOT NULL GROUP BY sku HAVING c > 1");
+        if (!dup) {
+            // create unique index safely
+            try { await db.run('CREATE UNIQUE INDEX IF NOT EXISTS idx_products_sku_unique ON products(sku)'); } catch (e) { /* ignore */ }
+        } else {
+            console.warn('Skipping unique index on products.sku because duplicates exist');
+        }
+    } catch (e) {
+        // non-fatal
+        console.warn('Error checking SKU duplicates', e?.message || e);
     }
     if (!custCols.includes('gst_number')) {
         try { await db.run('ALTER TABLE customers ADD COLUMN gst_number TEXT'); } catch (e) { /* ignore */ }

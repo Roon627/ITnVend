@@ -1,6 +1,8 @@
 import express from 'express';
 import cors from 'cors';
 import os from 'os';
+import fs from 'fs';
+import path from 'path';
 import { setupDatabase } from './database.js';
 import { generateInvoicePdf } from './invoice-service.js';
 import nodemailer from 'nodemailer';
@@ -26,7 +28,8 @@ function clearRefreshCookie(res) {
     res.cookie('ITnvend_refresh', '', opts);
     res.cookie('irnvend_refresh', '', opts);
 }
-app.use(express.json());
+// allow larger payloads for uploads (base64 images) and long requests
+app.use(express.json({ limit: '10mb' }));
 // Simple request logging for diagnostics
 app.use((req, res, next) => {
     console.log(`${new Date().toISOString()} - ${req.method} ${req.originalUrl} - ${req.ip}`);
@@ -163,6 +166,80 @@ app.use('/api', (req, res, next) => {
     next();
 });
 
+// Serve uploaded images from server/public/Images and organize by category
+const imagesDir = path.join(process.cwd(), 'server', 'public', 'Images');
+try { fs.mkdirSync(imagesDir, { recursive: true }); } catch (e) { /* ignore */ }
+app.use('/uploads', express.static(imagesDir));
+
+// Setup upload endpoint: prefer multer multipart handling if available, otherwise fall back to base64 JSON upload
+(async function setupUploadsRoute() {
+    try {
+        const multerMod = await import('multer');
+        const multer = multerMod.default || multerMod;
+        // configure multer storage
+        const storage = multer.diskStorage({
+            destination: function (req, file, cb) {
+                // allow category via query param or form field
+                const category = (req.query && req.query.category) || (req.body && req.body.category) || 'uncategorized';
+                const dir = path.join(imagesDir, category.replace(/[^a-z0-9\-_]/gi, '_'));
+                try { fs.mkdirSync(dir, { recursive: true }); } catch (e) { /* ignore */ }
+                cb(null, dir);
+            },
+            filename: function (req, file, cb) {
+                const safe = `${Date.now()}-${file.originalname.replace(/[^a-z0-9\.\-_]/gi, '_')}`;
+                cb(null, safe);
+            }
+        });
+        function imageFileFilter(req, file, cb) {
+            if (!file.mimetype.startsWith('image/')) return cb(new Error('Only image files are allowed'), false);
+            cb(null, true);
+        }
+        const upload = multer({ storage, fileFilter: imageFileFilter, limits: { fileSize: 3 * 1024 * 1024 } });
+        app.post('/api/uploads', upload.single('file'), async (req, res) => {
+            try {
+                if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+                // build public URL path relative to /uploads
+                const rel = path.relative(imagesDir, req.file.path).replace(/\\/g, '/');
+                const urlPath = `/uploads/${rel}`;
+                return res.json({ url: urlPath });
+            } catch (err) {
+                return res.status(500).json({ error: err.message });
+            }
+        });
+        console.log('Upload route configured: multer multipart enabled');
+    } catch (e) {
+        // fallback to base64 upload endpoint (saves under Images/<category> if provided via query or body)
+        app.post('/api/uploads', async (req, res) => {
+            try {
+                const { filename, data, category } = req.body || {};
+                if (!data) return res.status(400).json({ error: 'Missing data' });
+                let base64 = data;
+                let ext = '';
+                const m = String(data).match(/^data:(.+);base64,(.+)$/);
+                if (m) {
+                    const mime = m[1];
+                    base64 = m[2];
+                    const parts = mime.split('/');
+                    ext = parts[1] ? '.' + parts[1].split('+')[0] : '';
+                }
+                const cat = (req.query && req.query.category) || category || 'uncategorized';
+                const dir = path.join(imagesDir, String(cat).replace(/[^a-z0-9\-_]/gi, '_'));
+                try { fs.mkdirSync(dir, { recursive: true }); } catch (e) { /* ignore */ }
+                const safeName = `${Date.now()}-${(filename || 'upload').replace(/[^a-z0-9\.\-_]/gi, '_')}${ext}`;
+                const filePath = path.join(dir, safeName);
+                const buffer = Buffer.from(base64, 'base64');
+                fs.writeFileSync(filePath, buffer);
+                const rel = path.relative(imagesDir, filePath).replace(/\\/g, '/');
+                const urlPath = `/uploads/${rel}`;
+                return res.json({ url: urlPath });
+            } catch (err2) {
+                return res.status(500).json({ error: err2.message });
+            }
+        });
+        console.warn('multer not available — using base64 fallback for /api/uploads');
+    }
+})();
+
 async function startServer() {
     try {
         db = await setupDatabase();
@@ -201,6 +278,42 @@ async function startServer() {
         app.listen(port, '0.0.0.0', () => {
             console.log(`Server running at http://0.0.0.0:${port}`);
         });
+        // Cleanup uploaded images older than 30 days (run once on startup and then daily)
+        async function cleanupOldImages(days = 30) {
+            try {
+                const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
+                async function walk(dir) {
+                    const entries = await fs.promises.readdir(dir, { withFileTypes: true });
+                    for (const ent of entries) {
+                        const full = path.join(dir, ent.name);
+                        if (ent.isDirectory()) {
+                            await walk(full);
+                            // remove empty directories
+                            try {
+                                const rem = await fs.promises.readdir(full);
+                                if (rem.length === 0) {
+                                    await fs.promises.rmdir(full);
+                                }
+                            } catch (e) { /* ignore */ }
+                        } else if (ent.isFile()) {
+                            try {
+                                const st = await fs.promises.stat(full);
+                                if (st.mtimeMs < cutoff) {
+                                    await fs.promises.unlink(full);
+                                    console.log('Deleted old upload:', full);
+                                }
+                            } catch (e) { /* ignore individual file errors */ }
+                        }
+                    }
+                }
+                await walk(imagesDir);
+            } catch (err) {
+                console.warn('cleanupOldImages failed', err?.message || err);
+            }
+        }
+        // run cleanup once, then daily
+        cleanupOldImages(30).catch(() => {});
+        setInterval(() => cleanupOldImages(30).catch(() => {}), 24 * 60 * 60 * 1000);
     } catch (error) {
         console.error('Failed to start server:', error);
         process.exit(1);
@@ -328,12 +441,24 @@ app.get('/api/products/categories', async (req, res) => {
 });
 
 app.post('/api/products', async (req, res) => {
-    const { name, price, stock, category, subcategory } = req.body;
+    const { name, price, stock, category, subcategory, image, description, sku, barcode, cost } = req.body;
     if (!name || price == null) return res.status(400).json({ error: 'Missing fields' });
+    // server-side SKU uniqueness and barcode validation
+    try {
+        if (sku) {
+            const ex = await db.get('SELECT id FROM products WHERE sku = ?', [sku]);
+            if (ex) return res.status(409).json({ error: 'SKU already in use' });
+        }
+        if (barcode) {
+            if (!/^[0-9]{8,13}$/.test(String(barcode))) return res.status(400).json({ error: 'Invalid barcode format (8-13 digits expected)' });
+        }
+    } catch (e) {
+        // continue; validation non-blocking if DB read fails
+    }
     try {
         const result = await db.run(
-            'INSERT INTO products (name, price, stock, category, subcategory) VALUES (?, ?, ?, ?, ?)',
-            [name, price, stock || 0, category, subcategory]
+            'INSERT INTO products (name, price, stock, category, subcategory, image, description, sku, barcode, cost) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+            [name, price, stock || 0, category, subcategory, image || null, description || null, sku || null, barcode || null, cost != null ? cost : 0]
         );
         const product = await db.get('SELECT * FROM products WHERE id = ?', [result.lastID]);
         res.status(201).json(product);
@@ -344,11 +469,19 @@ app.post('/api/products', async (req, res) => {
 
 app.put('/api/products/:id', async (req, res) => {
     const { id } = req.params;
-    const { name, price, stock, category, subcategory } = req.body;
+    const { name, price, stock, category, subcategory, image, description, sku, barcode, cost } = req.body;
     try {
+        // server-side SKU uniqueness & barcode validation for updates
+        if (sku) {
+            const ex = await db.get('SELECT id FROM products WHERE sku = ? AND id != ?', [sku, id]);
+            if (ex) return res.status(409).json({ error: 'SKU already in use by another product' });
+        }
+        if (barcode) {
+            if (!/^[0-9]{8,13}$/.test(String(barcode))) return res.status(400).json({ error: 'Invalid barcode format (8-13 digits expected)' });
+        }
         await db.run(
-            'UPDATE products SET name = ?, price = ?, stock = ?, category = ?, subcategory = ? WHERE id = ?',
-            [name, price, stock, category, subcategory, id]
+            'UPDATE products SET name = ?, price = ?, stock = ?, category = ?, subcategory = ?, image = ?, description = ?, sku = ?, barcode = ?, cost = ? WHERE id = ?',
+            [name, price, stock, category, subcategory, image || null, description || null, sku || null, barcode || null, cost != null ? cost : 0, id]
         );
         const product = await db.get('SELECT * FROM products WHERE id = ?', [id]);
         res.json(product);
@@ -552,8 +685,9 @@ app.post('/api/settings/test-smtp', authMiddleware, requireRole('admin'), async 
 // Quote endpoints (public submit, admin list)
 app.post('/api/quotes', async (req, res) => {
     try {
-        const { company_name, contact_name, email: contact_email, phone, details } = req.body;
+        const { company_name, contact_name, email: contact_email, phone, details, cart } = req.body;
         if (!contact_name || !contact_email) return res.status(400).json({ error: 'Missing contact name or email' });
+
         const result = await db.run('INSERT INTO quotes (company_name, contact_name, email, phone, details) VALUES (?, ?, ?, ?, ?)', [company_name || null, contact_name, contact_email, phone || null, details || null]);
         const quote = await db.get('SELECT * FROM quotes WHERE id = ?', [result.lastID]);
 
@@ -566,11 +700,37 @@ app.post('/api/quotes', async (req, res) => {
             customer = await db.get('SELECT * FROM customers WHERE id = ?', [cRes.lastID]);
         }
 
+        // compute subtotal/tax/total if cart provided, and store invoice_items so admin can edit later
+        let subtotal = 0, taxAmount = 0, total = 0;
+        // determine gst_rate/outlet
+        const settingsRow = await db.get('SELECT gst_rate, current_outlet_id FROM settings WHERE id = 1');
+        const outletId = settingsRow?.current_outlet_id || null;
+        const gstRate = parseFloat(settingsRow?.gst_rate || 0);
+
         // Create a manage-able invoice record (type=quote) linked to this customer so admin can review/convert
-        const invRes = await db.run('INSERT INTO invoices (customer_id, subtotal, tax_amount, total, outlet_id, type, status) VALUES (?, ?, ?, ?, ?, ?, ?)', [customer.id, 0, 0, 0, null, 'quote', 'draft']);
+        const invRes = await db.run('INSERT INTO invoices (customer_id, subtotal, tax_amount, total, outlet_id, type, status) VALUES (?, ?, ?, ?, ?, ?, ?)', [customer.id, 0, 0, 0, outletId, 'quote', 'draft']);
         const createdInvoice = await db.get('SELECT * FROM invoices WHERE id = ?', [invRes.lastID]);
 
-        // send admin notification (supports sendgrid or smtp via settings_email)
+        if (Array.isArray(cart) && cart.length > 0) {
+            const stmt = await db.prepare('INSERT INTO invoice_items (invoice_id, product_id, quantity, price) VALUES (?, ?, ?, ?)');
+            for (const it of cart) {
+                const productId = it.id || it.product_id || null;
+                const qty = parseInt(it.quantity || 0, 10) || 0;
+                const price = parseFloat(it.price || it.unit_price || 0) || 0;
+                if (qty <= 0) continue;
+                await stmt.run(createdInvoice.id, productId, qty, price);
+                subtotal += price * qty;
+            }
+            await stmt.finalize();
+
+            taxAmount = +(subtotal * (gstRate / 100));
+            total = +(subtotal + taxAmount);
+
+            // update invoice totals
+            await db.run('UPDATE invoices SET subtotal = ?, tax_amount = ?, total = ? WHERE id = ?', [subtotal, taxAmount, total, createdInvoice.id]);
+        }
+
+        // send admin/staff notification (supports sendgrid or smtp via settings_email)
         try {
             const subject = `Quotation request from ${contact_name}${company_name ? ' @ ' + company_name : ''}`;
             const bodyHtml = `<p>New quotation request received:</p>
@@ -582,13 +742,77 @@ app.post('/api/quotes', async (req, res) => {
                   <li><strong>Details:</strong> ${details || '—'}</li>
                   <li><strong>Linked Quote ID:</strong> ${quote.id}</li>
                   <li><strong>Created Invoice ID:</strong> ${createdInvoice.id}</li>
+                  <li><strong>Subtotal:</strong> ${subtotal}</li>
+                  <li><strong>Tax:</strong> ${taxAmount}</li>
+                  <li><strong>Total:</strong> ${total}</li>
                 </ul>`;
             await sendNotificationEmail(subject, bodyHtml);
+
+            // Also notify staff users with email addresses (cashiers/admins) so in-house staff get alerted
+            try {
+                const staffList = await db.all("SELECT email FROM staff WHERE email IS NOT NULL AND email != ''");
+                const emails = staffList.map(s => s.email).filter(Boolean);
+                if (emails.length > 0) {
+                    // Send a single email to staff list (toOverride accepts a comma-separated string)
+                    await sendNotificationEmail(subject, bodyHtml, emails.join(','));
+                }
+            } catch (e) {
+                console.warn('Failed to notify staff emails', e?.message || e);
+            }
         } catch (err) {
             console.warn('Failed to send quote notification', err?.message || err);
         }
 
+        // Log activity
+        try { await logActivity('quotes', quote.id, 'created', null, `Quote ${quote.id} created and linked invoice ${createdInvoice.id}`); } catch (e) { /* ignore */ }
+
+        // create an in-app notification for staff
+        try {
+            await db.run('INSERT INTO notifications (user_id, type, message, link, is_read, created_at) VALUES (?, ?, ?, ?, ?, ?)', [null, 'quote_request', `Quotation request ${quote.id}`, `/invoices/${createdInvoice.id}`, 0, new Date().toISOString()]);
+        } catch (e) { console.warn('Failed to create notification', e?.message || e); }
+
         res.status(201).json(quote);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Notifications endpoints (polling)
+app.get('/api/notifications', authMiddleware, requireRole('cashier'), async (req, res) => {
+    try {
+        const notifications = await db.all('SELECT * FROM notifications ORDER BY created_at DESC LIMIT 50');
+        res.json(notifications);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.put('/api/notifications/:id/read', authMiddleware, requireRole('cashier'), async (req, res) => {
+    try {
+        const { id } = req.params;
+        await db.run('UPDATE notifications SET is_read = 1 WHERE id = ?', [id]);
+        res.json({ id, read: true });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Mark all notifications read (for convenience)
+app.put('/api/notifications/mark-read-all', authMiddleware, requireRole('cashier'), async (req, res) => {
+    try {
+        await db.run('UPDATE notifications SET is_read = 1 WHERE is_read = 0');
+        res.json({ ok: true });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Dismiss (delete) a notification
+app.delete('/api/notifications/:id', authMiddleware, requireRole('cashier'), async (req, res) => {
+    try {
+        const { id } = req.params;
+        await db.run('DELETE FROM notifications WHERE id = ?', [id]);
+        res.status(204).end();
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
@@ -701,8 +925,8 @@ app.post('/api/invoices', async (req, res) => {
             if (accountsReceivable && salesRevenue) {
                 // Create journal entry
                 const journalResult = await db.run(
-                    'INSERT INTO journal_entries (description, reference, created_at) VALUES (?, ?, ?)',
-                    [`Sale Invoice #${invoiceId}`, `INV-${invoiceId}`, new Date().toISOString()]
+                    'INSERT INTO journal_entries (entry_date, description, reference, total_debit, total_credit, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+                    [new Date().toISOString().split('T')[0], `Sale Invoice #${invoiceId}`, `INV-${invoiceId}`, total, total, 'posted', new Date().toISOString()]
                 );
                 const journalId = journalResult.lastID;
 
@@ -757,6 +981,106 @@ app.get('/api/invoices', async (req, res) => {
         res.json(invoices);
     } catch (error) {
         res.status(500).json({ error: error.message });
+    }
+});
+
+    // Get single invoice with line items (for edit/view in UI)
+    app.get('/api/invoices/:id', authMiddleware, requireRole('admin'), async (req, res) => {
+        const { id } = req.params;
+        try {
+            const invoice = await db.get(`
+                SELECT i.*, c.name as customer_name, o.name as outlet_name
+                FROM invoices i
+                LEFT JOIN customers c ON c.id = i.customer_id
+                LEFT JOIN outlets o ON o.id = i.outlet_id
+                WHERE i.id = ?
+            `, [id]);
+            if (!invoice) return res.status(404).json({ error: 'Invoice not found' });
+
+            const items = await db.all(`
+                SELECT ii.id, ii.product_id, p.name as product_name, ii.quantity, ii.price, p.stock as product_stock, p.image as product_image
+                FROM invoice_items ii
+                LEFT JOIN products p ON p.id = ii.product_id
+                WHERE ii.invoice_id = ?
+            `, [id]);
+
+            res.json({ ...invoice, items });
+        } catch (err) {
+            res.status(500).json({ error: err.message });
+        }
+    });
+
+// Admin: edit invoice/quote and its line items (replace items atomically and recompute totals)
+app.put('/api/invoices/:id', authMiddleware, requireRole('admin'), async (req, res) => {
+    const { id } = req.params;
+    const { items, status, type } = req.body;
+    try {
+        const invoice = await db.get('SELECT * FROM invoices WHERE id = ?', [id]);
+        if (!invoice) return res.status(404).json({ error: 'Invoice not found' });
+
+        // Begin transaction
+        await db.run('BEGIN TRANSACTION');
+
+        // If items provided, replace them
+        if (Array.isArray(items)) {
+            // Get existing items to compute stock deltas if invoice already issued
+            const existing = await db.all('SELECT product_id, quantity FROM invoice_items WHERE invoice_id = ?', [id]);
+            const existingMap = new Map(existing.map(e => [e.product_id, e.quantity]));
+
+            // compute new subtotal
+            let newSubtotal = 0;
+            // delete existing items
+            await db.run('DELETE FROM invoice_items WHERE invoice_id = ?', [id]);
+            const stmt = await db.prepare('INSERT INTO invoice_items (invoice_id, product_id, quantity, price) VALUES (?, ?, ?, ?)');
+            for (const it of items) {
+                const pid = it.product_id || it.id || null;
+                const qty = parseInt(it.quantity || 0, 10) || 0;
+                const price = parseFloat(it.price || it.unit_price || 0) || 0;
+                if (qty <= 0) continue;
+                await stmt.run(id, pid, qty, price);
+                newSubtotal += price * qty;
+
+                // If invoice was already issued (type === 'invoice'), adjust stock by delta
+                if (invoice.type === 'invoice' && pid) {
+                    const oldQty = existingMap.get(pid) || 0;
+                    const delta = qty - oldQty; // positive => reduce stock more
+                    if (delta > 0) {
+                        // ensure enough stock
+                        const prod = await db.get('SELECT stock FROM products WHERE id = ?', [pid]);
+                        if (!prod || prod.stock < delta) {
+                            throw new Error(`Insufficient stock for product ${pid}`);
+                        }
+                        await db.run('UPDATE products SET stock = stock - ? WHERE id = ?', [delta, pid]);
+                    } else if (delta < 0) {
+                        // return stock
+                        await db.run('UPDATE products SET stock = stock + ? WHERE id = ?', [-delta, pid]);
+                    }
+                }
+            }
+            await stmt.finalize();
+
+            const settingsRow = await db.get('SELECT gst_rate FROM settings WHERE id = 1');
+            const gstRate = parseFloat(settingsRow?.gst_rate || 0);
+            const newTax = +(newSubtotal * (gstRate / 100));
+            const newTotal = +(newSubtotal + newTax);
+
+            await db.run('UPDATE invoices SET subtotal = ?, tax_amount = ?, total = ? WHERE id = ?', [newSubtotal, newTax, newTotal, id]);
+        }
+
+        // allow status/type updates
+        if (status) {
+            await db.run('UPDATE invoices SET status = ? WHERE id = ?', [status, id]);
+        }
+        if (type) {
+            await db.run('UPDATE invoices SET type = ? WHERE id = ?', [type, id]);
+        }
+
+        await db.run('COMMIT');
+        const updated = await db.get('SELECT * FROM invoices WHERE id = ?', [id]);
+        res.json(updated);
+    } catch (err) {
+        try { await db.run('ROLLBACK'); } catch (e) {}
+        res.status(500).json({ error: err.message });
     }
 });
 
@@ -980,17 +1304,76 @@ app.post('/api/orders', async (req, res) => {
             console.warn('Failed to persist customer for order', err?.message || err);
         }
 
-        // send admin notification about new order
+        // Create an invoice for this order and create journal entries so sales appear in accounting
         try {
-            const subject = `New order placed by ${customer.name}`;
-            const itemsHtml = cart.map(it => `<li>${it.name} x ${it.quantity} — ${it.price}</li>`).join('');
-            const bodyHtml = `<p>A new order was placed:</p><ul><li><strong>Name:</strong> ${customer.name}</li><li><strong>Email:</strong> ${customer.email}</li><li><strong>Total:</strong> ${total}</li></ul><p>Items:</p><ul>${itemsHtml}</ul><p>Order ID: ${orderId}</p>`;
-            await sendNotificationEmail(subject, bodyHtml);
-        } catch (err) {
-            console.warn('Failed to send order notification', err?.message || err);
-        }
+            // compute subtotal/tax using current settings/outlet
+            const settingsRow = await db.get('SELECT gst_rate, current_outlet_id FROM settings WHERE id = 1');
+            const gstRate = parseFloat(settingsRow?.gst_rate || 0);
+            const outletId = settingsRow?.current_outlet_id || null;
 
-        res.status(201).json({ message: 'Order created successfully', orderId });
+            const invResult = await db.run('INSERT INTO invoices (customer_id, subtotal, tax_amount, total, outlet_id, type, status) VALUES (?, ?, ?, ?, ?, ?, ?)', [null, 0, 0, 0, outletId, 'invoice', 'issued']);
+            const invoiceId = invResult.lastID;
+
+            // persist invoice_items and compute subtotal
+            let invSubtotal = 0;
+            const invStmt = await db.prepare('INSERT INTO invoice_items (invoice_id, product_id, quantity, price) VALUES (?, ?, ?, ?)');
+            for (const item of cart) {
+                await invStmt.run(invoiceId, item.id, item.quantity, item.price);
+                invSubtotal += item.price * item.quantity;
+            }
+            await invStmt.finalize();
+
+            const invTax = +(invSubtotal * (gstRate / 100));
+            const invTotal = +(invSubtotal + invTax);
+            await db.run('UPDATE invoices SET customer_id = (SELECT id FROM customers WHERE email = ? LIMIT 1), subtotal = ?, tax_amount = ?, total = ? WHERE id = ?', [customer.email, invSubtotal, invTax, invTotal, invoiceId]);
+
+            // Create accounting journal entries (debit AR, credit sales, credit taxes)
+            const accountsReceivable = await db.get('SELECT id FROM chart_of_accounts WHERE account_code = ?', ['1200']);
+            const salesRevenue = await db.get('SELECT id FROM chart_of_accounts WHERE account_code = ?', ['4000']);
+            const taxesPayable = await db.get('SELECT id FROM chart_of_accounts WHERE account_code = ?', ['2200']);
+
+            if (accountsReceivable && salesRevenue) {
+                const jr = await db.run('INSERT INTO journal_entries (entry_date, description, reference, total_debit, total_credit, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)', [new Date().toISOString().split('T')[0], `Order #${orderId}`, `ORDER-${orderId}`, invTotal, invTotal, 'posted', new Date().toISOString()]);
+                const journalId = jr.lastID;
+
+                await db.run('INSERT INTO journal_entry_lines (journal_entry_id, account_id, description, debit, credit) VALUES (?, ?, ?, ?, ?)', [journalId, accountsReceivable.id, `Order #${orderId}`, invTotal, 0]);
+                await db.run('INSERT INTO journal_entry_lines (journal_entry_id, account_id, description, debit, credit) VALUES (?, ?, ?, ?, ?)', [journalId, salesRevenue.id, `Sales from order #${orderId}`, 0, invSubtotal]);
+                if (invTax > 0 && taxesPayable) {
+                    await db.run('INSERT INTO journal_entry_lines (journal_entry_id, account_id, description, debit, credit) VALUES (?, ?, ?, ?, ?)', [journalId, taxesPayable.id, `Tax for order #${orderId}`, 0, invTax]);
+                }
+            }
+
+            // ensure customer is persisted
+            try {
+                const existing = await db.get('SELECT * FROM customers WHERE email = ?', [customer.email]);
+                if (existing) {
+                    await db.run('UPDATE customers SET name = ? WHERE id = ?', [customer.name, existing.id]);
+                } else {
+                    await db.run('INSERT INTO customers (name, email) VALUES (?, ?)', [customer.name, customer.email]);
+                }
+            } catch (err) {
+                console.warn('Failed to persist customer for order', err?.message || err);
+            }
+
+            // send admin notification about new order and create in-app notification
+            try {
+                const subject = `New order placed by ${customer.name}`;
+                const itemsHtml = cart.map(it => `<li>${it.name} x ${it.quantity} — ${it.price}</li>`).join('');
+                const bodyHtml = `<p>A new order was placed:</p><ul><li><strong>Name:</strong> ${customer.name}</li><li><strong>Email:</strong> ${customer.email}</li><li><strong>Total:</strong> ${invTotal}</li></ul><p>Items:</p><ul>${itemsHtml}</ul><p>Order ID: ${orderId}</p><p>Invoice ID: ${invoiceId}</p>`;
+                await sendNotificationEmail(subject, bodyHtml);
+            } catch (err) {
+                console.warn('Failed to send order notification', err?.message || err);
+            }
+
+            try {
+                await db.run('INSERT INTO notifications (user_id, type, message, link, is_read, created_at) VALUES (?, ?, ?, ?, ?, ?)', [null, 'order_placed', `Order placed ${orderId}`, `/invoices/${invoiceId}`, 0, new Date().toISOString()]);
+            } catch (e) { console.warn('Failed to create notification', e?.message || e); }
+
+            res.status(201).json({ message: 'Order created successfully', orderId, invoiceId });
+        } catch (err) {
+            console.error('Order creation failed (invoice/journal step):', err);
+            return res.status(500).json({ error: 'Order created but failed to create invoice/journal' });
+        }
     } catch (err) {
         console.error('Order creation failed:', err);
         res.status(500).json({ error: 'Failed to create order' });
@@ -1750,14 +2133,14 @@ app.get('/api/accounts/reports/trial-balance', authMiddleware, requireRole(['acc
         
         const accounts = await db.all(`
             SELECT 
-                coa.id, coa.account_number, coa.name, coa.type, coa.category,
+                coa.id, coa.account_code as account_number, coa.account_name as name, coa.account_type as type, coa.category,
                 COALESCE(SUM(gl.debit), 0) as debit_total,
                 COALESCE(SUM(gl.credit), 0) as credit_total,
                 (COALESCE(SUM(gl.debit), 0) - COALESCE(SUM(gl.credit), 0)) as balance
             FROM chart_of_accounts coa
             LEFT JOIN general_ledger gl ON coa.id = gl.account_id ${dateCondition}
-            GROUP BY coa.id, coa.account_number, coa.name, coa.type, coa.category
-            ORDER BY coa.account_number
+            GROUP BY coa.id, coa.account_code, coa.account_name, coa.account_type, coa.category
+            ORDER BY coa.account_code
         `, params);
         
         res.json(accounts);
@@ -1781,40 +2164,40 @@ app.get('/api/accounts/reports/balance-sheet', authMiddleware, requireRole(['acc
         // Get asset accounts
         const assets = await db.all(`
             SELECT 
-                coa.account_number, coa.name, coa.category,
+                coa.account_code as account_number, coa.account_name as name, coa.category,
                 (COALESCE(SUM(gl.debit), 0) - COALESCE(SUM(gl.credit), 0)) as balance
             FROM chart_of_accounts coa
             LEFT JOIN general_ledger gl ON coa.id = gl.account_id ${dateCondition}
-            WHERE coa.type = 'asset'
-            GROUP BY coa.id, coa.account_number, coa.name, coa.category
+            WHERE coa.account_type = 'asset'
+            GROUP BY coa.id, coa.account_code, coa.account_name, coa.category
             HAVING balance != 0
-            ORDER BY coa.account_number
+            ORDER BY coa.account_code
         `, params);
         
         // Get liability accounts
         const liabilities = await db.all(`
             SELECT 
-                coa.account_number, coa.name, coa.category,
+                coa.account_code as account_number, coa.account_name as name, coa.category,
                 (COALESCE(SUM(gl.credit), 0) - COALESCE(SUM(gl.debit), 0)) as balance
             FROM chart_of_accounts coa
             LEFT JOIN general_ledger gl ON coa.id = gl.account_id ${dateCondition}
-            WHERE coa.type = 'liability'
-            GROUP BY coa.id, coa.account_number, coa.name, coa.category
+            WHERE coa.account_type = 'liability'
+            GROUP BY coa.id, coa.account_code, coa.account_name, coa.category
             HAVING balance != 0
-            ORDER BY coa.account_number
+            ORDER BY coa.account_code
         `, params);
         
         // Get equity accounts
         const equity = await db.all(`
             SELECT 
-                coa.account_number, coa.name, coa.category,
+                coa.account_code as account_number, coa.account_name as name, coa.category,
                 (COALESCE(SUM(gl.credit), 0) - COALESCE(SUM(gl.debit), 0)) as balance
             FROM chart_of_accounts coa
             LEFT JOIN general_ledger gl ON coa.id = gl.account_id ${dateCondition}
-            WHERE coa.type = 'equity'
-            GROUP BY coa.id, coa.account_number, coa.name, coa.category
+            WHERE coa.account_type = 'equity'
+            GROUP BY coa.id, coa.account_code, coa.account_name, coa.category
             HAVING balance != 0
-            ORDER BY coa.account_number
+            ORDER BY coa.account_code
         `, params);
         
         const totalAssets = assets.reduce((sum, acc) => sum + acc.balance, 0);
@@ -1847,27 +2230,27 @@ app.get('/api/accounts/reports/profit-loss', authMiddleware, requireRole(['accou
         // Get revenue accounts
         const revenue = await db.all(`
             SELECT 
-                coa.account_number, coa.name, coa.category,
+                coa.account_code as account_number, coa.account_name as name, coa.category,
                 COALESCE(SUM(gl.credit), 0) - COALESCE(SUM(gl.debit), 0) as amount
             FROM chart_of_accounts coa
             LEFT JOIN general_ledger gl ON coa.id = gl.account_id ${dateCondition}
-            WHERE coa.type = 'revenue'
-            GROUP BY coa.id, coa.account_number, coa.name, coa.category
+            WHERE coa.account_type = 'revenue'
+            GROUP BY coa.id, coa.account_code, coa.account_name, coa.category
             HAVING amount != 0
-            ORDER BY coa.account_number
+            ORDER BY coa.account_code
         `, params);
         
         // Get expense accounts
         const expenses = await db.all(`
             SELECT 
-                coa.account_number, coa.name, coa.category,
+                coa.account_code as account_number, coa.account_name as name, coa.category,
                 COALESCE(SUM(gl.debit), 0) - COALESCE(SUM(gl.credit), 0) as amount
             FROM chart_of_accounts coa
             LEFT JOIN general_ledger gl ON coa.id = gl.account_id ${dateCondition}
-            WHERE coa.type = 'expense'
-            GROUP BY coa.id, coa.account_number, coa.name, coa.category
+            WHERE coa.account_type = 'expense'
+            GROUP BY coa.id, coa.account_code, coa.account_name, coa.category
             HAVING amount != 0
-            ORDER BY coa.account_number
+            ORDER BY coa.account_code
         `, params);
         
         const totalRevenue = revenue.reduce((sum, acc) => sum + acc.amount, 0);

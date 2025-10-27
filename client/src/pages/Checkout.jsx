@@ -32,7 +32,8 @@ export default function Checkout() {
         await api.post('/quotes', {
           contact_name: customer.name,
           email: customer.email,
-          details: `Quote request for the following items:\n${quoteDetails}\n\nTotal Value: ${currencyCode} ${cartTotal.toFixed(2)}`
+          details: `Quote request for the following items:\n${quoteDetails}\n\nTotal Value: ${formatCurrency(cartTotal)}`,
+          cart: cart.map(i => ({ id: i.id, product_id: i.id, quantity: i.quantity, price: i.price }))
         });
         toast.push('Quote request sent successfully!', 'success');
         clearCart();

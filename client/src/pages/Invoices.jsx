@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import api from '../lib/api';
 import { useToast } from '../components/ToastContext';
 import { useSettings } from '../components/SettingsContext';
+import InvoiceEditModal from '../components/InvoiceEditModal';
 
 const STATUS_OPTIONS = {
   invoice: [
@@ -63,6 +64,7 @@ export default function Invoices() {
   const [dateTo, setDateTo] = useState('');
   const [outlets, setOutlets] = useState([]);
   const [savedViews, setSavedViews] = useState([]);
+  const [editingInvoiceId, setEditingInvoiceId] = useState(null);
 
   useEffect(() => {
     loadInvoices();
@@ -589,6 +591,12 @@ export default function Invoices() {
                   <td className="p-4 whitespace-nowrap text-right">
                     <div className="flex items-center justify-end gap-3">
                       <button
+                        onClick={() => setEditingInvoiceId(invoice.id)}
+                        className="text-indigo-600 hover:underline"
+                      >
+                        Edit
+                      </button>
+                      <button
                         onClick={async () => {
                           try {
                             const linkResp = await api.post(`/invoices/${invoice.id}/pdf-link`);
@@ -730,6 +738,14 @@ export default function Invoices() {
             </div>
           </div>
         </div>
+      )}
+
+      {editingInvoiceId && (
+        <InvoiceEditModal
+          invoiceId={editingInvoiceId}
+          onClose={() => setEditingInvoiceId(null)}
+          onSaved={() => { setEditingInvoiceId(null); loadInvoices(); }}
+        />
       )}
     </div>
   );

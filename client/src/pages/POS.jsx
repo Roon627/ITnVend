@@ -648,7 +648,7 @@ export default function POS() {
                 step="0.01"
                 value={paymentAmount}
                 onChange={(e) => setPaymentAmount(e.target.value)}
-                placeholder={totalWithTax.toFixed(2)}
+                placeholder={formatCurrency(totalWithTax)}
                 className="w-full px-3 py-2 border border-gray-300 rounded-md"
                 autoFocus
               />
