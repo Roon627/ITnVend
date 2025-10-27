@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { api } from '../lib/api';
+import { useSettings } from '../components/SettingsContext';
 
 const Reports = () => {
+  const { formatCurrency } = useSettings();
   const [activeTab, setActiveTab] = useState('sales');
   const [salesReport, setSalesReport] = useState({});
   const [inventoryReport, setInventoryReport] = useState([]);
@@ -313,6 +315,7 @@ const Reports = () => {
 
 // Sales Report Component
 const SalesReport = ({ data, onExport }) => {
+  const { formatCurrency } = useSettings();
   return (
     <div>
       <div className="flex justify-between items-center mb-6">
@@ -333,7 +336,7 @@ const SalesReport = ({ data, onExport }) => {
             </div>
             <div className="ml-4">
               <p className="text-sm font-medium text-blue-600">Total Sales</p>
-              <p className="text-2xl font-bold text-blue-900">${data.totalSales?.toFixed(2) || '0.00'}</p>
+              <p className="text-2xl font-bold text-blue-900">{formatCurrency(data.totalSales || 0)}</p>
             </div>
           </div>
         </div>
@@ -355,7 +358,7 @@ const SalesReport = ({ data, onExport }) => {
             </div>
             <div className="ml-4">
               <p className="text-sm font-medium text-yellow-600">Outstanding</p>
-              <p className="text-2xl font-bold text-yellow-900">${data.outstandingInvoices?.toFixed(2) || '0.00'}</p>
+              <p className="text-2xl font-bold text-yellow-900">{formatCurrency(data.outstandingInvoices || 0)}</p>
             </div>
           </div>
         </div>
@@ -366,7 +369,7 @@ const SalesReport = ({ data, onExport }) => {
             </div>
             <div className="ml-4">
               <p className="text-sm font-medium text-purple-600">Total Quotes</p>
-              <p className="text-2xl font-bold text-purple-900">${data.totalQuotes?.toFixed(2) || '0.00'}</p>
+              <p className="text-2xl font-bold text-purple-900">{formatCurrency(data.totalQuotes || 0)}</p>
             </div>
           </div>
         </div>
@@ -380,11 +383,11 @@ const SalesReport = ({ data, onExport }) => {
             <div className="space-y-2">
               <div className="flex justify-between">
                 <span>Paid Invoices:</span>
-                <span className="font-semibold">${data.paidInvoices?.toFixed(2) || '0.00'}</span>
+                <span className="font-semibold">{formatCurrency(data.paidInvoices || 0)}</span>
               </div>
               <div className="flex justify-between">
                 <span>Outstanding Invoices:</span>
-                <span className="font-semibold">${data.outstandingInvoices?.toFixed(2) || '0.00'}</span>
+                <span className="font-semibold">{formatCurrency(data.outstandingInvoices || 0)}</span>
               </div>
             </div>
           </div>
@@ -409,6 +412,7 @@ const SalesReport = ({ data, onExport }) => {
 
 // Inventory Report Component
 const InventoryReport = ({ data, onExport }) => {
+  const { formatCurrency } = useSettings();
   return (
     <div>
       <div className="flex justify-between items-center mb-6">
@@ -440,7 +444,7 @@ const InventoryReport = ({ data, onExport }) => {
             </div>
             <div className="ml-4">
               <p className="text-sm font-medium text-green-600">Total Value</p>
-              <p className="text-2xl font-bold text-green-900">${data.totalValue?.toFixed(2) || '0.00'}</p>
+              <p className="text-2xl font-bold text-green-900">{formatCurrency(data.totalValue || 0)}</p>
             </div>
           </div>
         </div>
@@ -501,7 +505,7 @@ const InventoryReport = ({ data, onExport }) => {
                     {stats.totalStock}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                    ${stats.totalValue?.toFixed(2)}
+                    {formatCurrency(stats.totalValue)}
                   </td>
                 </tr>
               ))}
@@ -540,7 +544,7 @@ const InventoryReport = ({ data, onExport }) => {
                     {product.stock}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                    ${product.price?.toFixed(2)}
+                    {formatCurrency(product.price)}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
                     <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
@@ -563,6 +567,7 @@ const InventoryReport = ({ data, onExport }) => {
 
 // Customer Report Component
 const CustomerReport = ({ data, onExport }) => {
+  const { formatCurrency } = useSettings();
   return (
     <div>
       <div className="flex justify-between items-center mb-6">
@@ -595,7 +600,7 @@ const CustomerReport = ({ data, onExport }) => {
             <div className="ml-4">
               <p className="text-sm font-medium text-green-600">Total Revenue</p>
               <p className="text-2xl font-bold text-green-900">
-                ${data.reduce((sum, customer) => sum + customer.totalSpent, 0)?.toFixed(2)}
+                {formatCurrency(data.reduce((sum, customer) => sum + customer.totalSpent, 0))}
               </p>
             </div>
           </div>
@@ -621,7 +626,7 @@ const CustomerReport = ({ data, onExport }) => {
             <div className="ml-4">
               <p className="text-sm font-medium text-purple-600">Avg Order Value</p>
               <p className="text-2xl font-bold text-purple-900">
-                ${(data.reduce((sum, customer) => sum + customer.averageOrderValue, 0) / data.length)?.toFixed(2) || '0.00'}
+                {formatCurrency(data.length > 0 ? (data.reduce((sum, customer) => sum + customer.averageOrderValue, 0) / data.length) : 0)}
               </p>
             </div>
           </div>
@@ -662,13 +667,13 @@ const CustomerReport = ({ data, onExport }) => {
                   {customer.email}
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                  ${customer.totalSpent?.toFixed(2)}
+                  {formatCurrency(customer.totalSpent)}
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                   {customer.invoiceCount}
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                  ${customer.averageOrderValue?.toFixed(2)}
+                  {formatCurrency(customer.averageOrderValue)}
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                   {customer.lastPurchase ? new Date(customer.lastPurchase).toLocaleDateString() : 'Never'}
@@ -684,6 +689,7 @@ const CustomerReport = ({ data, onExport }) => {
 
 // Financial Reports Component
 const FinancialReports = ({ data, onExport }) => {
+  const { formatCurrency } = useSettings();
   const [activeReport, setActiveReport] = useState('trial-balance');
 
   return (
@@ -754,13 +760,13 @@ const FinancialReports = ({ data, onExport }) => {
                       {account.type}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-gray-900">
-                      ${account.debit_total?.toFixed(2)}
+                      {formatCurrency(account.debit_total)}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-gray-900">
-                      ${account.credit_total?.toFixed(2)}
+                      {formatCurrency(account.credit_total)}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-right font-medium text-gray-900">
-                      ${account.balance?.toFixed(2)}
+                      {formatCurrency(account.balance)}
                     </td>
                   </tr>
                 ))}
@@ -780,13 +786,13 @@ const FinancialReports = ({ data, onExport }) => {
                 {data.balanceSheet?.assets?.map((asset) => (
                   <div key={asset.account_number} className="flex justify-between">
                     <span>{asset.name}</span>
-                    <span>${asset.balance?.toFixed(2)}</span>
+                    <span>{formatCurrency(asset.balance)}</span>
                   </div>
                 ))}
                 <div className="border-t pt-2 font-semibold">
                   <div className="flex justify-between">
                     <span>Total Assets</span>
-                    <span>${data.balanceSheet?.totals?.assets?.toFixed(2)}</span>
+                    <span>{formatCurrency(data.balanceSheet?.totals?.assets)}</span>
                   </div>
                 </div>
               </div>
@@ -797,19 +803,19 @@ const FinancialReports = ({ data, onExport }) => {
                 {data.balanceSheet?.liabilities?.map((liability) => (
                   <div key={liability.account_number} className="flex justify-between">
                     <span>{liability.name}</span>
-                    <span>${liability.balance?.toFixed(2)}</span>
+                    <span>{formatCurrency(liability.balance)}</span>
                   </div>
                 ))}
                 {data.balanceSheet?.equity?.map((equity) => (
                   <div key={equity.account_number} className="flex justify-between">
                     <span>{equity.name}</span>
-                    <span>${equity.balance?.toFixed(2)}</span>
+                    <span>{formatCurrency(equity.balance)}</span>
                   </div>
                 ))}
                 <div className="border-t pt-2 font-semibold">
                   <div className="flex justify-between">
                     <span>Total Liabilities & Equity</span>
-                    <span>${data.balanceSheet?.totals?.liabilitiesAndEquity?.toFixed(2)}</span>
+                    <span>{formatCurrency(data.balanceSheet?.totals?.liabilitiesAndEquity)}</span>
                   </div>
                 </div>
               </div>
@@ -828,13 +834,13 @@ const FinancialReports = ({ data, onExport }) => {
                 {data.profitLoss?.revenue?.map((rev) => (
                   <div key={rev.account_number} className="flex justify-between">
                     <span>{rev.name}</span>
-                    <span>${rev.amount?.toFixed(2)}</span>
+                    <span>{formatCurrency(rev.amount)}</span>
                   </div>
                 ))}
                 <div className="border-t pt-2 font-semibold">
                   <div className="flex justify-between">
                     <span>Total Revenue</span>
-                    <span>${data.profitLoss?.totals?.revenue?.toFixed(2)}</span>
+                    <span>{formatCurrency(data.profitLoss?.totals?.revenue)}</span>
                   </div>
                 </div>
               </div>
@@ -845,13 +851,13 @@ const FinancialReports = ({ data, onExport }) => {
                 {data.profitLoss?.expenses?.map((exp) => (
                   <div key={exp.account_number} className="flex justify-between">
                     <span>{exp.name}</span>
-                    <span>${exp.amount?.toFixed(2)}</span>
+                    <span>{formatCurrency(exp.amount)}</span>
                   </div>
                 ))}
                 <div className="border-t pt-2 font-semibold">
                   <div className="flex justify-between">
                     <span>Total Expenses</span>
-                    <span>${data.profitLoss?.totals?.expenses?.toFixed(2)}</span>
+                    <span>{formatCurrency(data.profitLoss?.totals?.expenses)}</span>
                   </div>
                 </div>
               </div>
@@ -859,7 +865,7 @@ const FinancialReports = ({ data, onExport }) => {
             <div className="border-t pt-4">
               <div className="flex justify-between text-xl font-bold">
                 <span>Net Income</span>
-                <span>${data.profitLoss?.totals?.netIncome?.toFixed(2)}</span>
+                <span>{formatCurrency(data.profitLoss?.totals?.netIncome)}</span>
               </div>
             </div>
           </div>

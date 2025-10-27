@@ -82,9 +82,9 @@ export default function POS() {
         api.get('/products/categories')
       ]);
 
-      setProducts(productsData);
-      setCustomers(customersData);
-      setCategories(categoriesData);
+  setProducts(productsData);
+  setCustomers(Array.isArray(customersData) ? customersData : []);
+  setCategories(categoriesData);
 
       if (customersData.length > 0) {
         setSelectedCustomerId(customersData[0].id);

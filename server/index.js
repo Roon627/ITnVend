@@ -687,6 +687,47 @@ app.post('/api/invoices', async (req, res) => {
             }
         }
 
+        // Create accounting journal entries for invoices (not quotes)
+        if (type === 'invoice') {
+            // Get customer name
+            const customer = await db.get('SELECT name FROM customers WHERE id = ?', [customerId]);
+            const customerName = customer ? customer.name : 'Customer';
+
+            // Get account IDs
+            const accountsReceivable = await db.get('SELECT id FROM chart_of_accounts WHERE account_code = ?', ['1200']);
+            const salesRevenue = await db.get('SELECT id FROM chart_of_accounts WHERE account_code = ?', ['4000']);
+            const taxesPayable = await db.get('SELECT id FROM chart_of_accounts WHERE account_code = ?', ['2200']);
+
+            if (accountsReceivable && salesRevenue) {
+                // Create journal entry
+                const journalResult = await db.run(
+                    'INSERT INTO journal_entries (description, reference, created_at) VALUES (?, ?, ?)',
+                    [`Sale Invoice #${invoiceId}`, `INV-${invoiceId}`, new Date().toISOString()]
+                );
+                const journalId = journalResult.lastID;
+
+                // Debit Accounts Receivable (customer owes money)
+                await db.run(
+                    'INSERT INTO journal_entry_lines (journal_entry_id, account_id, debit, credit, description) VALUES (?, ?, ?, ?, ?)',
+                    [journalId, accountsReceivable.id, total, 0, `Invoice #${invoiceId} - ${customerName}`]
+                );
+
+                // Credit Sales Revenue (company earned revenue)
+                await db.run(
+                    'INSERT INTO journal_entry_lines (journal_entry_id, account_id, debit, credit, description) VALUES (?, ?, ?, ?, ?)',
+                    [journalId, salesRevenue.id, 0, subtotal, `Sales revenue from invoice #${invoiceId}`]
+                );
+
+                // Credit Taxes Payable if there's tax
+                if (taxAmount > 0 && taxesPayable) {
+                    await db.run(
+                        'INSERT INTO journal_entry_lines (journal_entry_id, account_id, debit, credit, description) VALUES (?, ?, ?, ?, ?)',
+                        [journalId, taxesPayable.id, 0, taxAmount, `GST on invoice #${invoiceId}`]
+                    );
+                }
+            }
+        }
+
         res.status(201).json({
             id: invoiceId,
             message: `${type === 'invoice' ? 'Invoice' : 'Quote'} created`,
@@ -1695,7 +1736,7 @@ app.put('/api/accounts/receivable/:id/payment', authMiddleware, requireRole('acc
 });
 
 // Financial Reports endpoints
-app.get('/api/accounts/reports/trial-balance', authMiddleware, requireRole('accounts'), async (req, res) => {
+app.get('/api/accounts/reports/trial-balance', authMiddleware, requireRole(['accounts', 'manager']), async (req, res) => {
     const { as_of_date } = req.query;
     
     try {
@@ -1725,7 +1766,7 @@ app.get('/api/accounts/reports/trial-balance', authMiddleware, requireRole('acco
     }
 });
 
-app.get('/api/accounts/reports/balance-sheet', authMiddleware, requireRole('accounts'), async (req, res) => {
+app.get('/api/accounts/reports/balance-sheet', authMiddleware, requireRole(['accounts', 'manager']), async (req, res) => {
     const { as_of_date } = req.query;
     
     try {
@@ -1796,7 +1837,7 @@ app.get('/api/accounts/reports/balance-sheet', authMiddleware, requireRole('acco
     }
 });
 
-app.get('/api/accounts/reports/profit-loss', authMiddleware, requireRole('accounts'), async (req, res) => {
+app.get('/api/accounts/reports/profit-loss', authMiddleware, requireRole(['accounts', 'manager']), async (req, res) => {
     const { start_date, end_date } = req.query;
     
     try {

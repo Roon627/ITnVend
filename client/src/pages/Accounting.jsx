@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { api } from '../lib/api';
+import { useSettings } from '../components/SettingsContext';
 
 const Accounting = () => {
+  const { formatCurrency } = useSettings();
   const [activeTab, setActiveTab] = useState('dashboard');
   const [chartOfAccounts, setChartOfAccounts] = useState([]);
   const [journalEntries, setJournalEntries] = useState([]);
@@ -660,10 +662,10 @@ const JournalEntries = ({ entries, onRefresh }) => {
                   {entry.reference}
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                  ${entry.total_debit?.toFixed(2)}
+                  {formatCurrency(entry.total_debit)}
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                  ${entry.total_credit?.toFixed(2)}
+                  {formatCurrency(entry.total_credit)}
                 </td>
               </tr>
             ))}
@@ -870,10 +872,10 @@ const AccountsPayable = ({ invoices, onRefresh }) => {
                   {new Date(invoice.due_date).toLocaleDateString()}
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                  ${invoice.amount?.toFixed(2)}
+                  {formatCurrency(invoice.amount)}
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                  ${invoice.paid_amount?.toFixed(2)}
+                  {formatCurrency(invoice.paid_amount)}
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap">
                   <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
@@ -970,10 +972,10 @@ const AccountsReceivable = ({ receivables, onRefresh }) => {
                   {new Date(receivable.due_date).toLocaleDateString()}
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                  ${receivable.amount?.toFixed(2)}
+                  {formatCurrency(receivable.amount)}
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                  ${receivable.paid_amount?.toFixed(2)}
+                  {formatCurrency(receivable.paid_amount)}
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap">
                   <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
@@ -1080,13 +1082,13 @@ const FinancialReports = ({ trialBalance, balanceSheet, profitLoss }) => {
                       {account.type}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-gray-900">
-                      ${account.debit_total?.toFixed(2)}
+                      {formatCurrency(account.debit_total)}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-gray-900">
-                      ${account.credit_total?.toFixed(2)}
+                      {formatCurrency(account.credit_total)}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-right font-medium text-gray-900">
-                      ${account.balance?.toFixed(2)}
+                      {formatCurrency(account.balance)}
                     </td>
                   </tr>
                 ))}
@@ -1104,15 +1106,15 @@ const FinancialReports = ({ trialBalance, balanceSheet, profitLoss }) => {
               <h4 className="text-lg font-medium mb-4">Assets</h4>
               <div className="space-y-2">
                 {balanceSheet.assets?.map((asset) => (
-                  <div key={asset.account_number} className="flex justify-between">
+                    <div key={asset.account_number} className="flex justify-between">
                     <span>{asset.name}</span>
-                    <span>${asset.balance?.toFixed(2)}</span>
+                    <span>{formatCurrency(asset.balance)}</span>
                   </div>
                 ))}
                 <div className="border-t pt-2 font-semibold">
-                  <div className="flex justify-between">
+                    <div className="flex justify-between">
                     <span>Total Assets</span>
-                    <span>${balanceSheet.totals?.assets?.toFixed(2)}</span>
+                    <span>{formatCurrency(balanceSheet.totals?.assets)}</span>
                   </div>
                 </div>
               </div>
@@ -1121,21 +1123,21 @@ const FinancialReports = ({ trialBalance, balanceSheet, profitLoss }) => {
               <h4 className="text-lg font-medium mb-4">Liabilities & Equity</h4>
               <div className="space-y-2">
                 {balanceSheet.liabilities?.map((liability) => (
-                  <div key={liability.account_number} className="flex justify-between">
+                    <div key={liability.account_number} className="flex justify-between">
                     <span>{liability.name}</span>
-                    <span>${liability.balance?.toFixed(2)}</span>
+                    <span>{formatCurrency(liability.balance)}</span>
                   </div>
                 ))}
                 {balanceSheet.equity?.map((equity) => (
                   <div key={equity.account_number} className="flex justify-between">
                     <span>{equity.name}</span>
-                    <span>${equity.balance?.toFixed(2)}</span>
+                    <span>{formatCurrency(equity.balance)}</span>
                   </div>
                 ))}
                 <div className="border-t pt-2 font-semibold">
-                  <div className="flex justify-between">
+                    <div className="flex justify-between">
                     <span>Total Liabilities & Equity</span>
-                    <span>${balanceSheet.totals?.liabilitiesAndEquity?.toFixed(2)}</span>
+                    <span>{formatCurrency(balanceSheet.totals?.liabilitiesAndEquity)}</span>
                   </div>
                 </div>
               </div>
@@ -1154,13 +1156,13 @@ const FinancialReports = ({ trialBalance, balanceSheet, profitLoss }) => {
                 {profitLoss.revenue?.map((rev) => (
                   <div key={rev.account_number} className="flex justify-between">
                     <span>{rev.name}</span>
-                    <span>${rev.amount?.toFixed(2)}</span>
+                    <span>{formatCurrency(rev.amount)}</span>
                   </div>
                 ))}
                 <div className="border-t pt-2 font-semibold">
-                  <div className="flex justify-between">
+                    <div className="flex justify-between">
                     <span>Total Revenue</span>
-                    <span>${profitLoss.totals?.revenue?.toFixed(2)}</span>
+                    <span>{formatCurrency(profitLoss.totals?.revenue)}</span>
                   </div>
                 </div>
               </div>
@@ -1171,13 +1173,13 @@ const FinancialReports = ({ trialBalance, balanceSheet, profitLoss }) => {
                 {profitLoss.expenses?.map((exp) => (
                   <div key={exp.account_number} className="flex justify-between">
                     <span>{exp.name}</span>
-                    <span>${exp.amount?.toFixed(2)}</span>
+                    <span>{formatCurrency(exp.amount)}</span>
                   </div>
                 ))}
                 <div className="border-t pt-2 font-semibold">
-                  <div className="flex justify-between">
+                    <div className="flex justify-between">
                     <span>Total Expenses</span>
-                    <span>${profitLoss.totals?.expenses?.toFixed(2)}</span>
+                    <span>{formatCurrency(profitLoss.totals?.expenses)}</span>
                   </div>
                 </div>
               </div>
@@ -1185,7 +1187,7 @@ const FinancialReports = ({ trialBalance, balanceSheet, profitLoss }) => {
             <div className="border-t pt-4">
               <div className="flex justify-between text-xl font-bold">
                 <span>Net Income</span>
-                <span>${profitLoss.totals?.netIncome?.toFixed(2)}</span>
+                <span>{formatCurrency(profitLoss.totals?.netIncome)}</span>
               </div>
             </div>
           </div>

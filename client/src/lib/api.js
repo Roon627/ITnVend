@@ -1,5 +1,12 @@
 // Lightweight API wrapper with retry logic
-const API_BASE = '/api';
+// Keep API paths consistent; most calls include the full '/api/...' path already
+// Build URL for API requests:
+// - If the path is an absolute URL (starts with http), use it unchanged
+// - If the path already starts with '/api', use it as-is
+// - If the path starts with '/', but not '/api', prepend '/api' so '/customers' -> '/api/customers'
+// - If the path is a relative path (no leading '/'), prepend '/api/' as well
+
+const API_BASE = '';
 let authToken = null;
 
 export function setAuthToken(token) {
@@ -24,7 +31,19 @@ async function fetchWithRetry(path, options = {}, retries = 2, backoff = 200) {
         if (authToken) options.headers['Authorization'] = `Bearer ${authToken}`;
         // include credentials so HttpOnly refresh cookie is sent
         options.credentials = 'include';
-        const res = await fetch(`${API_BASE}${path}`, options);
+        // normalize path to backend API route
+        let url;
+        if (/^https?:\/\//.test(path)) {
+          url = path;
+        } else if (path.startsWith('/api')) {
+          url = path;
+        } else if (path.startsWith('/')) {
+          url = `/api${path}`;
+        } else {
+          url = `/api/${path}`;
+        }
+
+        const res = await fetch(url, options);
       if (!res.ok) {
         const text = await res.text();
         throw new Error(text || res.statusText);
