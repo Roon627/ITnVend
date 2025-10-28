@@ -24,4 +24,8 @@ export default defineConfig({
       },
     },
   },
+  // adjust output directory when building an admin-only bundle
+  build: {
+    outDir: process.env.VITE_ONLY_ADMIN === '1' ? 'dist-admin' : 'dist'
+  }
 })

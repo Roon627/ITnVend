@@ -1,0 +1,24 @@
+# Node modules
+/node_modules/
+client/node_modules/
+server/node_modules/
+
+# Build outputs
+/client/dist/
+
+# Uploaded images and server uploads (do not commit binaries)
+/server/server/public/Images/
+/server/server/public/uploads/
+
+# Docker data
+/server/pgdata/
+/server/pgadmin/
+# Local env files (do NOT commit)
+/server/.env
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log

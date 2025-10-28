@@ -3,7 +3,7 @@ import { api } from '../lib/api';
 import { useSettings } from '../components/SettingsContext';
 
 const Accounting = () => {
-  const { formatCurrency } = useSettings();
+  const { formatCurrency, currencySymbol } = useSettings();
   const [activeTab, setActiveTab] = useState('dashboard');
   const [chartOfAccounts, setChartOfAccounts] = useState([]);
   const [journalEntries, setJournalEntries] = useState([]);
@@ -892,7 +892,7 @@ const AccountsPayable = ({ invoices, onRefresh }) => {
                   {invoice.status !== 'paid' && (
                     <button
                       onClick={() => {
-                        const paymentAmount = prompt('Enter payment amount:', (invoice.amount - invoice.paid_amount).toFixed(2));
+                        const paymentAmount = prompt(`Enter payment amount (${currencySymbol})`, (invoice.amount - invoice.paid_amount).toFixed(2));
                         if (paymentAmount) {
                           handlePayment(invoice.id, parseFloat(paymentAmount), new Date().toISOString().split('T')[0]);
                         }
@@ -992,7 +992,7 @@ const AccountsReceivable = ({ receivables, onRefresh }) => {
                   {receivable.status !== 'paid' && (
                     <button
                       onClick={() => {
-                        const paymentAmount = prompt('Enter payment amount:', (receivable.amount - receivable.paid_amount).toFixed(2));
+                        const paymentAmount = prompt(`Enter payment amount (${currencySymbol})`, (receivable.amount - receivable.paid_amount).toFixed(2));
                         if (paymentAmount) {
                           handlePayment(receivable.id, parseFloat(paymentAmount), new Date().toISOString().split('T')[0]);
                         }

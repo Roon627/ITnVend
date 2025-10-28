@@ -32,11 +32,12 @@ export default function Checkout() {
         await api.post('/quotes', {
           contact_name: customer.name,
           email: customer.email,
-          details: `Quote request for the following items:\n${quoteDetails}\n\nTotal Value: ${currencyCode} ${cartTotal.toFixed(2)}`
+          details: `Quote request for the following items:\n${quoteDetails}\n\nTotal Value: ${formatCurrency(cartTotal)}`,
+          cart: cart.map(i => ({ id: i.id, product_id: i.id, quantity: i.quantity, price: i.price }))
         });
-        toast.push('Quote request sent successfully!', 'success');
-        clearCart();
-        navigate('/store');
+  toast.push('Quote request sent successfully!', 'success');
+  clearCart();
+  navigate('/confirmation', { state: { type: 'quote', cart: cart.map(i => ({ id: i.id, name: i.name, quantity: i.quantity, price: i.price })), total: cart.reduce((s, it) => s + it.price * it.quantity, 0) } });
       } catch (err) {
         toast.push('Failed to send quote request.', 'error');
       }
@@ -44,9 +45,11 @@ export default function Checkout() {
       // Handle guest order
       try {
         await api.post('/orders', { customer, cart });
-        toast.push('Order placed successfully!', 'success');
-        clearCart();
-        navigate('/store');
+  toast.push('Order placed successfully!', 'success');
+  const orderSummary = { items: cart.map(i => ({ id: i.id, name: i.name, quantity: i.quantity, price: i.price })), total: cart.reduce((s, it) => s + it.price * it.quantity, 0) };
+  clearCart();
+  // navigate to cute confirmation page with order summary
+  navigate('/confirmation', { state: { type: 'order', order: orderSummary } });
       } catch (err) {
         toast.push('Failed to place order.', 'error');
       }
