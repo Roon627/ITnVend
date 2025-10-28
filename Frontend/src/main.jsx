@@ -1,7 +1,7 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import './styles/global.css'
-import App from './pages/App.jsx'
+import App from './App.jsx'
 import { ToastProvider } from './components/ToastContext.jsx'
 import { CartProvider } from './components/CartContext.jsx'
 import { SettingsProvider } from './components/SettingsContext.jsx'
