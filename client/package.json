@@ -6,6 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "build:admin": "cross-env VITE_ONLY_ADMIN=1 npm run build",
+    "build:both": "npm run build && npm run build:admin",
     "lint": "eslint .",
     "preview": "vite preview"
   },
@@ -17,6 +19,7 @@
     "react-router-dom": "^7.9.4"
   },
   "devDependencies": {
+    "cross-env": "^7.0.3",
     "@eslint/js": "^9.36.0",
     "@types/react": "^19.1.16",
     "@types/react-dom": "^19.1.9",

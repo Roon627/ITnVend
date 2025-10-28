@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useLocation, Link as RouterLink } from 'react-router-dom';
 import { Link } from 'react-router-dom';
 import api from '../lib/api';
 import { useCart } from '../components/CartContext';
@@ -10,10 +11,39 @@ export default function Home() {
   const [products, setProducts] = useState([]);
   const { addToCart, cartCount } = useCart();
   const { formatCurrency } = useSettings();
+  const location = useLocation();
+  const [showBanner, setShowBanner] = useState(false);
+  const [bannerMessage, setBannerMessage] = useState('');
+  const [lastOrder, setLastOrder] = useState(null);
 
   useEffect(() => {
     // Fetch a limited number of products for the homepage
     api.get('/products').then(allProducts => setProducts(allProducts.slice(0, 6))).catch(() => setProducts([]));
+  }, []);
+
+  useEffect(() => {
+    // Show a small confirmation banner if navigated from checkout
+    if (location && location.state) {
+      if (location.state.purchased) {
+        setBannerMessage('Thanks for your purchase!');
+        setShowBanner(true);
+      } else if (location.state.quoteRequested) {
+        setBannerMessage('Quote request received — we will contact you soon.');
+        setShowBanner(true);
+      }
+      // clear location.state to avoid repeated banners on back/refresh
+      try { location.state.purchased = false; location.state.quoteRequested = false; } catch (e) { /* ignore */ }
+    }
+  }, [location]);
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem('lastOrder');
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        setLastOrder(parsed);
+      }
+    } catch (e) { /* ignore */ }
   }, []);
 
   return (
@@ -33,7 +63,40 @@ export default function Home() {
 
       {/* Hero Section */}
       <section className="container mx-auto px-6 py-20 text-center">
+        {showBanner && (
+          <div className="mb-6 p-4 rounded-md bg-green-50 border border-green-200 text-green-800 flex items-center justify-between">
+            <div>{bannerMessage}</div>
+            <div className="flex gap-3">
+              <RouterLink to="/store" className="bg-blue-600 text-white px-4 py-2 rounded-md">Continue Shopping</RouterLink>
+              <button onClick={() => setShowBanner(false)} className="text-sm text-gray-600 underline">Dismiss</button>
+            </div>
+          </div>
+        )}
         <h2 className="text-5xl font-extrabold text-gray-900 mb-4">The Integrated Partner for Modern Business</h2>
+        {lastOrder && (
+          <div className="mt-6 mb-6 bg-white rounded-md shadow-sm p-4 border">
+            <div className="flex justify-between items-start">
+              <div>
+                <h4 className="font-semibold">Recent {lastOrder.type === 'order' ? 'Order' : 'Quote'}</h4>
+                <p className="text-sm text-gray-600">Placed {new Date(lastOrder.ts).toLocaleString()}</p>
+              </div>
+              <div className="text-right">
+                {lastOrder.order && lastOrder.order.total && <div className="font-bold">{formatCurrency(lastOrder.order.total)}</div>}
+                {lastOrder.total && <div className="font-bold">{formatCurrency(lastOrder.total)}</div>}
+              </div>
+            </div>
+            {((lastOrder.order && lastOrder.order.items) || lastOrder.cart)?.length > 0 && (
+              <ul className="mt-3 text-sm space-y-1 text-gray-700">
+                {((lastOrder.order && lastOrder.order.items) || lastOrder.cart).slice(0,3).map((it, i) => (
+                  <li key={i} className="flex justify-between">
+                    <span>{it.name} x {it.quantity}</span>
+                    <span>{formatCurrency((it.price || 0) * (it.quantity || 1))}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
         <p className="text-lg text-gray-600 mb-8">Secure IT, Compelling Media, Efficient Procurement, and Smart Unattended Retail.</p>
   <p className="text-xl font-semibold text-blue-600 mb-3">Smart Vending, Smarter Business</p>
   <p className="text-base text-gray-500 mb-9" dir="rtl">އައި.ޓީ ހިދުމަތް، ޑިޖިޓަލް މީޑިއާ، އަދި ވިޔަފާރީ ހައްލުތައް ފޯރުކޮށްދިނުން</p>

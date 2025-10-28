@@ -7,6 +7,12 @@ export default function Sidebar() {
   const { sidebarCollapsed } = useUI();
   const linkClass = ({ isActive }) => `flex items-center px-4 py-2 rounded-md font-medium gap-3 ${isActive ? 'bg-blue-600 text-white' : 'text-gray-700 hover:bg-gray-100'}`;
 
+  // Admin base path: when building an admin-only bundle we set VITE_ONLY_ADMIN=1
+  // which serves the POS at the site's root. In the normal build the POS lives
+  // under /admin. Compute the correct prefix so links work in both modes.
+  const ADMIN_BASE = import.meta.env.VITE_ONLY_ADMIN === '1' ? '' : '/admin';
+  const mk = (p) => `${ADMIN_BASE}${p.startsWith('/') ? p : `/${p}`}`;
+
   return (
     <aside className={`${sidebarCollapsed ? 'w-20' : 'w-64'} bg-white border-r h-screen p-4 fixed transition-width`}> 
       <div className={`flex items-center ${sidebarCollapsed ? 'justify-center' : 'justify-between'}`}>
@@ -15,16 +21,16 @@ export default function Sidebar() {
         {sidebarCollapsed && <div className="w-8 h-8 rounded-md bg-gradient-to-br from-teal-400 to-teal-600 flex items-center justify-center text-white font-bold">IT</div>}
       </div>
       <nav className="space-y-2 mt-4">
-        <NavLink to="/" end className={linkClass}>
+        <NavLink to={mk('/')} end className={linkClass}>
           <FaCashRegister /> {!sidebarCollapsed && 'POS'}
         </NavLink>
-        <NavLink to="/invoices" className={linkClass}>
+        <NavLink to={mk('/invoices')} className={linkClass}>
           <FaFileInvoice /> {!sidebarCollapsed && 'Invoices'}
         </NavLink>
-        <NavLink to="/products" className={linkClass}>
+        <NavLink to={mk('/products')} className={linkClass}>
           <FaBoxOpen /> {!sidebarCollapsed && 'Products'}
         </NavLink>
-        <NavLink to="/customers" className={linkClass}>
+        <NavLink to={mk('/customers')} className={linkClass}>
           <FaUsers /> {!sidebarCollapsed && 'Customers'}
         </NavLink>
         {/** show Accounting link to accounts, manager, and admin users */}
@@ -32,7 +38,7 @@ export default function Sidebar() {
           const { user } = useAuth();
           if (user && ['accounts', 'manager', 'admin'].includes(user.role)) {
             return (
-              <NavLink to="/accounting" className={linkClass}>
+              <NavLink to={mk('/accounting')} className={linkClass}>
                 <FaCalculator /> {!sidebarCollapsed && 'Accounting'}
               </NavLink>
             );
@@ -44,7 +50,7 @@ export default function Sidebar() {
           const { user } = useAuth();
           if (user && ['manager', 'admin'].includes(user.role)) {
             return (
-              <NavLink to="/reports" className={linkClass}>
+              <NavLink to={mk('/reports')} className={linkClass}>
                 <FaChartBar /> {!sidebarCollapsed && 'Reports'}
               </NavLink>
             );
@@ -56,14 +62,14 @@ export default function Sidebar() {
           const { user } = useAuth();
           if (user && user.role === 'admin') {
             return (
-              <NavLink to="/staff" className={linkClass}>
+              <NavLink to={mk('/staff')} className={linkClass}>
                 <FaUserCog /> {!sidebarCollapsed && 'Staff'}
               </NavLink>
             );
           }
           return null;
         })()}
-        <NavLink to="/settings" className={linkClass}>
+        <NavLink to={mk('/settings')} className={linkClass}>
           <FaCog /> {!sidebarCollapsed && 'Settings'}
         </NavLink>
       </nav>

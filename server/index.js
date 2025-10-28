@@ -1645,11 +1645,19 @@ app.get('/api/staff/:id/activity', authMiddleware, requireRole('admin'), async (
 // Chart of Accounts endpoints
 app.get('/api/accounts/chart', authMiddleware, requireRole('accounts'), async (req, res) => {
     try {
+        // return canonical fields (account_number, name, type) while DB may use account_code/account_name/account_type
         const accounts = await db.all(`
-            SELECT id, account_number, name, type, category, description, is_active, parent_account_id,
-                   (SELECT name FROM chart_of_accounts WHERE id = parent_account_id) as parent_name
+            SELECT id,
+                   COALESCE(account_code, account_number) as account_number,
+                   COALESCE(account_name, name) as name,
+                   COALESCE(account_type, type) as type,
+                   category,
+                   description,
+                   is_active,
+                   parent_account_id,
+                   (SELECT COALESCE(account_name, name) FROM chart_of_accounts WHERE id = parent_account_id) as parent_name
             FROM chart_of_accounts
-            ORDER BY account_number
+            ORDER BY COALESCE(account_code, account_number)
         `);
         res.json(accounts);
     } catch (err) {
@@ -1660,8 +1668,9 @@ app.get('/api/accounts/chart', authMiddleware, requireRole('accounts'), async (r
 app.post('/api/accounts/chart', authMiddleware, requireRole('accounts'), async (req, res) => {
     const { account_number, name, type, category, description, parent_account_id } = req.body;
     try {
+        // Insert using canonical DB column names (account_code/account_name/account_type)
         const result = await db.run(`
-            INSERT INTO chart_of_accounts (account_number, name, type, category, description, parent_account_id, is_active)
+            INSERT INTO chart_of_accounts (account_code, account_name, account_type, category, description, parent_account_id, is_active)
             VALUES (?, ?, ?, ?, ?, ?, 1)
         `, [account_number, name, type, category, description, parent_account_id]);
         
@@ -1678,7 +1687,7 @@ app.put('/api/accounts/chart/:id', authMiddleware, requireRole('accounts'), asyn
     try {
         await db.run(`
             UPDATE chart_of_accounts 
-            SET account_number = ?, name = ?, type = ?, category = ?, description = ?, parent_account_id = ?, is_active = ?
+            SET account_code = ?, account_name = ?, account_type = ?, category = ?, description = ?, parent_account_id = ?, is_active = ?
             WHERE id = ?
         `, [account_number, name, type, category, description, parent_account_id, is_active, id]);
         
