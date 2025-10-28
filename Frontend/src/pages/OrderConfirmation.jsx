@@ -23,7 +23,10 @@ export default function OrderConfirmation() {
       if (state.type === 'order') {
         localStorage.setItem('lastOrder', JSON.stringify({ type: 'order', order: state.order || null, ts: Date.now() }));
       } else if (state.type === 'quote') {
-        localStorage.setItem('lastOrder', JSON.stringify({ type: 'quote', cart: state.cart || null, total: state.total || 0, ts: Date.now() }));
+        localStorage.setItem(
+          'lastOrder',
+          JSON.stringify({ type: 'quote', cart: state.cart || null, total: state.total || 0, quote: state.quote || null, ts: Date.now() })
+        );
       }
     } catch (e) {
       // ignore storage failures
@@ -51,6 +54,9 @@ export default function OrderConfirmation() {
   const subtitle = isOrder ? 'Thanks — your order is on its way.' : 'We received your quote request.';
   const items = (state.order && state.order.items) || state.cart || [];
   const total = (state.order && state.order.total) || state.total || 0;
+  const paymentMethod = state.order?.paymentMethod || null;
+  const paymentReference = state.order?.paymentReference || null;
+  const quoteInfo = state.quote || null;
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-b from-white to-gray-50 p-6">
@@ -87,6 +93,32 @@ export default function OrderConfirmation() {
               <span>Total</span>
               <span>{formatCurrency(total)}</span>
             </div>
+          </div>
+        )}
+
+        {isOrder && paymentMethod && (
+          <div className="mt-6 text-left border-t pt-4">
+            <h3 className="font-semibold mb-2">Payment</h3>
+            <p className="text-sm text-gray-600">
+              Method: {paymentMethod === 'transfer' ? 'Bank transfer' : 'Cash on delivery'}
+            </p>
+            {paymentReference && (
+              <p className="text-sm text-gray-600">Reference: {paymentReference}</p>
+            )}
+          </div>
+        )}
+
+        {!isOrder && quoteInfo && (
+          <div className="mt-6 text-left border-t pt-4">
+            <h3 className="font-semibold mb-2">Quote preferences</h3>
+            <p className="text-sm text-gray-600 capitalize">Request type: {quoteInfo.quoteType}</p>
+            {quoteInfo.company && <p className="text-sm text-gray-600">Company: {quoteInfo.company}</p>}
+            {quoteInfo.registrationNumber && (
+              <p className="text-sm text-gray-600">Registration: {quoteInfo.registrationNumber}</p>
+            )}
+            {quoteInfo.existingAccountRef && (
+              <p className="text-sm text-gray-600">Account reference: {quoteInfo.existingAccountRef}</p>
+            )}
           </div>
         )}
 

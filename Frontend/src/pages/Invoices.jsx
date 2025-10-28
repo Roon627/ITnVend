@@ -66,6 +66,110 @@ export default function Invoices() {
   const [savedViews, setSavedViews] = useState([]);
   const [editingInvoiceId, setEditingInvoiceId] = useState(null);
 
+  const invoiceSummary = useMemo(() => {
+    if (!Array.isArray(invoices) || invoices.length === 0) {
+      return {
+        invoiceCount: 0,
+        invoiceTotal: 0,
+        outstanding: 0,
+        quoteCount: 0,
+        quoteTotal: 0,
+        acceptedQuoteTotal: 0,
+        acceptedQuoteCount: 0,
+        monthRevenue: 0,
+      };
+    }
+    const invoiceDocs = invoices.filter((doc) => doc.type !== 'quote');
+    const quoteDocs = invoices.filter((doc) => doc.type === 'quote');
+    const invoiceTotal = invoiceDocs.reduce((sum, doc) => sum + (Number(doc.total) || 0), 0);
+    const outstanding = invoiceDocs
+      .filter((doc) => (doc.status || 'issued') !== 'paid')
+      .reduce((sum, doc) => sum + (Number(doc.total) || 0), 0);
+    const quoteTotal = quoteDocs.reduce((sum, doc) => sum + (Number(doc.total) || 0), 0);
+    const acceptedQuoteDocs = quoteDocs.filter((doc) => (doc.status || '') === 'accepted');
+    const acceptedQuoteTotal = acceptedQuoteDocs.reduce((sum, doc) => sum + (Number(doc.total) || 0), 0);
+    const monthStart = new Date();
+    monthStart.setDate(1);
+    monthStart.setHours(0, 0, 0, 0);
+    const monthRevenue = invoiceDocs
+      .filter((doc) => doc.created_at && new Date(doc.created_at) >= monthStart)
+      .reduce((sum, doc) => sum + (Number(doc.total) || 0), 0);
+    return {
+      invoiceCount: invoiceDocs.length,
+      invoiceTotal,
+      outstanding,
+      quoteCount: quoteDocs.length,
+      quoteTotal,
+      acceptedQuoteTotal,
+      acceptedQuoteCount: acceptedQuoteDocs.length,
+      monthRevenue,
+    };
+  }, [invoices]);
+
+  const summaryCards = useMemo(
+    () => [
+      {
+        key: 'invoices',
+        title: 'Invoices',
+        primary: invoiceSummary.invoiceCount,
+        secondary: formatCurrency(invoiceSummary.invoiceTotal),
+        footnote: `${formatCurrency(invoiceSummary.monthRevenue)} collected this month`,
+      },
+      {
+        key: 'outstanding',
+        title: 'Outstanding balance',
+        primary: formatCurrency(invoiceSummary.outstanding),
+        secondary: `${invoiceSummary.invoiceCount ? Math.round((invoiceSummary.outstanding / (invoiceSummary.invoiceTotal || 1)) * 100) : 0}% of total`,
+        footnote: 'Excludes paid invoices',
+      },
+      {
+        key: 'quotes',
+        title: 'Quotes in pipeline',
+        primary: invoiceSummary.quoteCount,
+        secondary: formatCurrency(invoiceSummary.quoteTotal),
+        footnote: `${invoiceSummary.acceptedQuoteCount} accepted worth ${formatCurrency(invoiceSummary.acceptedQuoteTotal)}`,
+      },
+      {
+        key: 'avg',
+        title: 'Average document value',
+        primary: invoiceSummary.invoiceCount + invoiceSummary.quoteCount > 0
+          ? formatCurrency((invoiceSummary.invoiceTotal + invoiceSummary.quoteTotal) / (invoiceSummary.invoiceCount + invoiceSummary.quoteCount))
+          : formatCurrency(0),
+        secondary: `${invoiceSummary.invoiceCount + invoiceSummary.quoteCount} documents tracked`,
+        footnote: 'Across invoices and quotes',
+      },
+    ],
+    [invoiceSummary, formatCurrency]
+  );
+
+  const typeChips = useMemo(
+    () => [
+      { value: 'all', label: 'All', count: invoices.length },
+      { value: 'invoice', label: 'Invoices', count: invoices.filter((doc) => doc.type !== 'quote').length },
+      { value: 'quote', label: 'Quotes', count: invoices.filter((doc) => doc.type === 'quote').length },
+    ],
+    [invoices]
+  );
+
+  const statusCounts = useMemo(() => {
+    const counts = {};
+    invoices.forEach((doc) => {
+      const key = doc.status || (doc.type === 'quote' ? 'draft' : 'issued');
+      counts[key] = (counts[key] || 0) + 1;
+    });
+    return counts;
+  }, [invoices]);
+
+  const statusChips = useMemo(() => {
+    if (typeFilter === 'invoice') return STATUS_OPTIONS.invoice;
+    if (typeFilter === 'quote') return STATUS_OPTIONS.quote;
+    const merged = new Map();
+    [...STATUS_OPTIONS.invoice, ...STATUS_OPTIONS.quote].forEach((opt) => {
+      if (!merged.has(opt.value)) merged.set(opt.value, opt);
+    });
+    return Array.from(merged.values());
+  }, [typeFilter]);
+
   useEffect(() => {
     loadInvoices();
   }, []);
@@ -349,6 +453,15 @@ export default function Invoices() {
     try { localStorage.setItem('invoice_views', JSON.stringify(next)); } catch (err) { console.debug(err); }
   };
 
+  const resetFilters = () => {
+    setSearchTerm('');
+    setTypeFilter('all');
+    setStatusFilter('all');
+    setOutletFilter('all');
+    setDateFrom('');
+    setDateTo('');
+  };
+
   const exportCsv = () => {
     if (!filteredInvoices || filteredInvoices.length === 0) {
       push('No rows to export', 'error');
@@ -408,7 +521,7 @@ export default function Invoices() {
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-6">
         <div>
           <h1 className="text-3xl font-bold">Invoices &amp; Quotes</h1>
-          <p className="text-sm text-gray-500">Manage billing documents, convert sales instantly, or issue formal quotations.</p>
+          <p className="text-sm text-gray-500">Track billing, monitor outstanding balances, and convert quotes without leaving the console.</p>
         </div>
         <div className="flex flex-wrap gap-3">
           <button
@@ -426,55 +539,148 @@ export default function Invoices() {
         </div>
       </div>
 
-      <div className="flex flex-col md:flex-row md:items-center gap-3 mb-4">
-        <input
-          type="text"
-          placeholder="Search by customer or ID..."
-          value={searchTerm}
-          onChange={(e) => setSearchTerm(e.target.value)}
-          className="w-full md:w-72 px-4 py-2 border rounded-lg shadow-sm"
-        />
-        <select
-          value={typeFilter}
-          onChange={(e) => setTypeFilter(e.target.value)}
-          className="w-full md:w-48 px-3 py-2 border rounded-lg"
-        >
-          <option value="all">All Documents</option>
-          <option value="invoice">Invoices</option>
-          <option value="quote">Quotes</option>
-        </select>
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4 mb-6">
+        {summaryCards.map((card) => (
+          <div key={card.key} className="rounded-lg bg-white shadow-sm border border-gray-100 p-4">
+            <div className="text-xs uppercase tracking-wider text-gray-500 font-semibold mb-2">{card.title}</div>
+            <div className="text-2xl font-bold text-gray-900">{card.primary}</div>
+            <div className="text-sm text-blue-600 font-semibold mt-1">{card.secondary}</div>
+            <div className="text-xs text-gray-400 mt-2">{card.footnote}</div>
+          </div>
+        ))}
+      </div>
 
-        <select
-          value={statusFilter}
-          onChange={(e) => setStatusFilter(e.target.value)}
-          className="w-full md:w-48 px-3 py-2 border rounded-lg"
-        >
-          <option value="all">Any Status</option>
-          {Object.keys(STATUS_LABELS).map((s) => (
-            <option key={s} value={s}>{STATUS_LABELS[s]}</option>
+      <div className="bg-white shadow-sm rounded-lg p-4 mb-6 space-y-4">
+        <div className="flex flex-wrap items-center gap-2">
+          {typeChips.map((chip) => (
+            <button
+              key={chip.value}
+              onClick={() => setTypeFilter(chip.value)}
+              className={`px-3 py-1.5 rounded-full text-sm border transition ${
+                typeFilter === chip.value ? 'bg-blue-600 text-white border-blue-600' : 'border-gray-300 text-gray-600 hover:border-blue-400'
+              }`}
+            >
+              {chip.label}
+              <span className={`ml-2 text-xs font-semibold ${typeFilter === chip.value ? 'text-blue-100' : 'text-gray-400'}`}>
+                {chip.count}
+              </span>
+            </button>
           ))}
-        </select>
-
-        <select
-          value={outletFilter}
-          onChange={(e) => setOutletFilter(e.target.value)}
-          className="w-full md:w-56 px-3 py-2 border rounded-lg"
-        >
-          <option value="all">Any Outlet</option>
-          {outlets.map((o) => (
-            <option key={o.id} value={o.name}>{o.name}</option>
-          ))}
-        </select>
-
-        <div className="flex items-center gap-2">
-          <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} className="border rounded px-2 py-1" />
-          <span className="text-sm text-gray-400">to</span>
-          <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} className="border rounded px-2 py-1" />
         </div>
 
-        <div className="ml-auto flex items-center gap-2">
-          <button onClick={() => saveCurrentView && saveCurrentView()} className="px-3 py-1 border rounded text-sm">Save View</button>
-          <button onClick={() => exportCsv && exportCsv()} className="px-3 py-1 bg-gray-100 rounded text-sm">Export CSV</button>
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            onClick={() => setStatusFilter('all')}
+            className={`px-3 py-1.5 rounded-full text-xs font-semibold border transition ${
+              statusFilter === 'all' ? 'bg-blue-50 text-blue-700 border-blue-200' : 'border-gray-200 text-gray-600 hover:border-blue-300'
+            }`}
+          >
+            All statuses
+            <span className="ml-2 text-[10px] font-semibold text-gray-400">{invoices.length}</span>
+          </button>
+          {statusChips
+            .filter((opt) => statusCounts[opt.value] || statusFilter === opt.value)
+            .map((opt) => (
+              <button
+                key={opt.value}
+                onClick={() => setStatusFilter(opt.value)}
+                className={`px-3 py-1.5 rounded-full text-xs font-semibold border transition ${
+                  statusFilter === opt.value ? 'bg-blue-600 text-white border-blue-600' : 'border-gray-200 text-gray-600 hover:border-blue-300'
+                }`}
+              >
+                {opt.label}
+                <span className={`ml-2 text-[10px] font-semibold ${statusFilter === opt.value ? 'text-blue-100' : 'text-gray-400'}`}>
+                  {statusCounts[opt.value] || 0}
+                </span>
+              </button>
+            ))}
+        </div>
+
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <label className="flex flex-col gap-1 text-xs font-semibold text-gray-500 uppercase tracking-wider">
+            Search
+            <input
+              type="text"
+              placeholder="Customer, invoice number, amount..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="w-full px-3 py-2 border rounded-md shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
+            />
+          </label>
+          <label className="flex flex-col gap-1 text-xs font-semibold text-gray-500 uppercase tracking-wider">
+            Outlet
+            <select
+              value={outletFilter}
+              onChange={(e) => setOutletFilter(e.target.value)}
+              className="w-full px-3 py-2 border rounded-md text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            >
+              <option value="all">Any outlet</option>
+              {outlets.map((o) => (
+                <option key={o.id} value={o.name}>
+                  {o.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="flex flex-col gap-1 text-xs font-semibold text-gray-500 uppercase tracking-wider">
+            From
+            <input
+              type="date"
+              value={dateFrom}
+              onChange={(e) => setDateFrom(e.target.value)}
+              className="w-full px-3 py-2 border rounded-md text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            />
+          </label>
+          <label className="flex flex-col gap-1 text-xs font-semibold text-gray-500 uppercase tracking-wider">
+            To
+            <input
+              type="date"
+              value={dateTo}
+              onChange={(e) => setDateTo(e.target.value)}
+              className="w-full px-3 py-2 border rounded-md text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            />
+          </label>
+        </div>
+
+        {savedViews.length > 0 && (
+          <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-gray-100">
+            <span className="text-xs uppercase tracking-wider text-gray-400 font-semibold">Saved views</span>
+            {savedViews.map((view) => (
+              <span
+                key={view.id}
+                className="inline-flex items-center gap-2 bg-gray-100 text-gray-700 px-3 py-1 rounded-full text-xs"
+              >
+                <button onClick={() => loadView(view)} className="font-semibold hover:text-blue-600">
+                  {view.name}
+                </button>
+                <button
+                  onClick={() => deleteView(view.id)}
+                  className="text-gray-400 hover:text-red-500"
+                  type="button"
+                  aria-label={`Remove saved view ${view.name}`}
+                >
+                  ×
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
+
+        <div className="flex flex-wrap justify-between items-center gap-3 pt-2 border-t border-gray-100">
+          <div className="text-xs text-gray-500">
+            Showing {filteredInvoices.length} of {invoices.length} documents
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <button onClick={resetFilters} className="px-3 py-1 border rounded text-xs text-gray-600 hover:border-gray-400">
+              Reset filters
+            </button>
+            <button onClick={saveCurrentView} className="px-3 py-1 border rounded text-xs text-gray-600 hover:border-blue-400">
+              Save view
+            </button>
+            <button onClick={exportCsv} className="px-3 py-1 bg-gray-900 text-white rounded text-xs hover:bg-gray-700">
+              Export CSV
+            </button>
+          </div>
         </div>
       </div>
 

@@ -9,13 +9,14 @@ export default function Login() {
   const auth = useAuth();
   const toast = useToast();
   const navigate = useNavigate();
+  const POS_PATH = import.meta.env.VITE_ONLY_ADMIN === '1' ? '/' : '/admin';
 
   async function submit(e) {
     e.preventDefault();
     try {
       await auth.login(username, password);
       toast.push('Logged in', 'info');
-      navigate('/settings');
+      navigate(POS_PATH, { replace: true });
     } catch (err) {
       toast.push('Login failed', 'error');
     }

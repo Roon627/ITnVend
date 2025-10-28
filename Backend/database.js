@@ -363,6 +363,16 @@ export async function setupDatabase() {
     await ensureColumn(db, 'products', 'track_inventory', 'INTEGER DEFAULT 1');
     await db.run('CREATE UNIQUE INDEX IF NOT EXISTS idx_products_sku ON products(sku)');
 
+    await ensureColumn(db, 'quotes', 'submission_type', 'TEXT');
+    await ensureColumn(db, 'quotes', 'existing_customer_ref', 'TEXT');
+    await ensureColumn(db, 'quotes', 'registration_number', 'TEXT');
+
+    await ensureColumn(db, 'orders', 'customer_phone', 'TEXT');
+    await ensureColumn(db, 'orders', 'customer_company', 'TEXT');
+    await ensureColumn(db, 'orders', 'payment_method', 'TEXT');
+    await ensureColumn(db, 'orders', 'payment_reference', 'TEXT');
+    await ensureColumn(db, 'orders', 'payment_slip', 'TEXT');
+
     await ensureColumn(db, 'settings', 'jwt_secret', 'TEXT');
 
     // ensure a default settings row exists with id = 1

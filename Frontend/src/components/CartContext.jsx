@@ -28,18 +28,19 @@ export function CartProvider({ children }) {
   }, [cart]);
 
   const addToCart = (product, quantity = 1) => {
-    setCart(prevCart => {
-      const existingItem = prevCart.find(item => item.id === product.id);
+    const existingItem = cart.find((item) => item.id === product.id);
+    setCart((prevCart) => {
       if (existingItem) {
-        toast.push(`Updated ${product.name} in cart`, 'info');
-        return prevCart.map(item =>
+        return prevCart.map((item) =>
           item.id === product.id ? { ...item, quantity: item.quantity + quantity } : item
         );
-      } else {
-        toast.push(`Added ${product.name} to cart`, 'success');
-        return [...prevCart, { ...product, quantity }];
       }
+      return [...prevCart, { ...product, quantity }];
     });
+    toast.push(
+      existingItem ? `Updated ${product.name} in cart` : `Added ${product.name} to cart`,
+      existingItem ? 'info' : 'success'
+    );
   };
 
   const removeFromCart = (productId) => {

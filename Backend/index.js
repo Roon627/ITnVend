@@ -1110,10 +1110,32 @@ app.post('/api/settings/test-smtp', authMiddleware, requireRole('admin'), async 
 // Quote endpoints (public submit, admin list)
 app.post('/api/quotes', async (req, res) => {
     try {
-        const { company_name, contact_name, email: contact_email, phone, details, cart } = req.body;
+        const {
+            company_name,
+            contact_name,
+            email: contact_email,
+            phone,
+            details,
+            cart,
+            submission_type,
+            existing_customer_ref,
+            registration_number
+        } = req.body;
         if (!contact_name || !contact_email) return res.status(400).json({ error: 'Missing contact name or email' });
 
-        const result = await db.run('INSERT INTO quotes (company_name, contact_name, email, phone, details) VALUES (?, ?, ?, ?, ?)', [company_name || null, contact_name, contact_email, phone || null, details || null]);
+        const result = await db.run(
+            'INSERT INTO quotes (company_name, contact_name, email, phone, details, submission_type, existing_customer_ref, registration_number) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+            [
+                company_name || null,
+                contact_name,
+                contact_email,
+                phone || null,
+                details || null,
+                submission_type || null,
+                existing_customer_ref || null,
+                registration_number || null
+            ]
+        );
         const quote = await db.get('SELECT * FROM quotes WHERE id = ?', [result.lastID]);
 
         // ensure customer exists or is updated
@@ -1160,11 +1182,14 @@ app.post('/api/quotes', async (req, res) => {
             const subject = `Quotation request from ${contact_name}${company_name ? ' @ ' + company_name : ''}`;
             const bodyHtml = `<p>New quotation request received:</p>
                 <ul>
-                  <li><strong>Company:</strong> ${company_name || '—'}</li>
+                  <li><strong>Company:</strong> ${company_name || '-'}</li>
                   <li><strong>Contact:</strong> ${contact_name}</li>
                   <li><strong>Email:</strong> ${contact_email}</li>
-                  <li><strong>Phone:</strong> ${phone || '—'}</li>
-                  <li><strong>Details:</strong> ${details || '—'}</li>
+                  <li><strong>Phone:</strong> ${phone || '-'}</li>
+                  <li><strong>Submission type:</strong> ${submission_type || '-'}</li>
+                  <li><strong>Existing account reference:</strong> ${existing_customer_ref || '-'}</li>
+                  <li><strong>Registration number:</strong> ${registration_number || '-'}</li>
+                  <li><strong>Details:</strong> ${details || '-'}</li>
                   <li><strong>Linked Quote ID:</strong> ${quote.id}</li>
                   <li><strong>Created Invoice ID:</strong> ${createdInvoice.id}</li>
                   <li><strong>Subtotal:</strong> ${subtotal}</li>
@@ -1801,17 +1826,54 @@ app.post('/api/invoices/:id/pdf-link', authMiddleware, async (req, res) => {
 
 // Order processing for guests
 app.post('/api/orders', async (req, res) => {
-    const { customer, cart } = req.body;
+    const { customer, cart, payment } = req.body || {};
     if (!customer || !customer.name || !customer.email || !cart || cart.length === 0) {
         return res.status(400).json({ error: 'Missing customer data or cart is empty' });
+    }
+
+    const paymentMethod = payment?.method || 'cod';
+    const paymentReference = payment?.reference || null;
+    let paymentSlipPath = null;
+
+    if (paymentMethod === 'transfer' && payment?.slip) {
+        try {
+            const slipDir = path.join(imagesDir, 'payment_slips');
+            fs.mkdirSync(slipDir, { recursive: true });
+            let base64 = payment.slip;
+            let ext = 'png';
+            const match = String(base64).match(/^data:(.+);base64,(.+)$/);
+            if (match) {
+                const mime = match[1];
+                base64 = match[2];
+                const parts = mime.split('/');
+                ext = parts[1] ? parts[1].split('+')[0] : ext;
+            }
+            const fileName = `slip-${Date.now()}-${Math.random().toString(36).slice(2, 10)}.${ext || 'png'}`;
+            const filePath = path.join(slipDir, fileName);
+            fs.writeFileSync(filePath, Buffer.from(base64, 'base64'));
+            const rel = path.relative(imagesDir, filePath).replace(/\\/g, '/');
+            paymentSlipPath = `/uploads/${rel}`;
+        } catch (err) {
+            console.warn('Failed to persist payment slip', err?.message || err);
+        }
     }
 
     try {
         const total = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
 
         const orderResult = await db.run(
-            'INSERT INTO orders (customer_name, customer_email, total) VALUES (?, ?, ?)',
-            [customer.name, customer.email, total]
+            'INSERT INTO orders (customer_name, customer_email, customer_phone, customer_company, total, status, payment_method, payment_reference, payment_slip) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+            [
+                customer.name,
+                customer.email,
+                customer.phone || null,
+                customer.company || null,
+                total,
+                paymentMethod === 'transfer' ? 'awaiting_verification' : 'pending',
+                paymentMethod,
+                paymentReference || null,
+                paymentSlipPath
+            ]
         );
         const orderId = orderResult.lastID;
 
@@ -1826,9 +1888,9 @@ app.post('/api/orders', async (req, res) => {
         try {
             const existing = await db.get('SELECT * FROM customers WHERE email = ?', [customer.email]);
             if (existing) {
-                await db.run('UPDATE customers SET name = ? WHERE id = ?', [customer.name, existing.id]);
+                await db.run('UPDATE customers SET name = ?, phone = COALESCE(?, phone) WHERE id = ?', [customer.name, customer.phone || existing.phone || null, existing.id]);
             } else {
-                await db.run('INSERT INTO customers (name, email) VALUES (?, ?)', [customer.name, customer.email]);
+                await db.run('INSERT INTO customers (name, email, phone) VALUES (?, ?, ?)', [customer.name, customer.email, customer.phone || null]);
             }
         } catch (err) {
             console.warn('Failed to persist customer for order', err?.message || err);
@@ -1905,11 +1967,6 @@ app.post('/api/orders', async (req, res) => {
                 link: `/invoices/${invoiceId}`,
                 metadata: { orderId, invoiceId, total: invTotal }
             });
-=======
-            try {
-                await db.run('INSERT INTO notifications (user_id, type, message, link, is_read, created_at) VALUES (?, ?, ?, ?, ?, ?)', [null, 'order_placed', `Order placed ${orderId}`, `/invoices/${invoiceId}`, 0, new Date().toISOString()]);
-            } catch (e) { console.warn('Failed to create notification', e?.message || e); }
->>>>>>> a2206d25d59f774106b2fd37712d6665978019d0:server/index.js
 
             res.status(201).json({ message: 'Order created successfully', orderId, invoiceId });
         } catch (err) {
