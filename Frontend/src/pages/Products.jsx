@@ -170,7 +170,7 @@ function ProductInsight({ product, formatCurrency }) {
       </div>
     );
   }
-  const previewSrc = product.image || product.image_source || product.imageUrl;
+  const previewSrc = product.image_source || product.imageUrl || product.image;
   return (
     <div className="space-y-4">
       {previewSrc ? (
@@ -238,7 +238,7 @@ function ProductInsight({ product, formatCurrency }) {
 function ProductModal({ open, draft, onClose, onChange, onSave, onUploadImage, uploading, saving }) {
   const fileInputRef = useRef(null);
   if (!open || !draft) return null;
-  const previewSrc = draft.image || draft.imageUrl;
+  const previewSrc = draft.imageUrl || draft.image;
 
   const handleFieldChange = (key) => (event) => {
     const { type, checked, value } = event.target;
@@ -383,7 +383,7 @@ function ProductModal({ open, draft, onClose, onChange, onSave, onUploadImage, u
                   No image assigned
                 </div>
               )}
-              <div className="mt-3 flex items-center gap-2">
+              <div className="mt-3 flex flex-wrap items-center gap-2">
                 <input
                   ref={fileInputRef}
                   type="file"
@@ -409,6 +409,18 @@ function ProductModal({ open, draft, onClose, onChange, onSave, onUploadImage, u
                   placeholder="Or paste image URL"
                   className="flex-1 rounded border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
+                {(draft.image || draft.imageUrl) && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onChange('image', '');
+                      onChange('imageUrl', '');
+                    }}
+                    className="inline-flex items-center gap-1 rounded-md border border-red-200 px-3 py-2 text-xs text-red-600 hover:bg-red-50"
+                  >
+                    <FaTimes /> Remove
+                  </button>
+                )}
               </div>
             </div>
             <div className="border rounded-lg p-4">
@@ -655,7 +667,13 @@ export default function Products() {
       formData.append('file', file);
       formData.append('category', 'products');
       const result = await api.upload('/uploads', formData);
-      setForm((prev) => ({ ...prev, image: result.url, imageUrl: '' }));
+      const storedPath = result?.path || result?.url || '';
+      const absoluteUrl = result?.url || storedPath;
+      setForm((prev) => ({
+        ...prev,
+        image: storedPath,
+        imageUrl: absoluteUrl,
+      }));
       toast.push('Image uploaded', 'info');
     } catch (err) {
       toast.push(err?.message || 'Failed to upload image', 'error');
@@ -673,7 +691,9 @@ export default function Products() {
       formData.append('file', file);
       formData.append('category', 'products');
       const result = await api.upload('/uploads', formData);
-      setModalDraft((prev) => (prev ? { ...prev, image: result.url, imageUrl: '' } : prev));
+      const storedPath = result?.path || result?.url || '';
+      const absoluteUrl = result?.url || storedPath;
+      setModalDraft((prev) => (prev ? { ...prev, image: storedPath, imageUrl: absoluteUrl } : prev));
       toast.push('Image updated', 'info');
     } catch (err) {
       toast.push(err?.message || 'Failed to upload image', 'error');
@@ -932,9 +952,9 @@ export default function Products() {
           <div className="md:col-span-4 grid gap-4 md:grid-cols-2">
             <div className="rounded-lg border bg-slate-50 p-4">
               <p className="mb-2 text-sm font-medium text-slate-600">Image preview</p>
-              {form.image || form.imageUrl ? (
+              {form.imageUrl || form.image ? (
                 <img
-                  src={form.image || form.imageUrl}
+                  src={form.imageUrl || form.image}
                   alt={form.name || 'Product preview'}
                   className="h-40 w-full rounded-md border object-cover"
                 />
