@@ -12,7 +12,7 @@ Quick start (Windows PowerShell)
 1) Start backend
 
 ```powershell
-cd server
+cd Backend
 npm install
 node index.js
 ```
@@ -21,13 +21,13 @@ Server runs on http://localhost:4000 by default.
 
 Project structure (important files)
 
-- `server/` - Express backend, SQLite DB, and invoice PDF generator
+- `Backend/` - Express backend, SQLite DB, and invoice PDF generator
 	- `index.js` - main server and API routes
 	- `database.js` - SQLite setup and migrations
 	- `invoice-service.js` - PDF invoice generation
-- `client/` - React (Vite) frontend
+- `Frontend/` - React (Vite) frontend
 	- `src/main.jsx` - app entry
-	- `src/App.jsx` - router + layout
+	- `src/pages/App.jsx` - router + layout
 	- `src/components/` - shared components (Header, Sidebar)
 	- `src/pages/` - app pages (POS, Products, Customers, Settings)
 	- `src/styles/global.css` - Tailwind + global styles
@@ -43,12 +43,12 @@ curl http://localhost:4000/api/seed
 3) Start frontend
 
 ```powershell
-cd client
+cd Frontend
 npm install
 npm run dev
 ```
 
-Open the client shown in the terminal (typically http://localhost:5173).
+Open the frontend shown in the terminal (typically http://localhost:5173).
 
 Notes
 - This is an MVP scaffold: authentication, email sending, and production hardening are left as next steps.
