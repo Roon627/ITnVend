@@ -2,20 +2,36 @@ import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api from '../lib/api';
 import { useUI } from './UIContext';
-import { FaBars, FaBell, FaTimes } from 'react-icons/fa';
+import { FaBars, FaBell, FaTimes, FaChevronDown } from 'react-icons/fa';
 import { useAuth } from './AuthContext';
 import { useToast } from './ToastContext';
 import { useNotifications } from './NotificationsContext';
 
 function formatRelativeTime(value) {
   if (!value) return '';
-  const input = typeof value === 'string' ? new Date(value) : value;
-  if (Number.isNaN(input.getTime())) return '';
+  let input;
+  if (typeof value === 'string') {
+    // Normalize common sqlite CURRENT_TIMESTAMP format "YYYY-MM-DD HH:MM:SS"
+    // to an unambiguous UTC ISO string so Date parsing is consistent across browsers.
+    let s = value;
+    if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(s)) {
+      s = s.replace(' ', 'T') + 'Z';
+    }
+    // If it's a plain date like YYYY-MM-DD, make it explicit UTC start of day
+    else if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+      s = s + 'T00:00:00Z';
+    }
+    input = new Date(s);
+  } else {
+    input = value;
+  }
+  if (!(input instanceof Date) || Number.isNaN(input.getTime())) return '';
   const diff = Date.now() - input.getTime();
   if (diff < 60 * 1000) return 'Just now';
   if (diff < 60 * 60 * 1000) return `${Math.floor(diff / (60 * 1000))}m ago`;
   if (diff < 24 * 60 * 60 * 1000) return `${Math.floor(diff / (60 * 60 * 1000))}h ago`;
-  return input.toLocaleDateString();
+  // For older items show a localized date/time
+  return input.toLocaleString();
 }
 
 export default function Header() {
@@ -24,12 +40,17 @@ export default function Header() {
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const { toggleSidebar } = useUI();
   const navigate = useNavigate();
-  const { user, reauthRequired, attemptRefresh } = useAuth();
+  const { user, reauthRequired, attemptRefresh, logout } = useAuth();
   const toast = useToast();
   const { notifications, unreadCount, markRead, markAllRead } = useNotifications();
   const notificationsRef = useRef(null);
   const notificationsButtonRef = useRef(null);
   const notificationsPanelRef = useRef(null);
+  const profileRef = useRef(null);
+  const profileButtonRef = useRef(null);
+  const [profileOpen, setProfileOpen] = useState(false);
+  const ADMIN_BASE = import.meta.env.VITE_ONLY_ADMIN === '1' ? '' : '/admin';
+  const mk = (path) => `${ADMIN_BASE}${path.startsWith('/') ? path : `/${path}`}`;
 
   useEffect(() => {
     api.get('/settings').then((s) => {
@@ -56,6 +77,28 @@ export default function Header() {
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [notificationsOpen]);
+
+  // close profile dropdown when clicking outside
+  useEffect(() => {
+    if (!profileOpen) return;
+    function handleClickOutside(e) {
+      if (profileRef.current && !profileRef.current.contains(e.target)) {
+        setProfileOpen(false);
+      }
+    }
+    function onKey(e) {
+      if (e.key === 'Escape') {
+        setProfileOpen(false);
+        profileButtonRef.current?.focus();
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [profileOpen]);
 
   useEffect(() => {
     if (!notificationsOpen) return;
@@ -141,14 +184,61 @@ export default function Header() {
         </div>
 
         <div className="flex items-center gap-4">
-          <div className="flex items-center gap-3">
-            <div className={`h-3 w-3 rounded-full ${online ? 'bg-green-500' : 'bg-red-400'}`} title={online ? 'Online' : 'Offline'} />
-            <button onClick={() => window.open('/home', '_blank')} className="text-sm px-3 py-2 rounded-md border">Store</button>
-            <button onClick={() => navigate('/help')} className="text-sm px-3 py-2 rounded-md border">Help</button>
-            <button onClick={() => navigate('/profile')} className="text-sm px-3 py-2 rounded-md border">
-              {user?.username ? `Hi, ${user.username}` : 'Profile'}
-            </button>
-          </div>
+            <div className="flex items-center gap-3">
+              <div className={`h-3 w-3 rounded-full ${online ? 'bg-green-500' : 'bg-red-400'}`} title={online ? 'Online' : 'Offline'} />
+              <button onClick={() => window.open('/', '_blank')} className="text-sm px-3 py-2 rounded-md border">Store</button>
+              <button onClick={() => navigate(mk('/help'))} className="text-sm px-3 py-2 rounded-md border">Help</button>
+              <div className="relative" ref={profileRef}>
+                <button
+                  ref={profileButtonRef}
+                  onClick={() => setProfileOpen((v) => !v)}
+                  className="text-sm px-2 py-1 rounded-md border inline-flex items-center gap-2"
+                  aria-haspopup="menu"
+                  aria-expanded={profileOpen}
+                  aria-controls="profile-menu"
+                >
+                  {/* Avatar / initials */}
+                  {user?.avatar ? (
+                    <img src={user.avatar} alt={user.username || 'User avatar'} className="w-7 h-7 rounded-full object-cover" />
+                  ) : (
+                    <span className="w-7 h-7 rounded-full bg-slate-200 text-slate-700 flex items-center justify-center font-semibold">{(user?.username || 'U').charAt(0).toUpperCase()}</span>
+                  )}
+                  <span className="hidden sm:inline">{user?.username ? `Hi, ${user.username}` : 'Profile'}</span>
+                  <FaChevronDown className="text-sm" />
+                </button>
+                {profileOpen && (
+                  <div
+                    id="profile-menu"
+                    role="menu"
+                    tabIndex={-1}
+                    className="absolute right-0 mt-2 w-44 rounded-md border bg-white shadow-lg z-50"
+                  >
+                    <button
+                      role="menuitem"
+                      onClick={() => { setProfileOpen(false); navigate(mk('/profile')); }}
+                      className="w-full text-left px-4 py-2 hover:bg-slate-50"
+                    >
+                      View profile
+                    </button>
+                    <button
+                      role="menuitem"
+                      onClick={() => { setProfileOpen(false); navigate(mk('/settings')); }}
+                      className="w-full text-left px-4 py-2 hover:bg-slate-50"
+                    >
+                      Settings
+                    </button>
+                    <div className="border-t" />
+                    <button
+                      role="menuitem"
+                      onClick={async () => { setProfileOpen(false); await logout(); navigate('/login'); }}
+                      className="w-full text-left px-4 py-2 text-red-600 hover:bg-slate-50"
+                    >
+                      Logout
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
           <div className="relative" ref={notificationsRef}>
             <button
               ref={notificationsButtonRef}

@@ -24,20 +24,21 @@
 }
 
 [data-theme='mauve'] {
-  --color-primary: #7c3aed;
-  --color-primary-strong: #6d28d9;
-  --color-primary-soft: #ede9fe;
-  --color-primary-softer: #f4f0ff;
-  --color-primary-border: #c4b5fd;
+  /* Mauve & Grey palette (custom provided) */
+  --color-primary: #877c93; /* main mauve */
+  --color-primary-strong: #ae838e; /* stronger accent */
+  --color-primary-soft: #c98d95; /* soft accent */
+  --color-primary-softer: #ddcdc0; /* very soft */
+  --color-primary-border: #e7cb82; /* warm border accent (used sparingly) */
   --color-on-primary: #ffffff;
-  --color-bg: #f6f4fb;
+  --color-bg: #faf7f9; /* light neutral background */
   --color-surface: #ffffff;
-  --color-surface-muted: #f9f7ff;
-  --color-border: #e6def7;
-  --color-muted: #6b7280;
-  --color-heading: #111827;
-  --color-text: #1f2937;
-  --color-shadow: rgba(124, 58, 237, 0.08);
+  --color-surface-muted: #f7f3f4;
+  --color-border: #e9e2e6;
+  --color-muted: #7b7480; /* neutral text */
+  --color-heading: #2b2430;
+  --color-text: #1f1a1f;
+  --color-shadow: rgba(135, 124, 147, 0.06);
 }
 
 [data-theme='slate'] {

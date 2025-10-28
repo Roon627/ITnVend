@@ -361,6 +361,9 @@ export async function setupDatabase() {
     await ensureColumn(db, 'products', 'track_inventory', 'INTEGER DEFAULT 1');
     await db.run('CREATE UNIQUE INDEX IF NOT EXISTS idx_products_sku ON products(sku)');
 
+    // staff avatar column for profile images
+    await ensureColumn(db, 'staff', 'avatar', 'TEXT');
+
     await ensureColumn(db, 'quotes', 'submission_type', 'TEXT');
     await ensureColumn(db, 'quotes', 'existing_customer_ref', 'TEXT');
     await ensureColumn(db, 'quotes', 'registration_number', 'TEXT');

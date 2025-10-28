@@ -740,6 +740,7 @@ app.get('/api/me', authMiddleware, async (req, res) => {
                 displayName: staff.display_name,
                 email: staff.email,
                 phone: staff.phone,
+                avatar: staff.avatar || null,
                 createdAt: staff.created_at,
                 roles: roles.map((r) => r.name),
                 editable: true
@@ -761,13 +762,14 @@ app.put('/api/me', authMiddleware, async (req, res) => {
         if (!req.user?.staffId) {
             return res.status(400).json({ error: 'Profile editing is only available for staff accounts' });
         }
-        const { displayName, email, phone, password, currentPassword } = req.body || {};
+    const { displayName, email, phone, password, currentPassword, avatar } = req.body || {};
         const staff = await db.get('SELECT * FROM staff WHERE id = ?', [req.user.staffId]);
         if (!staff) return res.status(404).json({ error: 'Profile not found' });
 
-        const nextDisplayName = displayName != null ? displayName.trim() : staff.display_name;
-        const nextEmail = email != null ? email.trim() : staff.email;
-        const nextPhone = phone != null ? phone.trim() : staff.phone;
+    const nextDisplayName = displayName != null ? displayName.trim() : staff.display_name;
+    const nextEmail = email != null ? email.trim() : staff.email;
+    const nextPhone = phone != null ? phone.trim() : staff.phone;
+    const nextAvatar = avatar != null ? (String(avatar).trim() || null) : (staff.avatar || null);
         let nextPasswordHash = staff.password;
 
         if (password) {
@@ -779,8 +781,8 @@ app.put('/api/me', authMiddleware, async (req, res) => {
         }
 
         await db.run(
-            'UPDATE staff SET display_name = ?, email = ?, phone = ?, password = ? WHERE id = ?',
-            [nextDisplayName || null, nextEmail || null, nextPhone || null, nextPasswordHash || null, staff.id]
+            'UPDATE staff SET display_name = ?, email = ?, phone = ?, password = ?, avatar = ? WHERE id = ?',
+            [nextDisplayName || null, nextEmail || null, nextPhone || null, nextPasswordHash || null, nextAvatar, staff.id]
         );
         const roles = await db.all('SELECT r.name FROM roles r JOIN staff_roles sr ON sr.role_id = r.id WHERE sr.staff_id = ?', [staff.id]);
 
@@ -799,6 +801,7 @@ app.put('/api/me', authMiddleware, async (req, res) => {
             displayName: nextDisplayName,
             email: nextEmail,
             phone: nextPhone,
+            avatar: nextAvatar,
             roles: roles.map((r) => r.name)
         });
     } catch (err) {

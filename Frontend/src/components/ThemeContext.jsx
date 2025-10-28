@@ -4,8 +4,8 @@ const THEME_CATALOG = {
   mauve: {
     id: 'mauve',
     name: 'Mauve & Grey',
-    description: 'Soft purple accent with neutral greys.',
-    preview: ['#7c3aed', '#ede9fe', '#f6f4fb'],
+    description: 'Soft mauve and warm neutrals (custom).',
+    preview: ['#877c93', '#ae838e', '#c98d95', '#ddcdc0', '#e7cb82'],
   },
   slate: {
     id: 'slate',

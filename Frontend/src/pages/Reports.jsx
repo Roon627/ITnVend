@@ -2,6 +2,35 @@ import React, { useState, useEffect } from 'react';
 import { api } from '../lib/api';
 import { useSettings } from '../components/SettingsContext';
 
+// Helper: normalize server timestamps into a Date object robustly.
+// - Accepts ISO strings, 'YYYY-MM-DD HH:MM:SS', 'YYYY-MM-DD', timestamps, or Date objects.
+// - If the server returns naive local timestamps like '2024-01-02 15:04:05', we treat
+//   them as UTC by converting to '2024-01-02T15:04:05Z' to avoid local timezone parsing issues.
+function parseServerTimestamp(ts) {
+  if (!ts) return null;
+  if (ts instanceof Date) return ts;
+  // numbers (epoch ms)
+  if (typeof ts === 'number') return new Date(ts);
+  const s = String(ts).trim();
+  // YYYY-MM-DD HH:MM:SS
+  const reDateTime = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d+)?$/;
+  const reDateOnly = /^\d{4}-\d{2}-\d{2}$/;
+  try {
+    if (reDateTime.test(s)) {
+      return new Date(s.replace(' ', 'T') + 'Z');
+    }
+    if (reDateOnly.test(s)) {
+      return new Date(s + 'T00:00:00Z');
+    }
+    // Fallback — let Date parse (works for ISO strings including timezone)
+    const d = new Date(s);
+    if (!isNaN(d.getTime())) return d;
+  } catch (err) {
+    // fall through
+  }
+  return null;
+}
+
 const Reports = () => {
   const { formatCurrency } = useSettings();
   const [activeTab, setActiveTab] = useState('sales');
@@ -9,6 +38,10 @@ const Reports = () => {
   const [inventoryReport, setInventoryReport] = useState([]);
   const [customerReport, setCustomerReport] = useState([]);
   const [financialReports, setFinancialReports] = useState({});
+  const [salesLastUpdated, setSalesLastUpdated] = useState(null);
+  const [inventoryLastUpdated, setInventoryLastUpdated] = useState(null);
+  const [customersLastUpdated, setCustomersLastUpdated] = useState(null);
+  const [financialLastUpdated, setFinancialLastUpdated] = useState(null);
   const [dateRange, setDateRange] = useState({
     start_date: new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0],
     end_date: new Date().toISOString().split('T')[0]
@@ -18,6 +51,40 @@ const Reports = () => {
   useEffect(() => {
     loadReport();
   }, [activeTab, dateRange]);
+
+  // Poll the active report periodically to provide near-real-time updates.
+  // Skip polling when the document is hidden or a load is already in progress.
+  useEffect(() => {
+    const POLL_INTERVAL = 30000; // 30s
+    const tick = async () => {
+      if (document.hidden) return;
+      if (loading) return;
+      try {
+        switch (activeTab) {
+          case 'sales':
+            await loadSalesReport();
+            break;
+          case 'inventory':
+            await loadInventoryReport();
+            break;
+          case 'customers':
+            await loadCustomerReport();
+            break;
+          case 'financial':
+            await loadFinancialReports();
+            break;
+          default:
+            break;
+        }
+      } catch (err) {
+        // swallow errors here; loadReport handles logging during user-triggered loads
+        console.debug('Polling load failed', err);
+      }
+    };
+
+    const id = setInterval(tick, POLL_INTERVAL);
+    return () => clearInterval(id);
+  }, [activeTab, dateRange, loading]);
 
   const loadReport = async () => {
     setLoading(true);
@@ -52,11 +119,12 @@ const Reports = () => {
         api.get('/api/products')
       ]);
 
-      // Filter invoices by date range
-      const filteredInvoices = invoices.filter(invoice => {
-        const invoiceDate = new Date(invoice.created_at);
-        const start = new Date(dateRange.start_date);
-        const end = new Date(dateRange.end_date);
+      // Filter invoices by date range (inclusive end-of-day)
+      const start = new Date(`${dateRange.start_date}T00:00:00`);
+      const end = new Date(`${dateRange.end_date}T23:59:59.999`);
+      const filteredInvoices = invoices.filter((invoice) => {
+        const invoiceDate = parseServerTimestamp(invoice.created_at);
+        if (!invoiceDate) return false;
         return invoiceDate >= start && invoiceDate <= end;
       });
 
@@ -93,6 +161,7 @@ const Reports = () => {
         quoteCount: filteredInvoices.filter(inv => inv.type === 'quote').length,
         productSales
       });
+      setSalesLastUpdated(new Date());
     } catch (error) {
       console.error('Error loading sales report:', error);
     }
@@ -133,6 +202,7 @@ const Reports = () => {
         outOfStockItems,
         categoryStats
       });
+      setInventoryLastUpdated(new Date());
     } catch (error) {
       console.error('Error loading inventory report:', error);
     }
@@ -152,7 +222,13 @@ const Reports = () => {
               .reduce((sum, inv) => sum + inv.total, 0);
             const invoiceCount = invoices.filter(inv => inv.type === 'invoice').length;
             const lastPurchase = invoices.length > 0
-              ? new Date(Math.max(...invoices.map(inv => new Date(inv.created_at))))
+              ? (() => {
+                  const dates = invoices
+                    .map(inv => parseServerTimestamp(inv.created_at))
+                    .filter(Boolean)
+                    .map(d => d.getTime());
+                  return dates.length ? new Date(Math.max(...dates)) : null;
+                })()
               : null;
 
             return {
@@ -175,6 +251,7 @@ const Reports = () => {
       );
 
       setCustomerReport(customerStats);
+      setCustomersLastUpdated(new Date());
     } catch (error) {
       console.error('Error loading customer report:', error);
     }
@@ -198,6 +275,7 @@ const Reports = () => {
         balanceSheet,
         profitLoss
       });
+      setFinancialLastUpdated(new Date());
     } catch (error) {
       console.error('Error loading financial reports:', error);
     }
@@ -301,10 +379,10 @@ const Reports = () => {
             </div>
           ) : (
             <div className="p-6">
-              {activeTab === 'sales' && <SalesReport data={salesReport} onExport={exportToCSV} />}
-              {activeTab === 'inventory' && <InventoryReport data={inventoryReport} onExport={exportToCSV} />}
-              {activeTab === 'customers' && <CustomerReport data={customerReport} onExport={exportToCSV} />}
-              {activeTab === 'financial' && <FinancialReports data={financialReports} onExport={exportToCSV} />}
+              {activeTab === 'sales' && <SalesReport data={salesReport} onExport={exportToCSV} lastUpdated={salesLastUpdated} />}
+              {activeTab === 'inventory' && <InventoryReport data={inventoryReport} onExport={exportToCSV} lastUpdated={inventoryLastUpdated} />}
+              {activeTab === 'customers' && <CustomerReport data={customerReport} onExport={exportToCSV} lastUpdated={customersLastUpdated} />}
+              {activeTab === 'financial' && <FinancialReports data={financialReports} onExport={exportToCSV} lastUpdated={financialLastUpdated} />}
             </div>
           )}
         </div>
@@ -314,18 +392,26 @@ const Reports = () => {
 };
 
 // Sales Report Component
-const SalesReport = ({ data, onExport }) => {
+const SalesReport = ({ data, onExport, lastUpdated }) => {
   const { formatCurrency } = useSettings();
   return (
     <div>
       <div className="flex justify-between items-center mb-6">
         <h2 className="text-2xl font-bold text-gray-900">Sales Report</h2>
-        <button
-          onClick={() => onExport([data], 'sales-report.csv')}
-          className="bg-green-500 hover:bg-green-700 text-white font-bold py-2 px-4 rounded"
-        >
-          Export CSV
-        </button>
+        <div className="flex items-end gap-4">
+          {lastUpdated && (
+            <div className="text-xs text-gray-500 mr-2" aria-live="polite">
+              Last updated: {new Date(lastUpdated).toLocaleString()}
+            </div>
+          )}
+          <button
+            onClick={() => onExport([data], 'sales-report.csv')}
+            className="bg-green-500 hover:bg-green-700 text-white font-bold py-2 px-4 rounded"
+            type="button"
+          >
+            Export CSV
+          </button>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
@@ -420,6 +506,7 @@ const InventoryReport = ({ data, onExport }) => {
         <button
           onClick={() => onExport(data.products || [], 'inventory-report.csv')}
           className="bg-green-500 hover:bg-green-700 text-white font-bold py-2 px-4 rounded"
+          type="button"
         >
           Export CSV
         </button>
@@ -575,6 +662,7 @@ const CustomerReport = ({ data, onExport }) => {
         <button
           onClick={() => onExport(data, 'customer-report.csv')}
           className="bg-green-500 hover:bg-green-700 text-white font-bold py-2 px-4 rounded"
+          type="button"
         >
           Export CSV
         </button>
@@ -688,7 +776,7 @@ const CustomerReport = ({ data, onExport }) => {
 };
 
 // Financial Reports Component
-const FinancialReports = ({ data, onExport }) => {
+const FinancialReports = ({ data, onExport, lastUpdated }) => {
   const { formatCurrency } = useSettings();
   const [activeReport, setActiveReport] = useState('trial-balance');
 
@@ -697,6 +785,9 @@ const FinancialReports = ({ data, onExport }) => {
       <div className="flex justify-between items-center mb-6">
         <h2 className="text-2xl font-bold text-gray-900">Financial Reports</h2>
         <div className="flex space-x-2">
+          {lastUpdated && (
+            <div className="text-xs text-gray-500 mr-2" aria-live="polite">Last updated: {new Date(lastUpdated).toLocaleString()}</div>
+          )}
           <select
             value={activeReport}
             onChange={(e) => setActiveReport(e.target.value)}
