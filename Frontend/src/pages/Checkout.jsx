@@ -169,7 +169,8 @@ export default function Checkout() {
           },
         });
       } catch (err) {
-        toast.push('Failed to send quote request.', 'error');
+        console.error('Quote request failed', err);
+        toast.push(err?.message || 'Failed to send quote request.', 'error');
       }
       return;
     }
@@ -210,7 +211,8 @@ export default function Checkout() {
       resetState();
       navigate('/confirmation', { state: { type: 'order', order: orderSummary } });
     } catch (err) {
-      toast.push('Failed to place order.', 'error');
+      console.error('Order submission failed', err);
+      toast.push(err?.message || 'Failed to place order.', 'error');
     }
   };
 

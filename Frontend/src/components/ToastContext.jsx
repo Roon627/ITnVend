@@ -14,11 +14,9 @@ export function ToastProvider({ children }) {
   return (
     <ToastContext.Provider value={{ push }}>
       {children}
-      <div className="fixed bottom-4 right-4 space-y-2 z-50">
+      <div className="toast-container">
         {toasts.map((t) => (
-          <div key={t.id} className={`px-4 py-2 rounded shadow ${t.type === 'error' ? 'bg-red-600 text-white' : 'bg-white text-black'}`}>
-            {t.message}
-          </div>
+          <div key={t.id} className={`toast-item ${t.type}`}>{t.message}</div>
         ))}
       </div>
     </ToastContext.Provider>

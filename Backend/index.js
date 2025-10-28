@@ -180,17 +180,12 @@ app.use('/api', (req, res, next) => {
     next();
 });
 
-<<<<<<< HEAD:Backend/index.js
 // Serve uploaded images from backend/public/images and organize by category
 // Use process.cwd() + public path so this works whether the server is started from the repo root
 // or when running inside a container with working_dir set to the backend folder.
 // Use lowercase `images` to match the frontend public/images convention and avoid
 // case-sensitivity issues on Linux filesystems.
 const imagesDir = path.join(process.cwd(), 'public', 'images');
-=======
-// Serve uploaded images from server/public/Images and organize by category
-const imagesDir = path.join(process.cwd(), 'server', 'public', 'Images');
->>>>>>> a2206d25d59f774106b2fd37712d6665978019d0:server/index.js
 try { fs.mkdirSync(imagesDir, { recursive: true }); } catch (e) { /* ignore */ }
 app.use('/uploads', express.static(imagesDir));
 
@@ -224,23 +219,15 @@ app.use('/uploads', express.static(imagesDir));
                 // build public URL path relative to /uploads
                 const rel = path.relative(imagesDir, req.file.path).replace(/\\/g, '/');
                 const urlPath = `/uploads/${rel}`;
-<<<<<<< HEAD:Backend/index.js
                 const absoluteUrl = `${req.protocol}://${req.get('host')}${urlPath}`;
                 return res.json({ url: absoluteUrl, path: urlPath });
-=======
-                return res.json({ url: urlPath });
->>>>>>> a2206d25d59f774106b2fd37712d6665978019d0:server/index.js
             } catch (err) {
                 return res.status(500).json({ error: err.message });
             }
         });
         console.log('Upload route configured: multer multipart enabled');
     } catch (e) {
-<<<<<<< HEAD:Backend/index.js
-    // fallback to base64 upload endpoint (saves under images/<category> if provided via query or body)
-=======
-        // fallback to base64 upload endpoint (saves under Images/<category> if provided via query or body)
->>>>>>> a2206d25d59f774106b2fd37712d6665978019d0:server/index.js
+        // fallback to base64 upload endpoint (saves under images/<category> if provided via query or body)
         app.post('/api/uploads', async (req, res) => {
             try {
                 const { filename, data, category } = req.body || {};
@@ -263,12 +250,8 @@ app.use('/uploads', express.static(imagesDir));
                 fs.writeFileSync(filePath, buffer);
                 const rel = path.relative(imagesDir, filePath).replace(/\\/g, '/');
                 const urlPath = `/uploads/${rel}`;
-<<<<<<< HEAD:Backend/index.js
                 const absoluteUrl = `${req.protocol}://${req.get('host')}${urlPath}`;
                 return res.json({ url: absoluteUrl, path: urlPath });
-=======
-                return res.json({ url: urlPath });
->>>>>>> a2206d25d59f774106b2fd37712d6665978019d0:server/index.js
             } catch (err2) {
                 return res.status(500).json({ error: err2.message });
             }
@@ -477,7 +460,6 @@ app.get('/api/products/categories', async (req, res) => {
     }
 });
 
-<<<<<<< HEAD:Backend/index.js
 app.post('/api/products', authMiddleware, requireRole('cashier'), async (req, res) => {
     const {
         name,
@@ -512,26 +494,12 @@ app.post('/api/products', authMiddleware, requireRole('cashier'), async (req, re
         }
         if (trimmedBarcode) {
             if (!/^[0-9]{8,13}$/.test(String(trimmedBarcode))) return res.status(400).json({ error: 'Invalid barcode format (8-13 digits expected)' });
-=======
-app.post('/api/products', async (req, res) => {
-    const { name, price, stock, category, subcategory, image, description, sku, barcode, cost } = req.body;
-    if (!name || price == null) return res.status(400).json({ error: 'Missing fields' });
-    // server-side SKU uniqueness and barcode validation
-    try {
-        if (sku) {
-            const ex = await db.get('SELECT id FROM products WHERE sku = ?', [sku]);
-            if (ex) return res.status(409).json({ error: 'SKU already in use' });
-        }
-        if (barcode) {
-            if (!/^[0-9]{8,13}$/.test(String(barcode))) return res.status(400).json({ error: 'Invalid barcode format (8-13 digits expected)' });
->>>>>>> a2206d25d59f774106b2fd37712d6665978019d0:server/index.js
         }
     } catch (e) {
         // continue; validation non-blocking if DB read fails
     }
     try {
         const result = await db.run(
-<<<<<<< HEAD:Backend/index.js
             `INSERT INTO products (name, price, stock, category, subcategory, image, image_source, description, technical_details, sku, barcode, cost, track_inventory)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             [
@@ -549,10 +517,6 @@ app.post('/api/products', async (req, res) => {
                 normalizedCost,
                 normalizedTrack
             ]
-=======
-            'INSERT INTO products (name, price, stock, category, subcategory, image, description, sku, barcode, cost) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-            [name, price, stock || 0, category, subcategory, image || null, description || null, sku || null, barcode || null, cost != null ? cost : 0]
->>>>>>> a2206d25d59f774106b2fd37712d6665978019d0:server/index.js
         );
         const product = await db.get('SELECT * FROM products WHERE id = ?', [result.lastID]);
         await logActivity('product', result.lastID, 'create', req.user?.username, JSON.stringify(product));
@@ -572,7 +536,6 @@ app.post('/api/products', async (req, res) => {
 
 app.put('/api/products/:id', authMiddleware, requireRole('cashier'), async (req, res) => {
     const { id } = req.params;
-<<<<<<< HEAD:Backend/index.js
     const {
         name,
         price,
@@ -589,22 +552,6 @@ app.put('/api/products/:id', authMiddleware, requireRole('cashier'), async (req,
         trackInventory = true
     } = req.body;
     try {
-=======
-    const { name, price, stock, category, subcategory, image, description, sku, barcode, cost } = req.body;
-    try {
-        // server-side SKU uniqueness & barcode validation for updates
-        if (sku) {
-            const ex = await db.get('SELECT id FROM products WHERE sku = ? AND id != ?', [sku, id]);
-            if (ex) return res.status(409).json({ error: 'SKU already in use by another product' });
-        }
-        if (barcode) {
-            if (!/^[0-9]{8,13}$/.test(String(barcode))) return res.status(400).json({ error: 'Invalid barcode format (8-13 digits expected)' });
-        }
-        await db.run(
-            'UPDATE products SET name = ?, price = ?, stock = ?, category = ?, subcategory = ?, image = ?, description = ?, sku = ?, barcode = ?, cost = ? WHERE id = ?',
-            [name, price, stock, category, subcategory, image || null, description || null, sku || null, barcode || null, cost != null ? cost : 0, id]
-        );
->>>>>>> a2206d25d59f774106b2fd37712d6665978019d0:server/index.js
         const product = await db.get('SELECT * FROM products WHERE id = ?', [id]);
         if (!product) return res.status(404).json({ error: 'Product not found' });
 
@@ -1198,6 +1145,22 @@ app.post('/api/quotes', async (req, res) => {
                 </ul>`;
             await sendNotificationEmail(subject, bodyHtml);
 
+            // Send a confirmation email to the requester if outbound email is configured
+            try {
+                const customerHtml = `<p>Hi ${contact_name.split(' ')[0] || contact_name},</p>
+                    <p>Thanks for your interest. We received your quotation request and will respond shortly.</p>
+                    <p><strong>Summary</strong></p>
+                    <ul>
+                      <li><strong>Reference:</strong> Quote #${quote.id}</li>
+                      <li><strong>Submitted:</strong> ${new Date().toLocaleString()}</li>
+                      <li><strong>Items:</strong> ${Array.isArray(cart) && cart.length ? cart.length : 'see attached details'}</li>
+                    </ul>
+                    <p>If you need to add more information reply to this email or call our team.</p>`;
+                await sendNotificationEmail(`We received your quote request (#${quote.id})`, customerHtml, contact_email);
+            } catch (errEmail) {
+                console.warn('Failed to send quote receipt to customer', errEmail?.message || errEmail);
+            }
+
             // Also notify staff users with email addresses (cashiers/admins) so in-house staff get alerted
             try {
                 const staffList = await db.all("SELECT email FROM staff WHERE email IS NOT NULL AND email != ''");
@@ -1216,7 +1179,6 @@ app.post('/api/quotes', async (req, res) => {
         // Log activity
         try { await logActivity('quotes', quote.id, 'created', null, `Quote ${quote.id} created and linked invoice ${createdInvoice.id}`); } catch (e) { /* ignore */ }
 
-<<<<<<< HEAD:Backend/index.js
         await queueNotification({
             staffId: null,
             username: null,
@@ -1226,12 +1188,6 @@ app.post('/api/quotes', async (req, res) => {
             link: `/invoices/${createdInvoice.id}`,
             metadata: { quoteId: quote.id, invoiceId: createdInvoice.id }
         });
-=======
-        // create an in-app notification for staff
-        try {
-            await db.run('INSERT INTO notifications (user_id, type, message, link, is_read, created_at) VALUES (?, ?, ?, ?, ?, ?)', [null, 'quote_request', `Quotation request ${quote.id}`, `/invoices/${createdInvoice.id}`, 0, new Date().toISOString()]);
-        } catch (e) { console.warn('Failed to create notification', e?.message || e); }
->>>>>>> a2206d25d59f774106b2fd37712d6665978019d0:server/index.js
 
         res.status(201).json(quote);
     } catch (err) {
@@ -1475,12 +1431,8 @@ app.get('/api/invoices', async (req, res) => {
     }
 });
 
-    // Get single invoice with line items (for edit/view in UI)
-<<<<<<< HEAD:Backend/index.js
-    app.get('/api/invoices/:id', authMiddleware, requireRole('manager'), async (req, res) => {
-=======
-    app.get('/api/invoices/:id', authMiddleware, requireRole('admin'), async (req, res) => {
->>>>>>> a2206d25d59f774106b2fd37712d6665978019d0:server/index.js
+// Get single invoice with line items (for edit/view in UI)
+app.get('/api/invoices/:id', authMiddleware, requireRole('manager'), async (req, res) => {
         const { id } = req.params;
         try {
             const invoice = await db.get(`
@@ -1506,11 +1458,7 @@ app.get('/api/invoices', async (req, res) => {
     });
 
 // Admin: edit invoice/quote and its line items (replace items atomically and recompute totals)
-<<<<<<< HEAD:Backend/index.js
 app.put('/api/invoices/:id', authMiddleware, requireRole('manager'), async (req, res) => {
-=======
-app.put('/api/invoices/:id', authMiddleware, requireRole('admin'), async (req, res) => {
->>>>>>> a2206d25d59f774106b2fd37712d6665978019d0:server/index.js
     const { id } = req.params;
     const { items, status, type } = req.body;
     try {
@@ -1576,7 +1524,6 @@ app.put('/api/invoices/:id', authMiddleware, requireRole('admin'), async (req, r
 
         await db.run('COMMIT');
         const updated = await db.get('SELECT * FROM invoices WHERE id = ?', [id]);
-<<<<<<< HEAD:Backend/index.js
         const itemsList = await db.all(
             `SELECT ii.id, ii.product_id, ii.quantity, ii.price, p.name as product_name, p.image as product_image
              FROM invoice_items ii
@@ -1594,20 +1541,13 @@ app.put('/api/invoices/:id', authMiddleware, requireRole('admin'), async (req, r
             metadata: { invoiceId: Number(id), status: status || invoice.status, type: type || invoice.type }
         });
         res.json({ ...updated, items: itemsList });
-=======
-        res.json(updated);
->>>>>>> a2206d25d59f774106b2fd37712d6665978019d0:server/index.js
     } catch (err) {
         try { await db.run('ROLLBACK'); } catch (e) {}
         res.status(500).json({ error: err.message });
     }
 });
 
-<<<<<<< HEAD:Backend/index.js
 app.put('/api/invoices/:id/status', authMiddleware, requireRole('manager'), async (req, res) => {
-=======
-app.put('/api/invoices/:id/status', authMiddleware, requireRole('admin'), async (req, res) => {
->>>>>>> a2206d25d59f774106b2fd37712d6665978019d0:server/index.js
     const { id } = req.params;
     const { status } = req.body;
 
@@ -1827,7 +1767,16 @@ app.post('/api/invoices/:id/pdf-link', authMiddleware, async (req, res) => {
 // Order processing for guests
 app.post('/api/orders', async (req, res) => {
     const { customer, cart, payment } = req.body || {};
-    if (!customer || !customer.name || !customer.email || !cart || cart.length === 0) {
+    const sanitizedCart = Array.isArray(cart)
+        ? cart.filter((item) => item && Number(item.quantity) > 0 && item.id != null)
+        : [];
+    if (!customer || !customer.name || !customer.email || sanitizedCart.length === 0) {
+        console.warn('Order rejected due to missing data', {
+            hasCustomer: !!customer,
+            name: customer?.name,
+            email: customer?.email,
+            cartLength: Array.isArray(cart) ? cart.length : 'n/a',
+        });
         return res.status(400).json({ error: 'Missing customer data or cart is empty' });
     }
 
@@ -1859,7 +1808,7 @@ app.post('/api/orders', async (req, res) => {
     }
 
     try {
-        const total = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
+        const total = sanitizedCart.reduce((sum, item) => sum + (Number(item.price) || 0) * (Number(item.quantity) || 0), 0);
 
         const orderResult = await db.run(
             'INSERT INTO orders (customer_name, customer_email, customer_phone, customer_company, total, status, payment_method, payment_reference, payment_slip) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
@@ -1878,8 +1827,8 @@ app.post('/api/orders', async (req, res) => {
         const orderId = orderResult.lastID;
 
         const stmt = await db.prepare('INSERT INTO order_items (order_id, product_id, quantity, price) VALUES (?, ?, ?, ?)');
-        for (const item of cart) {
-            await stmt.run(orderId, item.id, item.quantity, item.price);
+        for (const item of sanitizedCart) {
+            await stmt.run(orderId, item.id, Number(item.quantity) || 0, Number(item.price) || 0);
             // Decrement stock
             await db.run('UPDATE products SET stock = stock - ? WHERE id = ?', [item.quantity, item.id]);
         }
@@ -1909,9 +1858,9 @@ app.post('/api/orders', async (req, res) => {
             // persist invoice_items and compute subtotal
             let invSubtotal = 0;
             const invStmt = await db.prepare('INSERT INTO invoice_items (invoice_id, product_id, quantity, price) VALUES (?, ?, ?, ?)');
-            for (const item of cart) {
-                await invStmt.run(invoiceId, item.id, item.quantity, item.price);
-                invSubtotal += item.price * item.quantity;
+            for (const item of sanitizedCart) {
+                await invStmt.run(invoiceId, item.id, Number(item.quantity) || 0, Number(item.price) || 0);
+                invSubtotal += (Number(item.price) || 0) * (Number(item.quantity) || 0);
             }
             await invStmt.finalize();
 
@@ -1950,14 +1899,13 @@ app.post('/api/orders', async (req, res) => {
             // send admin notification about new order and create in-app notification
             try {
                 const subject = `New order placed by ${customer.name}`;
-                const itemsHtml = cart.map(it => `<li>${it.name} x ${it.quantity} — ${it.price}</li>`).join('');
+                const itemsHtml = sanitizedCart.map(it => `<li>${it.name} x ${it.quantity} - ${it.price}</li>`).join('');
                 const bodyHtml = `<p>A new order was placed:</p><ul><li><strong>Name:</strong> ${customer.name}</li><li><strong>Email:</strong> ${customer.email}</li><li><strong>Total:</strong> ${invTotal}</li></ul><p>Items:</p><ul>${itemsHtml}</ul><p>Order ID: ${orderId}</p><p>Invoice ID: ${invoiceId}</p>`;
                 await sendNotificationEmail(subject, bodyHtml);
             } catch (err) {
                 console.warn('Failed to send order notification', err?.message || err);
             }
 
-<<<<<<< HEAD:Backend/index.js
             await queueNotification({
                 staffId: null,
                 username: null,
@@ -1967,7 +1915,6 @@ app.post('/api/orders', async (req, res) => {
                 link: `/invoices/${invoiceId}`,
                 metadata: { orderId, invoiceId, total: invTotal }
             });
-
             res.status(201).json({ message: 'Order created successfully', orderId, invoiceId });
         } catch (err) {
             console.error('Order creation failed (invoice/journal step):', err);

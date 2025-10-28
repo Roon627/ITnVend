@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import api from '../lib/api';
 import { useToast } from '../components/ToastContext';
 import { useAuth } from '../components/AuthContext';
+import { useTheme } from '../components/ThemeContext';
 
 const CURRENCY_OPTIONS = [
   { code: 'MVR', label: 'MVR - Maldivian Rufiyaa' },
@@ -46,6 +47,7 @@ export default function Settings() {
   const { push } = useToast();
   const { user } = useAuth();
   const isManager = user && user.role === 'manager';
+  const { theme: activeTheme, setTheme, themes: themeOptions } = useTheme();
 
   const [globalSettings, setGlobalSettings] = useState(null);
   const [settingsLoading, setSettingsLoading] = useState(true);
@@ -251,10 +253,56 @@ export default function Settings() {
   }
 
   return (
-    <div className="p-6">
-      <h2 className="text-2xl font-bold mb-4">Settings</h2>
+      <div className="p-6">
+        <h2 className="text-2xl font-bold mb-4">Settings</h2>
 
-      <div className="bg-white p-6 rounded-md shadow space-y-6 max-w-3xl">
+        <div className="bg-white p-6 rounded-md shadow space-y-6 max-w-3xl mb-6">
+          <section className="space-y-3">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="text-lg font-medium text-gray-800">Interface theme</h3>
+                <p className="text-sm text-gray-500">
+                  Choose a colour palette for the back-office experience. Preference is stored per browser.
+                </p>
+              </div>
+              <span className="text-xs uppercase tracking-wide text-gray-400">Preview</span>
+            </div>
+            <div className="grid sm:grid-cols-3 gap-4">
+              {themeOptions.map((option) => (
+                <button
+                  key={option.id}
+                  type="button"
+                  onClick={() => setTheme(option.id)}
+                  aria-pressed={activeTheme === option.id}
+                  className={`flex flex-col justify-between rounded-xl border px-4 py-4 text-left transition focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 ${
+                    activeTheme === option.id ? 'border-blue-500 shadow-theme' : 'border-gray-200 hover:border-blue-300'
+                  }`}
+                >
+                  <div className="flex items-center justify-between mb-4">
+                    <div className="space-y-1">
+                      <p className="text-sm font-semibold text-gray-800">{option.name}</p>
+                      <p className="text-xs text-gray-500">{option.description}</p>
+                    </div>
+                    <div className="flex -space-x-1">
+                      {option.preview.map((hex, index) => (
+                        <span
+                          key={hex + index}
+                          className="h-8 w-8 rounded-full border border-white shadow-sm"
+                          style={{ background: hex }}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                  <span className={`inline-flex items-center gap-2 text-xs font-semibold ${activeTheme === option.id ? 'text-blue-600' : 'text-gray-400'}`}>
+                    {activeTheme === option.id ? 'Active theme' : 'Select theme'}
+                  </span>
+                </button>
+              ))}
+            </div>
+          </section>
+        </div>
+
+        <div className="bg-white p-6 rounded-md shadow space-y-6 max-w-3xl">
         <section className="space-y-2">
           <h3 className="text-lg font-medium text-gray-800">Outlet Management</h3>
           <label className="block text-sm font-medium text-gray-700">Active Outlet</label>

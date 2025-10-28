@@ -5,15 +5,18 @@ import App from './pages/App.jsx'
 import { ToastProvider } from './components/ToastContext.jsx'
 import { CartProvider } from './components/CartContext.jsx'
 import { SettingsProvider } from './components/SettingsContext.jsx'
+import { ThemeProvider } from './components/ThemeContext.jsx'
 
 createRoot(document.getElementById('root')).render(
   <StrictMode>
-    <ToastProvider>
-      <SettingsProvider>
-        <CartProvider>
-          <App />
-        </CartProvider>
-      </SettingsProvider>
-    </ToastProvider>
+    <ThemeProvider>
+      <ToastProvider>
+        <SettingsProvider>
+          <CartProvider>
+            <App />
+          </CartProvider>
+        </SettingsProvider>
+      </ToastProvider>
+    </ThemeProvider>
   </StrictMode>,
 )

@@ -21,13 +21,8 @@
     "nodemailer": "^6.9.5",
     "pdfkit": "^0.15.0",
     "sqlite": "^5.1.1",
-<<<<<<< HEAD:Backend/package.json
-    "sqlite3": "^5.1.7"
-=======
     "sqlite3": "^5.1.7",
-    "pg": "^8.11.0"
-    ,
+    "pg": "^8.11.0",
     "dotenv": "^16.4.1"
->>>>>>> a2206d25d59f774106b2fd37712d6665978019d0:server/package.json
   }
 }
