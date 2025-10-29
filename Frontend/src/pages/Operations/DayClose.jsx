@@ -3,6 +3,7 @@ import { FaLock, FaUnlock, FaCalculator, FaCheckCircle, FaExclamationTriangle, F
 import api from '../../lib/api';
 import { useToast } from '../../components/ToastContext';
 import { useSettings } from '../../components/SettingsContext';
+import DenominationRows, { renderDenominationRowsForPrint } from '../../components/DenominationRows';
 
 const DayClose = () => {
   const { formatCurrency } = useSettings();
@@ -20,6 +21,16 @@ const DayClose = () => {
     hundreds: 0,
     coins: 0
   });
+
+  // Denomination definitions used to render inputs and print rows
+  const denominations = [
+    { value: 100, key: 'hundreds' },
+    { value: 50, key: 'fifties' },
+    { value: 20, key: 'twenties' },
+    { value: 10, key: 'tens' },
+    { value: 5, key: 'fives' },
+    { value: 1, key: 'ones' },
+  ];
   const [actualCash, setActualCash] = useState(0);
   const [discrepancy, setDiscrepancy] = useState(0);
   const [notes, setNotes] = useState('');
@@ -128,6 +139,9 @@ const DayClose = () => {
   const printShiftReport = () => {
     if (!shiftData) return;
 
+    // build rows for current counts so printable content mirrors the page
+    const denomRows = renderDenominationRowsForPrint(denominations, cashCounts, formatCurrency);
+
     const printWindow = window.open('', '_blank');
     printWindow.document.write(`
       <html>
@@ -169,12 +183,7 @@ const DayClose = () => {
             <h3>Cash Count Details</h3>
             <table>
               <tr><th>Denomination</th><th>Count</th><th>Amount</th></tr>
-              <tr><td>$100</td><td>${cashCounts.hundreds}</td><td>${formatCurrency(cashCounts.hundreds * 100)}</td></tr>
-              <tr><td>$50</td><td>${cashCounts.fifties}</td><td>${formatCurrency(cashCounts.fifties * 50)}</td></tr>
-              <tr><td>$20</td><td>${cashCounts.twenties}</td><td>${formatCurrency(cashCounts.twenties * 20)}</td></tr>
-              <tr><td>$10</td><td>${cashCounts.tens}</td><td>${formatCurrency(cashCounts.tens * 10)}</td></tr>
-              <tr><td>$5</td><td>${cashCounts.fives}</td><td>${formatCurrency(cashCounts.fives * 5)}</td></tr>
-              <tr><td>$1</td><td>${cashCounts.ones}</td><td>${formatCurrency(cashCounts.ones * 1)}</td></tr>
+              ${denomRows}
               <tr><td>Coins</td><td>-</td><td>${formatCurrency(cashCounts.coins)}</td></tr>
               <tr class="total"><td>Total</td><td>-</td><td>${formatCurrency(actualCash)}</td></tr>
             </table>
@@ -213,6 +222,18 @@ const DayClose = () => {
               <span className="text-sm font-medium">Shift Closed</span>
             </div>
           )}
+
+          <div className="flex items-center gap-2">
+            <button onClick={startNewShift} disabled={processing} className="px-3 py-1 rounded-md bg-blue-600 text-white text-sm hover:bg-blue-700">
+              Start Shift
+            </button>
+            <button onClick={closeShift} disabled={processing} className="px-3 py-1 rounded-md bg-amber-500 text-white text-sm hover:bg-amber-600">
+              Close Shift
+            </button>
+            <button onClick={printShiftReport} className="px-3 py-1 rounded-md bg-gray-200 text-sm hover:bg-gray-300">
+              <FaPrint className="inline mr-2"/> Print
+            </button>
+          </div>
         </div>
       </div>
 
@@ -258,123 +279,22 @@ const DayClose = () => {
               <div>
                 <h4 className="text-md font-medium text-gray-900 mb-3">Cash Count</h4>
                 <div className="space-y-3">
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700">$100</label>
-                      <input
-                        type="number"
-                        min="0"
-                        value={cashCounts.hundreds}
-                        onChange={(e) => handleCashCountChange('hundreds', e.target.value)}
-                        className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2 focus:ring-blue-500 focus:border-blue-500"
-                      />
-                    </div>
-                    <div className="text-right pt-6">
-                      <span className="text-sm text-gray-600">
-                        {formatCurrency(cashCounts.hundreds * 100)}
-                      </span>
-                    </div>
-                  </div>
+                  <DenominationRows
+                    denominations={denominations}
+                    cashCounts={cashCounts}
+                    onChange={handleCashCountChange}
+                    formatCurrency={formatCurrency}
+                  />
 
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700">$50</label>
-                      <input
-                        type="number"
-                        min="0"
-                        value={cashCounts.fifties}
-                        onChange={(e) => handleCashCountChange('fifties', e.target.value)}
-                        className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2 focus:ring-blue-500 focus:border-blue-500"
-                      />
-                    </div>
-                    <div className="text-right pt-6">
-                      <span className="text-sm text-gray-600">
-                        {formatCurrency(cashCounts.fifties * 50)}
-                      </span>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700">$20</label>
-                      <input
-                        type="number"
-                        min="0"
-                        value={cashCounts.twenties}
-                        onChange={(e) => handleCashCountChange('twenties', e.target.value)}
-                        className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2 focus:ring-blue-500 focus:border-blue-500"
-                      />
-                    </div>
-                    <div className="text-right pt-6">
-                      <span className="text-sm text-gray-600">
-                        {formatCurrency(cashCounts.twenties * 20)}
-                      </span>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700">$10</label>
-                      <input
-                        type="number"
-                        min="0"
-                        value={cashCounts.tens}
-                        onChange={(e) => handleCashCountChange('tens', e.target.value)}
-                        className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2 focus:ring-blue-500 focus:border-blue-500"
-                      />
-                    </div>
-                    <div className="text-right pt-6">
-                      <span className="text-sm text-gray-600">
-                        {formatCurrency(cashCounts.tens * 10)}
-                      </span>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700">$5</label>
-                      <input
-                        type="number"
-                        min="0"
-                        value={cashCounts.fives}
-                        onChange={(e) => handleCashCountChange('fives', e.target.value)}
-                        className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2 focus:ring-blue-500 focus:border-blue-500"
-                      />
-                    </div>
-                    <div className="text-right pt-6">
-                      <span className="text-sm text-gray-600">
-                        {formatCurrency(cashCounts.fives * 5)}
-                      </span>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700">$1</label>
-                      <input
-                        type="number"
-                        min="0"
-                        value={cashCounts.ones}
-                        onChange={(e) => handleCashCountChange('ones', e.target.value)}
-                        className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2 focus:ring-blue-500 focus:border-blue-500"
-                      />
-                    </div>
-                    <div className="text-right pt-6">
-                      <span className="text-sm text-gray-600">
-                        {formatCurrency(cashCounts.ones * 1)}
-                      </span>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700">Coins</label>
-                      <input
-                        type="number"
-                        min="0"
-                        step="0.01"
-                        value={cashCounts.coins}
-                        onChange={(e) => handleCashCountChange('coins', e.target.value)}
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700">Coins</label>
+                          <input
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            value={cashCounts.coins}
+                            onChange={(e) => handleCashCountChange('coins', e.target.value)}
                         className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2 focus:ring-blue-500 focus:border-blue-500"
                       />
                     </div>

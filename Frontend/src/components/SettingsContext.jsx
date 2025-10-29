@@ -51,15 +51,26 @@ export function SettingsProvider({ children }) {
 
   const formatCurrency = (amount, options = {}) => {
     try {
+      const val = Number(amount ?? 0);
+      // Detect if there are any cents (non-zero fractional part up to 2 decimals)
+      const cents = Math.round(Math.abs((val - Math.trunc(val)) * 100));
+      const hasCents = cents > 0;
+      const fractionDigits = options.minimumFractionDigits ?? (hasCents ? 2 : 0);
+
       return new Intl.NumberFormat(undefined, {
         style: 'currency',
         currency: currencyCode,
         currencyDisplay: 'symbol',
+        minimumFractionDigits: fractionDigits,
+        maximumFractionDigits: fractionDigits,
         ...options,
-      }).format(amount ?? 0);
+      }).format(val);
     } catch (err) {
       // Fallback if Intl doesn't support the code
-      return `${currencySymbol} ${(amount ?? 0).toFixed(2)}`;
+      const val = Number(amount ?? 0);
+      const cents = Math.round(Math.abs((val - Math.trunc(val)) * 100));
+      const hasCents = cents > 0;
+      return `${currencySymbol} ${hasCents ? val.toFixed(2) : Math.trunc(val)}`;
     }
   };
 

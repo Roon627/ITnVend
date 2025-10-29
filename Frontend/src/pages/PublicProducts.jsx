@@ -4,6 +4,7 @@ import api from '../lib/api';
 import { useCart } from '../components/CartContext';
 import { useSettings } from '../components/SettingsContext';
 import { FaShoppingCart, FaSearch, FaFilter, FaUndoAlt } from 'react-icons/fa';
+import ProductCard from '../components/ProductCard';
 
 const initialFilters = { category: '', subcategory: '', search: '' };
 
@@ -13,6 +14,7 @@ export default function PublicProducts() {
   const [filters, setFilters] = useState(initialFilters);
   const [searchInput, setSearchInput] = useState('');
   const [loading, setLoading] = useState(false);
+  const [sortBy, setSortBy] = useState('relevance');
   const { addToCart, cartCount } = useCart();
   const { formatCurrency } = useSettings();
 
@@ -109,6 +111,7 @@ export default function PublicProducts() {
               >
                 Request proposal
               </Link>
+              {/* POS CTA removed — licensing will be marketed separately */}
             </div>
           </div>
         </div>
@@ -201,15 +204,39 @@ export default function PublicProducts() {
                       </span>
                     )}
                   </div>
-                  {filters.search && (
+                  <div className="flex items-center gap-3">
+                    {filters.search && (
                     <div className="rounded-full border border-blue-500/40 bg-blue-500/10 px-3 py-1 text-xs text-blue-200">
                       Searching “{filters.search}”
                     </div>
-                  )}
+                    )}
+
+                    <label className="text-sm text-slate-300">Sort</label>
+                    <select
+                      value={sortBy}
+                      onChange={(e) => setSortBy(e.target.value)}
+                      className="rounded-md bg-slate-900/80 border border-slate-700 text-sm text-white px-2 py-1"
+                    >
+                      <option value="relevance">Relevance</option>
+                      <option value="price-asc">Price: Low → High</option>
+                      <option value="price-desc">Price: High → Low</option>
+                      <option value="newest">Newest</option>
+                    </select>
+                  </div>
                 </div>
 
-                <div className="grid gap-6 sm:grid-cols-2 xl:grid-cols-3">
-                  {(loading ? Array.from({ length: 6 }) : products).map((product, index) => {
+                <div className="grid gap-8 sm:grid-cols-2 xl:grid-cols-3">
+                  {(
+                    loading
+                      ? Array.from({ length: 6 })
+                      : (() => {
+                          const list = [...products];
+                          if (sortBy === 'price-asc') list.sort((a, b) => (a.price || 0) - (b.price || 0));
+                          if (sortBy === 'price-desc') list.sort((a, b) => (b.price || 0) - (a.price || 0));
+                          if (sortBy === 'newest') list.sort((a, b) => new Date(b.created_at || b.createdAt || 0) - new Date(a.created_at || a.createdAt || 0));
+                          return list;
+                        })()
+                  ).map((product, index) => {
                     if (loading) {
                       return (
                         <div
@@ -226,50 +253,12 @@ export default function PublicProducts() {
 
                     const image = product.image || product.image_source || product.imageUrl;
                     return (
-                      <article
+                      <ProductCard
                         key={product.id}
-                        className="group flex flex-col overflow-hidden rounded-2xl border border-slate-800 bg-slate-900/80 shadow-lg shadow-black/20 transition hover:-translate-y-1 hover:shadow-blue-900/40"
-                      >
-                        <div className="relative h-44 overflow-hidden">
-                          {image ? (
-                            <img
-                              src={image}
-                              alt={product.name}
-                              className="h-full w-full object-cover transition duration-500 group-hover:scale-105"
-                            />
-                          ) : (
-                            <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-slate-800 to-slate-700 text-slate-300 text-sm">
-                              Visual coming soon
-                            </div>
-                          )}
-                          {product.category && (
-                            <span className="absolute left-4 top-4 rounded-full bg-slate-900/80 px-3 py-1 text-xs font-semibold text-blue-300 backdrop-blur">
-                              {product.category}
-                            </span>
-                          )}
-                        </div>
-                        <div className="flex flex-1 flex-col gap-4 p-6">
-                          <div>
-                            <h3 className="text-lg font-semibold text-white line-clamp-2">{product.name}</h3>
-                            <p className="mt-1 text-xs uppercase tracking-widest text-blue-300">
-                              {product.subcategory || 'Premium bundle'}
-                            </p>
-                            {product.description && (
-                              <p className="mt-3 text-sm text-slate-300 line-clamp-3">{product.description}</p>
-                            )}
-                          </div>
-                          <div className="flex items-center justify-between">
-                            <span className="text-2xl font-bold text-blue-300">{formatCurrency(product.price)}</span>
-                            <button
-                              onClick={() => addToCart(product)}
-                              className="inline-flex items-center gap-2 rounded-full bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-500"
-                              aria-label={`Add ${product.name} to cart`}
-                            >
-                              <FaShoppingCart /> Add to cart
-                            </button>
-                          </div>
-                        </div>
-                      </article>
+                        product={product}
+                        onAdd={() => addToCart(product)}
+                        formatCurrency={formatCurrency}
+                      />
                     );
                   })}
                 </div>

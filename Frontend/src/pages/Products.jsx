@@ -534,6 +534,15 @@ export default function Products() {
     fetchProducts();
   }, [fetchProducts]);
 
+  const openCreateModal = () => {
+    setModalDraft({
+      ...EMPTY_FORM,
+    });
+    setModalOriginalDraft(null);
+    setModalOpen(true);
+    setModalStockReason('');
+  };
+
   useEffect(() => {
     const timer = setTimeout(() => {
       setFilters((prev) => (prev.search === searchValue ? prev : { ...prev, search: searchValue }));
@@ -673,6 +682,34 @@ export default function Products() {
     }
     setModalSaving(true);
     try {
+      // If no id -> create new product
+      if (!modalDraft.id) {
+        const payload = {
+          name: modalDraft.name,
+          price: parseFloat(modalDraft.price),
+          stock: modalDraft.stock ? parseInt(modalDraft.stock, 10) || 0 : 0,
+          category: modalDraft.category || null,
+          subcategory: modalDraft.subcategory || null,
+          image: modalDraft.image || null,
+          imageUrl: modalDraft.imageUrl || null,
+          description: modalDraft.description || null,
+          technicalDetails: modalDraft.technicalDetails || null,
+          sku: modalDraft.sku || null,
+          barcode: modalDraft.barcode || null,
+          cost: modalDraft.cost ? parseFloat(modalDraft.cost) : 0,
+          trackInventory: modalDraft.trackInventory,
+        };
+        const created = await api.post('/products', payload);
+        toast.push('Product added', 'info');
+        setModalOpen(false);
+        setModalDraft(null);
+        setModalOriginalDraft(null);
+        setModalStockReason('');
+        setSelectedProduct(created);
+        await fetchProducts();
+        setModalSaving(false);
+        return;
+      }
       const payload = {
         name: modalDraft.name,
         price: parseFloat(modalDraft.price),
@@ -905,210 +942,17 @@ export default function Products() {
             Manage catalog inventory, pricing, and technical specifications.
           </p>
         </div>
+        <div>
+          <button
+            type="button"
+            onClick={openCreateModal}
+            className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-md font-semibold shadow hover:bg-blue-700"
+          >
+            <FaPlus /> Add product
+          </button>
+        </div>
       </div>
-
-      <section className="bg-white shadow-sm rounded-lg p-6">
-        <h2 className="text-lg font-semibold text-slate-800 mb-4">Add new product</h2>
-        <form onSubmit={handleAddProduct} className="grid gap-4 md:grid-cols-4">
-          <label className="text-sm font-medium text-slate-600">
-            Name
-            <input
-              name="name"
-              value={form.name}
-              onChange={handleFormChange}
-              className="mt-1 w-full rounded border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-              required
-            />
-          </label>
-          <label className="text-sm font-medium text-slate-600">
-            Price
-            <input
-              name="price"
-              value={form.price}
-              onChange={handleFormChange}
-              type="number"
-              step="0.01"
-              className="mt-1 w-full rounded border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-              required
-            />
-          </label>
-          <label className="text-sm font-medium text-slate-600">
-            Stock
-            <input
-              name="stock"
-              value={form.stock}
-              onChange={handleFormChange}
-              type="number"
-              className="mt-1 w-full rounded border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-          </label>
-          <label className="inline-flex items-center gap-2 text-sm font-medium text-slate-600 justify-self-start md:justify-self-auto mt-7">
-            <input
-              type="checkbox"
-              name="trackInventory"
-              checked={form.trackInventory}
-              onChange={handleFormChange}
-              className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
-            />
-            Track inventory
-          </label>
-          <label className="text-sm font-medium text-slate-600">
-            Category
-            <input
-              name="category"
-              value={form.category}
-              onChange={handleFormChange}
-              className="mt-1 w-full rounded border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-          </label>
-          <label className="text-sm font-medium text-slate-600">
-            Subcategory
-            <input
-              name="subcategory"
-              value={form.subcategory}
-              onChange={handleFormChange}
-              className="mt-1 w-full rounded border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-          </label>
-          <label className="text-sm font-medium text-slate-600">
-            SKU
-            <input
-              name="sku"
-              value={form.sku}
-              onChange={handleFormChange}
-              className="mt-1 w-full rounded border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-          </label>
-          <label className="text-sm font-medium text-slate-600">
-            Barcode
-            <input
-              name="barcode"
-              value={form.barcode}
-              onChange={handleFormChange}
-              className="mt-1 w-full rounded border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-          </label>
-          <label className="text-sm font-medium text-slate-600">
-            Cost
-            <input
-              name="cost"
-              value={form.cost}
-              onChange={handleFormChange}
-              type="number"
-              step="0.01"
-              className="mt-1 w-full rounded border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-          </label>
-          <div className="col-span-full flex flex-wrap items-center gap-3">
-            <input
-              name="imageUrl"
-              value={form.imageUrl}
-              onChange={handleFormChange}
-              placeholder="Image URL"
-              className="flex-1 min-w-[180px] rounded border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-            <input
-              ref={newImageInputRef}
-              type="file"
-              accept="image/*"
-              className="hidden"
-              onChange={(event) => {
-                const file = event.target.files?.[0];
-                if (file) handleNewImageUpload(file);
-                if (newImageInputRef.current) newImageInputRef.current.value = '';
-              }}
-            />
-            <button
-              type="button"
-              onClick={() => newImageInputRef.current?.click()}
-              className="inline-flex items-center gap-2 rounded-md border px-3 py-2 text-sm hover:bg-slate-100"
-              disabled={newImageUploading}
-            >
-              <FaUpload /> {newImageUploading ? 'Uploading...' : 'Upload'}
-            </button>
-          </div>
-          <label className="text-sm font-medium text-slate-600 md:col-span-2">
-            Description
-            <textarea
-              name="description"
-              value={form.description}
-              onChange={handleFormChange}
-              rows={3}
-              className="mt-1 w-full rounded border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-          </label>
-          <label className="text-sm font-medium text-slate-600 md:col-span-2">
-            Technical details
-            <textarea
-              name="technicalDetails"
-              value={form.technicalDetails}
-              onChange={handleFormChange}
-              rows={3}
-              placeholder="JSON or bullet list"
-              className="mt-1 w-full rounded border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-          </label>
-          <div className="md:col-span-4 grid gap-4 md:grid-cols-2">
-            <div className="rounded-lg border bg-slate-50 p-4">
-              <p className="mb-2 text-sm font-medium text-slate-600">Image preview</p>
-              {form.imageUrl || form.image ? (
-                <img
-                  src={form.imageUrl || form.image}
-                  alt={form.name || 'Product preview'}
-                  className="h-40 w-full rounded-md border object-cover"
-                />
-              ) : (
-                <div className="flex h-40 w-full items-center justify-center rounded-md border border-dashed text-sm text-slate-400">
-                  No image selected
-                </div>
-              )}
-              {(form.image || form.imageUrl) && (
-                <button
-                  type="button"
-                  onClick={() =>
-                    setForm((prev) => ({
-                      ...prev,
-                      image: '',
-                      imageUrl: '',
-                    }))
-                  }
-                  className="mt-3 inline-flex items-center gap-2 rounded-md border px-3 py-2 text-xs hover:bg-slate-100"
-                >
-                  <FaTimes /> Remove image
-                </button>
-              )}
-            </div>
-            <div className="rounded-lg border bg-white p-4">
-              <p className="mb-2 text-sm font-medium text-slate-600">Technical preview</p>
-              <TechnicalDetailsPreview value={form.technicalDetails} />
-            </div>
-          </div>
-          <div className="md:col-span-4 flex flex-wrap items-center justify-end gap-3">
-            <button
-              type="button"
-              onClick={() =>
-                setForm((prev) => ({
-                  ...EMPTY_FORM,
-                  category: prev.category,
-                  subcategory: prev.subcategory,
-                }))
-              }
-              className="rounded-md border px-4 py-2 text-sm hover:bg-slate-100"
-              disabled={adding}
-            >
-              Reset
-            </button>
-            <button
-              type="submit"
-              className="inline-flex items-center gap-2 rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:bg-blue-400"
-              disabled={adding}
-            >
-              <FaPlus />
-              {adding ? 'Adding...' : 'Add product'}
-            </button>
-          </div>
-        </form>
-      </section>
+      {/* Add product moved to modal: click the button above to open the product editor */}
 
       <section className="space-y-6 rounded-lg bg-white p-6 shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-3">

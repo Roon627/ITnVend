@@ -14,11 +14,72 @@ const initialForm = {
   is_business: false,
 };
 
+function CustomerModal({ open, form, onClose, onChange, onSave, saving }) {
+  if (!open) return null;
+  return (
+    <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center px-4">
+      <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] overflow-auto">
+        <header className="flex items-center justify-between px-6 py-4 border-b">
+          <div>
+            <h2 className="text-lg font-semibold text-gray-800">New customer</h2>
+            <p className="text-sm text-gray-500">Create a customer record for invoices and quotes</p>
+          </div>
+          <button onClick={onClose} className="p-2 rounded hover:bg-gray-100">✕</button>
+        </header>
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            onSave();
+          }}
+          className="p-6 grid gap-4 md:grid-cols-2"
+        >
+          <label className="flex flex-col gap-1 text-sm text-gray-600">
+            Name <span className="text-red-500">*</span>
+            <input name="name" value={form.name} onChange={(e) => onChange('name', e.target.value)} className="border rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" required />
+          </label>
+          <label className="flex flex-col gap-1 text-sm text-gray-600">
+            Email <span className="text-red-500">*</span>
+            <input name="email" type="email" value={form.email} onChange={(e) => onChange('email', e.target.value)} className="border rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" required />
+          </label>
+          <label className="flex flex-col gap-1 text-sm text-gray-600">
+            Phone
+            <input name="phone" value={form.phone} onChange={(e) => onChange('phone', e.target.value)} className="border rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+          </label>
+          <label className="flex flex-col gap-1 text-sm text-gray-600">
+            Street address
+            <input name="address" value={form.address} onChange={(e) => onChange('address', e.target.value)} className="border rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+          </label>
+          <label className="flex flex-col gap-1 text-sm text-gray-600">
+            Tax / GST number
+            <input name="gst_number" value={form.gst_number} onChange={(e) => onChange('gst_number', e.target.value)} className="border rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+          </label>
+          <label className="flex flex-col gap-1 text-sm text-gray-600">
+            Registration number
+            <input name="registration_number" value={form.registration_number} onChange={(e) => onChange('registration_number', e.target.value)} className="border rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+          </label>
+          <label className="flex items-center gap-3 text-sm text-gray-600">
+            <input type="checkbox" name="is_business" checked={form.is_business} onChange={(e) => onChange('is_business', e.target.checked)} className="h-4 w-4 text-blue-600" />
+            Treat as business account (enables company-level reporting)
+          </label>
+          <div className="md:col-span-2 flex justify-end">
+            <button type="button" onClick={onClose} className="inline-flex items-center gap-2 px-4 py-2 border rounded-md">Cancel</button>
+            <button type="submit" disabled={saving} className="ml-3 inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-md font-semibold hover:bg-blue-700">
+              {saving ? 'Saving...' : 'Save customer'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 export default function Customers() {
   const [customers, setCustomers] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [segmentFilter, setSegmentFilter] = useState('all');
   const [form, setForm] = useState(initialForm);
+  const [customerModalOpen, setCustomerModalOpen] = useState(false);
+  const [customerSaving, setCustomerSaving] = useState(false);
   const toast = useToast();
   const navigate = useNavigate();
   const ADMIN_BASE = import.meta.env.VITE_ONLY_ADMIN === '1' ? '' : '/admin';
@@ -111,10 +172,10 @@ export default function Customers() {
           </p>
         </div>
         <button
-          onClick={() => document.getElementById('customer-form')?.scrollIntoView({ behavior: 'smooth' })}
+          onClick={() => setCustomerModalOpen(true)}
           className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-md font-semibold shadow hover:bg-blue-700"
         >
-          <FaUsers /> Add customer
+          <FaUsers /> New Customer
         </button>
       </header>
 
@@ -147,91 +208,35 @@ export default function Customers() {
         </div>
       </section>
 
-      <section id="customer-form" className="bg-white rounded-lg shadow-sm border border-gray-100 p-6 space-y-4">
-        <div className="flex items-center justify-between">
-          <h2 className="text-lg font-semibold text-gray-800">Add a customer</h2>
-          <span className="text-xs text-gray-400 uppercase tracking-wide">
-            Create records for invoices and quotations
-          </span>
-        </div>
-        <form onSubmit={handleAdd} className="grid gap-4 md:grid-cols-2">
-          <label className="flex flex-col gap-1 text-sm text-gray-600">
-            Name <span className="text-red-500">*</span>
-            <input
-              name="name"
-              value={form.name}
-              onChange={handleChange}
-              className="border rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-              required
-            />
-          </label>
-          <label className="flex flex-col gap-1 text-sm text-gray-600">
-            Email <span className="text-red-500">*</span>
-            <input
-              name="email"
-              type="email"
-              value={form.email}
-              onChange={handleChange}
-              className="border rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-              required
-            />
-          </label>
-          <label className="flex flex-col gap-1 text-sm text-gray-600">
-            Phone
-            <input
-              name="phone"
-              value={form.phone}
-              onChange={handleChange}
-              className="border rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-          </label>
-          <label className="flex flex-col gap-1 text-sm text-gray-600">
-            Street address
-            <input
-              name="address"
-              value={form.address}
-              onChange={handleChange}
-              className="border rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-          </label>
-          <label className="flex flex-col gap-1 text-sm text-gray-600">
-            Tax / GST number
-            <input
-              name="gst_number"
-              value={form.gst_number}
-              onChange={handleChange}
-              className="border rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-          </label>
-          <label className="flex flex-col gap-1 text-sm text-gray-600">
-            Registration number
-            <input
-              name="registration_number"
-              value={form.registration_number}
-              onChange={handleChange}
-              className="border rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-          </label>
-          <label className="flex items-center gap-3 text-sm text-gray-600">
-            <input
-              type="checkbox"
-              name="is_business"
-              checked={form.is_business}
-              onChange={handleChange}
-              className="h-4 w-4 text-blue-600"
-            />
-            Treat as business account (enables company-level reporting)
-          </label>
-          <div className="md:col-span-2 flex justify-end">
-            <button
-              type="submit"
-              className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-md font-semibold hover:bg-blue-700"
-            >
-              <FaUsers /> Save customer
-            </button>
-          </div>
-        </form>
-      </section>
+      {/* Customer creation moved to modal to keep the page clean */}
+      {customerModalOpen && (
+        <CustomerModal
+          open={customerModalOpen}
+          form={form}
+          onClose={() => { setCustomerModalOpen(false); setForm(initialForm); }}
+          onChange={(name, value) => setForm((prev) => ({ ...prev, [name]: value }))}
+          onSave={async () => {
+            // reuse handleAdd logic but without an event
+            if (!form.name || !form.email) {
+              toast.push('Name and email are required.', 'error');
+              return;
+            }
+            try {
+              setCustomerSaving(true);
+              await api.post('/customers', form);
+              toast.push('Customer added', 'info');
+              setForm(initialForm);
+              setCustomerModalOpen(false);
+              fetchCustomers();
+            } catch (err) {
+              toast.push(err?.response?.data?.error || 'Failed to add customer', 'error');
+            } finally {
+              setCustomerSaving(false);
+            }
+          }}
+          saving={customerSaving}
+        />
+      )}
 
       <section className="bg-white border border-gray-100 rounded-lg shadow-sm p-6 space-y-4">
         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">

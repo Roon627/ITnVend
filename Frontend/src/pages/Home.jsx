@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import api from '../lib/api';
 import { useCart } from '../components/CartContext';
+import { useAuth } from '../components/AuthContext';
 import Footer from '../components/Footer';
 import {
   FaShoppingCart,
@@ -15,6 +16,7 @@ import {
   FaStore,
 } from 'react-icons/fa';
 import { useSettings } from '../components/SettingsContext';
+import ProductCard from '../components/ProductCard';
 
 const INSIGHTS = [
   { icon: <FaBolt />, label: 'Rapid Deployment', value: '48h rollout for core services' },
@@ -26,23 +28,23 @@ const INSIGHTS = [
 const PRACTICE_AREAS = [
   {
     icon: <FaShieldAlt />,
-    title: 'Managed IT & Security',
-    copy: 'Tiered MSP packages with SOC monitoring, device management, and rapid response playbooks.',
+    title: 'Managed IT & Support',
+    copy: 'Practical support plans for small businesses — remote helpdesk, on-site visits, and proactive maintenance.',
+  },
+  {
+    icon: <FaBolt />,
+    title: 'Business Applications',
+    copy: 'Software and SaaS tooling that helps small businesses manage sales, inventory, and customer relationships.',
   },
   {
     icon: <FaPaintBrush />,
-    title: 'Digital Media Studio',
-    copy: 'Campaign strategy, content production, and analytics wired into your revenue targets.',
+    title: 'Digital Licences',
+    copy: 'Sell and manage software licences and digital assets with centralized billing and seat management.',
   },
   {
     icon: <FaTasks />,
     title: 'Procurement & Lifecycle',
-    copy: 'Hardware, software, and licensing delivered with asset tracking and renewal automation.',
-  },
-  {
-    icon: <FaCogs />,
-    title: 'Smart Vending',
-    copy: 'Connected kiosks, telemetry, and predictive restocking that keeps unattended retail profitable.',
+    copy: 'Hardware and software procurement with lifecycle tracking and restocking automation.',
   },
 ];
 
@@ -50,6 +52,7 @@ export default function Home() {
   const [products, setProducts] = useState([]);
   const { addToCart, cartCount } = useCart();
   const { formatCurrency } = useSettings();
+  const { user } = useAuth();
 
   useEffect(() => {
     api
@@ -69,44 +72,29 @@ export default function Home() {
               End-to-end digital operations partner
             </div>
             <h1 className="text-4xl sm:text-5xl lg:text-6xl font-extrabold leading-tight">
-              One platform to power IT, media, procurement, and smart retail.
+              Sell products, licences and provide IT support — everything a small business needs.
             </h1>
             <p className="text-lg text-slate-200 max-w-2xl">
-              ITnVend bundles expert teams and curated tooling so SMBs and regional brands can deliver secure infrastructure,
-              captivating experiences, and seamless unattended storefronts without scaling overhead.
+              We help small businesses sell more and run smoother. Offerings include a ready-to-sell POS module (with licensing and optional support),
+              digital licences, procurement services, and managed IT support packages tailored for SMBs.
             </p>
             <div className="flex flex-wrap gap-4">
               <Link
                 to="/store"
                 className="inline-flex items-center gap-2 rounded-full bg-white px-6 py-3 text-slate-900 font-semibold shadow-lg hover:-translate-y-0.5 transition-transform"
               >
-                Explore solutions
+                Explore products & licenses
                 <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-blue-600 text-white">
                   <FaShoppingCart />
                 </span>
               </Link>
+              {/* POS link intentionally removed — marketing will be handled separately */}
               <Link
                 to="/checkout"
                 className="inline-flex items-center gap-2 rounded-full border border-white/40 px-6 py-3 text-sm font-semibold hover:bg-white/10"
               >
                 Build a plan
               </Link>
-            </div>
-          </div>
-          <div className="rounded-3xl border border-white/10 bg-white/10 p-6 backdrop-blur">
-            <div className="grid grid-cols-2 gap-4">
-              {INSIGHTS.map((item) => (
-                <div
-                  key={item.label}
-                  className="rounded-2xl border border-white/20 bg-slate-900/60 p-4 text-sm shadow-lg shadow-blue-900/20"
-                >
-                  <div className="flex items-center gap-2 text-blue-300 text-lg">
-                    {item.icon}
-                    {item.label}
-                  </div>
-                  <p className="mt-3 text-base font-semibold text-white">{item.value}</p>
-                </div>
-              ))}
             </div>
           </div>
         </div>
@@ -165,53 +153,26 @@ export default function Home() {
                 </span>
               </Link>
             </div>
-            <div className="grid gap-6 sm:grid-cols-2 xl:grid-cols-3">
-              {products.map((product) => {
-                const image = product.image || product.image_source || product.imageUrl;
-                return (
-                  <div
-                    key={product.id}
-                    className="group flex flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm transition hover:-translate-y-1 hover:shadow-xl"
-                  >
-                    <div className="relative h-44 overflow-hidden">
-                      {image ? (
-                        <img
-                          src={image}
-                          alt={product.name}
-                          className="h-full w-full object-cover transition duration-500 group-hover:scale-105"
-                        />
-                      ) : (
-                        <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-blue-100 to-blue-200 text-blue-600 text-sm font-semibold">
-                          Image coming soon
-                        </div>
-                      )}
-                      {product.category && (
-                        <span className="absolute left-4 top-4 rounded-full bg-white/80 px-3 py-1 text-xs font-semibold text-blue-600 backdrop-blur">
-                          {product.category}
-                        </span>
-                      )}
-                    </div>
-                    <div className="flex flex-1 flex-col gap-4 p-6">
-                      <div>
-                        <h3 className="text-lg font-semibold text-slate-900 line-clamp-2">{product.name}</h3>
-                        <p className="mt-1 text-sm text-slate-500 line-clamp-2">
-                          {product.subcategory || 'Comprehensive bundled service'}
-                        </p>
-                      </div>
-                      <div className="flex items-center justify-between">
-                        <span className="text-2xl font-bold text-blue-600">{formatCurrency(product.price)}</span>
-                        <button
-                          onClick={() => addToCart(product)}
-                          className="inline-flex items-center gap-2 rounded-full bg-blue-600 px-4 py-2 text-white text-sm font-semibold hover:bg-blue-700"
-                        >
-                          <FaShoppingCart /> Add
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
+            <div className="grid gap-8 sm:grid-cols-2 xl:grid-cols-3">
+              {products.map((product) => (
+                <ProductCard
+                  key={product.id}
+                  product={product}
+                  onAdd={() => addToCart(product)}
+                  formatCurrency={formatCurrency}
+                />
+              ))}
             </div>
+              <div className="grid gap-6 sm:grid-cols-2 xl:grid-cols-3">
+                {products.map((product) => (
+                  <ProductCard
+                    key={product.id}
+                    product={product}
+                    onAdd={() => addToCart(product)}
+                    formatCurrency={formatCurrency}
+                  />
+                ))}
+              </div>
             {products.length === 0 && (
               <div className="mt-10 rounded-2xl border border-dashed border-slate-300 bg-white p-8 text-center text-slate-500">
                 Marketplace products will appear here once they are published.
