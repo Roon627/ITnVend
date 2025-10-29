@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { api } from '../../lib/api';
 import { useSettings } from '../../components/SettingsContext';
+import StockAdjustments from '../Inventory/StockAdjustments';
 
 // Helper: normalize server timestamps into a Date object robustly.
 // - Accepts ISO strings, 'YYYY-MM-DD HH:MM:SS', 'YYYY-MM-DD', timestamps, or Date objects.
@@ -317,6 +318,7 @@ const Reports = () => {
   const tabs = [
     { id: 'sales', label: 'Sales Reports', icon: '📊' },
     { id: 'inventory', label: 'Inventory Reports', icon: '📦' },
+    { id: 'stock-adjustments', label: 'Stock Adjustments', icon: '📋' },
     { id: 'customers', label: 'Customer Reports', icon: '👥' },
     { id: 'financial', label: 'Financial Reports', icon: '💰' },
   ];
@@ -383,6 +385,7 @@ const Reports = () => {
             <div className="p-6">
               {activeTab === 'sales' && <SalesReport data={salesReport} invoices={salesInvoices} dateRange={dateRange} onExport={exportToCSV} lastUpdated={salesLastUpdated} />}
               {activeTab === 'inventory' && <InventoryReport data={inventoryReport} onExport={exportToCSV} lastUpdated={inventoryLastUpdated} />}
+              {activeTab === 'stock-adjustments' && <StockAdjustments />}
               {activeTab === 'customers' && <CustomerReport data={customerReport} onExport={exportToCSV} lastUpdated={customersLastUpdated} />}
               {activeTab === 'financial' && <FinancialReports data={financialReports} onExport={exportToCSV} lastUpdated={financialLastUpdated} />}
             </div>

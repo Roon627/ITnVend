@@ -2,6 +2,8 @@ import { useState, useEffect, useRef } from 'react';
 import api from '../lib/api';
 import { useToast } from '../components/ToastContext';
 import { useSettings } from '../components/SettingsContext';
+import { useAuth } from '../components/AuthContext';
+import { useStockUpdates, useOrderUpdates, useWebSocketRoom } from '../hooks/useWebSocket';
 
 export default function POS() {
   const [products, setProducts] = useState([]);
@@ -24,10 +26,16 @@ export default function POS() {
   const [newCustomer, setNewCustomer] = useState({ name: '', email: '', phone: '' });
   const [quantityInput, setQuantityInput] = useState({});
   const [activeTab, setActiveTab] = useState('products'); // products, history, held
+  const [stockModalOpen, setStockModalOpen] = useState(false);
+  const [stockModalProduct, setStockModalProduct] = useState(null);
+  const [stockModalValue, setStockModalValue] = useState('');
+  const [stockModalReason, setStockModalReason] = useState('');
 
   const { settings: globalSettings, formatCurrency } = useSettings();
   const toast = useToast();
+  const { user } = useAuth();
   const searchInputRef = useRef(null);
+  const payNowBtnRef = useRef(null);
 
   useEffect(() => {
     loadInitialData();
@@ -42,6 +50,19 @@ export default function POS() {
         case 'f1':
           e.preventDefault();
           searchInputRef.current?.focus();
+          break;
+        case 'f':
+          // quick 'f' also focuses search for faster keyboards
+          e.preventDefault();
+          searchInputRef.current?.focus();
+          break;
+        case 'c':
+          // focus the Pay Now button / cart area
+          e.preventDefault();
+          if (payNowBtnRef.current) {
+            payNowBtnRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            payNowBtnRef.current.focus();
+          }
           break;
         case 'f2':
           e.preventDefault();
@@ -73,6 +94,27 @@ export default function POS() {
     window.addEventListener('keydown', handleKeyPress);
     return () => window.removeEventListener('keydown', handleKeyPress);
   }, [showPaymentModal, showCustomerModal, showReceipt]);
+
+  // WebSocket real-time updates
+  useWebSocketRoom('staff', !!user); // Join staff room when user is logged in
+
+  useStockUpdates((data) => {
+    // Update product stock in real-time
+    setProducts(prevProducts =>
+      prevProducts.map(product =>
+        product.id === data.productId
+          ? { ...product, stock: data.newStock }
+          : product
+      )
+    );
+    toast.push(`${data.productName} stock updated to ${data.newStock}`, 'info');
+  });
+
+  useOrderUpdates((data) => {
+    // Show notification for new orders
+    toast.push(`New order received from ${data.customer.name}`, 'success');
+    // Could also update any order lists or counters here
+  });
 
   const loadInitialData = async () => {
     try {
@@ -291,6 +333,42 @@ export default function POS() {
     }
   };
 
+  const handleOpenStockModal = (product) => {
+    setStockModalProduct(product);
+    setStockModalValue(product.stock ?? 0);
+    setStockModalReason('');
+    setStockModalOpen(true);
+  };
+
+  const handleSaveStock = async () => {
+    if (!stockModalProduct) return;
+    // Only managers/admins allowed to perform official stock adjustments
+    const allowed = user && ['manager', 'admin'].includes(user.role);
+    if (!allowed) {
+      toast.push('Only managers or administrators may adjust stock', 'warning');
+      return;
+    }
+    // enforce reason client-side (server also validates)
+    if (!stockModalReason || String(stockModalReason).trim().length === 0) {
+      toast.push('Please provide a reason for this stock adjustment (required)', 'warning');
+      return;
+    }
+
+    const newStock = parseInt(stockModalValue, 10) || 0;
+    try {
+      const res = await api.post(`/products/${stockModalProduct.id}/adjust-stock`, { new_stock: newStock, reason: String(stockModalReason).trim() });
+      // refresh products
+      api.get('/products').then(setProducts);
+      toast.push('Stock updated', 'success');
+      setStockModalOpen(false);
+      setStockModalProduct(null);
+      setStockModalReason('');
+    } catch (err) {
+      console.error('Failed to update stock', err);
+      toast.push('Failed to update stock', 'error');
+    }
+  };
+
   const filteredCustomers = customers.filter(c =>
     c.name.toLowerCase().includes(customerSearchTerm.toLowerCase()) ||
     c.email?.toLowerCase().includes(customerSearchTerm.toLowerCase())
@@ -309,15 +387,21 @@ export default function POS() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Keyboard Shortcuts Help */}
-      <div className="bg-blue-600 text-white text-sm py-1 px-4 text-center">
-        <span className="font-semibold">Keyboard Shortcuts:</span> F1: Search | F2: Products | F3: History | F4: Hold Order | F5: Payment | ESC: Close Modals
+      {/* Keyboard Shortcuts Help (styled) */}
+  <div className="accent-gradient text-white text-sm py-2 px-4 text-center shadow-md">
+        <span className="font-semibold">Keyboard Shortcuts:</span>
+        <span className="mx-2">F1 / f: Search</span>
+        <span className="mx-2">F2: Products</span>
+        <span className="mx-2">F3: History</span>
+        <span className="mx-2">F4: Hold</span>
+        <span className="mx-2">F5: Payment</span>
+        <span className="mx-2">c: Focus Cart</span>
       </div>
 
       <main className="p-6">
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
           {/* Left Panel - Products/Categories/History */}
-          <div className="lg:col-span-2">
+          <div className="lg:col-span-3">
             {/* Tab Navigation */}
             <div className="bg-white rounded-xl shadow-lg p-4 mb-6">
               <div className="flex space-x-4 border-b">
@@ -370,43 +454,89 @@ export default function POS() {
                   </div>
                 </div>
 
-                {/* Products Grid */}
+                {/* Products Grid - larger cards with images and click-to-add */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-6">
                   {filteredProducts.map((p) => (
-                    <div key={p.id} className={`border rounded-lg p-4 flex flex-col transition-all duration-300 ${p.stock > 0 ? 'hover:shadow-xl hover:scale-105' : 'opacity-50'}`}>
-                      <div className="flex-grow">
-                        <h3 className="font-bold text-lg text-gray-800">{p.name}</h3>
-                        <p className="text-gray-600 font-semibold">{formatCurrency(p.price)}</p>
-                        <p className={`text-sm font-medium ${p.stock > 10 ? 'text-green-600' : p.stock > 0 ? 'text-yellow-600' : 'text-red-600'}`}>
+                    <div
+                      key={p.id}
+                      role="button"
+                      tabIndex={0}
+                      onKeyDown={(e) => { if (e.key === 'Enter') addToCart(p); }}
+                      onClick={() => addToCart(p)}
+                      className={`border rounded-lg overflow-hidden bg-white flex flex-col transition-all duration-200 cursor-pointer ${p.stock > 0 ? 'hover:shadow-2xl hover:scale-105' : 'opacity-60 grayscale'}`}
+                      aria-label={`Add ${p.name} to cart`}
+                    >
+                      {/* Image (if present) */}
+                      { (p.image || p.image_url) ? (
+                        <img src={p.image || p.image_url} alt={p.name} className="h-40 w-full object-cover" />
+                      ) : (
+                        <div className="h-40 w-full bg-gray-100 flex items-center justify-center text-gray-400">No image</div>
+                      ) }
+
+                      <div className="p-4 flex-1 flex flex-col">
+                        <div className="flex justify-between items-start gap-2">
+                          <h3 className="font-bold text-lg text-gray-800 truncate">{p.name}</h3>
+                          <p className="text-blue-600 font-bold">{formatCurrency(p.price)}</p>
+                        </div>
+                        <p className={`mt-1 text-sm font-medium ${p.stock > 10 ? 'text-green-600' : p.stock > 0 ? 'text-yellow-600' : 'text-red-600'}`}>
                           {p.stock > 0 ? `${p.stock} in stock` : 'Out of stock'}
                         </p>
                         {p.category && (
-                          <span className="inline-block bg-gray-100 text-gray-800 text-xs px-2 py-1 rounded mt-1">
+                          <span className="inline-block bg-gray-50 text-gray-800 text-xs px-2 py-1 rounded mt-2">
                             {p.category}
                           </span>
                         )}
-                      </div>
 
-                      {p.stock > 0 && (
-                        <div className="mt-4 space-y-2">
-                          <div className="flex gap-2">
+                        {p.stock > 0 && (
+                          <div className="mt-4 flex items-center gap-3">
                             <input
+                              onClick={(e) => e.stopPropagation()}
                               type="number"
                               min="1"
                               max={p.stock}
                               value={quantityInput[p.id] || 1}
                               onChange={(e) => setQuantityInput(prev => ({ ...prev, [p.id]: parseInt(e.target.value) || 1 }))}
-                              className="w-16 px-2 py-1 border border-gray-300 rounded text-center text-sm"
+                              className="w-20 px-2 py-1 border border-gray-300 rounded text-center text-sm"
+                              aria-label={`Quantity for ${p.name}`}
                             />
+
                             <button
-                              onClick={() => addToCart(p)}
-                              className="flex-1 bg-blue-500 text-white px-3 py-1 rounded-md hover:bg-blue-600 transition-colors text-sm font-medium"
+                              onClick={(e) => { e.stopPropagation(); addToCart(p, quantityInput[p.id] || 1); }}
+                              className="flex-1 accent-btn px-4 py-2 rounded-md font-semibold"
                             >
                               Add
                             </button>
+
+                            <div className="flex items-center gap-2">
+                              <button
+                                onClick={(e) => { e.stopPropagation(); addToCart(p, 5); }}
+                                title="Quick add 5"
+                                className="w-12 h-10 bg-gray-100 rounded-md text-sm hover:bg-gray-200"
+                              >
+                                +5
+                              </button>
+                              { (user && ['manager','admin'].includes(user.role)) ? (
+                                <button
+                                  onClick={(e) => { e.stopPropagation(); setStockModalProduct(p); setStockModalValue(p.stock ?? 0); setStockModalReason(''); setStockModalOpen(true); }}
+                                  title="Edit stock"
+                                  className="w-10 h-10 bg-gray-50 rounded-md text-sm hover:bg-gray-100 flex items-center justify-center"
+                                  aria-label={`Edit stock for ${p.name}`}
+                                >
+                                  ✎
+                                </button>
+                              ) : (
+                                <button
+                                  disabled
+                                  title="Edit stock (manager only)"
+                                  className="w-10 h-10 bg-gray-50 rounded-md text-sm opacity-40 cursor-not-allowed flex items-center justify-center"
+                                >
+                                  ✎
+                                </button>
+                              )}
+                            </div>
                           </div>
-                        </div>
-                      )}
+                        )}
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -465,7 +595,7 @@ export default function POS() {
                         </div>
                         <button
                           onClick={() => recallHeldOrder(order.id)}
-                          className="bg-green-500 hover:bg-green-700 text-white px-4 py-2 rounded font-medium"
+                          className="btn-primary px-4 py-2"
                         >
                           Recall
                         </button>
@@ -485,7 +615,7 @@ export default function POS() {
 
           {/* Right Panel - Cart and Customer */}
           <div className="row-start-1 lg:row-auto">
-            <div className="bg-white rounded-xl shadow-lg p-6 sticky top-6">
+            <div className="bg-white rounded-xl shadow-lg p-6 sticky top-6 lg:col-start-4">
               {/* Customer Selection */}
               <div className="mb-6">
                 <div className="flex justify-between items-center mb-2">
@@ -591,21 +721,23 @@ export default function POS() {
                   </div>
 
                   <div className="flex flex-col gap-2">
-                    <button
-                      onClick={() => setShowPaymentModal(true)}
-                      className="w-full bg-green-500 text-white px-4 py-3 rounded-lg font-bold text-lg hover:bg-green-600 transition-colors"
-                    >
-                      Pay Now (F5)
-                    </button>
+                            <button
+                              ref={payNowBtnRef}
+                              onClick={() => setShowPaymentModal(true)}
+                              className="w-full accent-btn px-4 py-3 rounded-lg font-bold text-lg"
+                              aria-label="Pay Now"
+                            >
+                              Pay Now (F5)
+                            </button>
                     <button
                       onClick={() => handleCheckout('quote')}
-                      className="w-full bg-blue-500 text-white px-4 py-3 rounded-lg font-semibold hover:bg-blue-600 transition-colors"
+                      className="w-full btn-secondary px-4 py-3 rounded-lg font-semibold"
                     >
                       Generate Quote
                     </button>
                     <button
                       onClick={handleHoldOrder}
-                      className="w-full bg-yellow-500 text-white px-4 py-3 rounded-lg font-semibold hover:bg-yellow-600 transition-colors"
+                      className="w-full accent-outline px-4 py-3 rounded-lg font-semibold"
                     >
                       Hold Order (F4)
                     </button>
@@ -673,6 +805,55 @@ export default function POS() {
               >
                 Cancel
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Stock Edit Modal */}
+      {stockModalOpen && stockModalProduct && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 w-full max-w-sm mx-4">
+            <h3 className="text-lg font-semibold mb-4">Edit Stock — {stockModalProduct.name}</h3>
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-gray-700 mb-2">Stock quantity</label>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setStockModalValue((v) => String(Math.max(0, (parseInt(v, 10) || 0) - 1)))}
+                  className="w-10 h-10 bg-gray-100 rounded-md"
+                  type="button"
+                >
+                  -
+                </button>
+                <input
+                  type="number"
+                  value={stockModalValue}
+                  onChange={(e) => setStockModalValue(e.target.value)}
+                  className="flex-1 px-3 py-2 border border-gray-300 rounded-md"
+                  min="0"
+                />
+                <button
+                  onClick={() => setStockModalValue((v) => String((parseInt(v, 10) || 0) + 1))}
+                  className="w-10 h-10 bg-gray-100 rounded-md"
+                  type="button"
+                >
+                  +
+                </button>
+              </div>
+            </div>
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-gray-700 mb-2">Reason (required for audit)</label>
+              <input
+                type="text"
+                value={stockModalReason}
+                onChange={(e) => setStockModalReason(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                placeholder="e.g. Received shipment, inventory correction, damaged"
+              />
+            </div>
+            <div className="flex gap-2">
+              <button onClick={handleSaveStock} className="btn-primary px-4 py-2">Save</button>
+              <button onClick={() => setStockModalOpen(false)} className="btn-muted px-4 py-2">Cancel</button>
             </div>
           </div>
         </div>

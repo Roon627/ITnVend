@@ -670,16 +670,20 @@ export default function Invoices() {
           <div className="text-xs text-gray-500">
             Showing {filteredInvoices.length} of {invoices.length} documents
           </div>
-          <div className="flex flex-wrap gap-2">
-            <button onClick={resetFilters} className="px-3 py-1 border rounded text-xs text-gray-600 hover:border-gray-400">
-              Reset filters
-            </button>
-            <button onClick={saveCurrentView} className="px-3 py-1 border rounded text-xs text-gray-600 hover:border-blue-400">
-              Save view
-            </button>
-            <button onClick={exportCsv} className="px-3 py-1 bg-gray-900 text-white rounded text-xs hover:bg-gray-700">
-              Export CSV
-            </button>
+          <div className="flex flex-wrap gap-3">
+            <div className="flex gap-2">
+              <button onClick={resetFilters} className="px-3 py-1 border rounded text-xs text-gray-600 hover:border-gray-400 hover:bg-gray-50">
+                Reset filters
+              </button>
+              <button onClick={saveCurrentView} className="px-3 py-1 border rounded text-xs text-gray-600 hover:border-blue-400 hover:bg-blue-50">
+                Save view
+              </button>
+            </div>
+            <div className="border-l border-gray-300 pl-3">
+              <button onClick={exportCsv} className="px-3 py-1 bg-gray-900 text-white rounded text-xs hover:bg-gray-700">
+                Export CSV
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -688,36 +692,40 @@ export default function Invoices() {
         <div className="flex items-center gap-3">
           <button
             onClick={() => toggleSelectAll(filteredInvoices)}
-            className="px-3 py-1 border rounded bg-white text-sm"
+            className="px-3 py-1 border rounded bg-white text-sm hover:bg-gray-50"
           >
             {selectAll ? 'Unselect all' : 'Select visible'}
           </button>
 
-          <select
-            value={bulkStatus}
-            onChange={(e) => setBulkStatus(e.target.value)}
-            className="border rounded px-2 py-1 text-sm"
-            disabled={bulkProcessing}
-          >
-            <option value="">Bulk set status…</option>
-            <optgroup label="Invoice">
-              {STATUS_OPTIONS.invoice.map((o) => (
-                <option key={o.value} value={o.value}>{o.label}</option>
-              ))}
-            </optgroup>
-            <optgroup label="Quote">
-              {STATUS_OPTIONS.quote.map((o) => (
-                <option key={o.value} value={o.value}>{o.label}</option>
-              ))}
-            </optgroup>
-          </select>
-          <button onClick={applyBulkStatus} className="px-3 py-1 bg-blue-600 text-white rounded text-sm" disabled={bulkProcessing}>
-            {bulkProcessing ? 'Applying…' : 'Apply'}
-          </button>
+          <div className="flex items-center gap-2 border-l border-gray-300 pl-3">
+            <select
+              value={bulkStatus}
+              onChange={(e) => setBulkStatus(e.target.value)}
+              className="border rounded px-2 py-1 text-sm"
+              disabled={bulkProcessing}
+            >
+              <option value="">Bulk set status…</option>
+              <optgroup label="Invoice">
+                {STATUS_OPTIONS.invoice.map((o) => (
+                  <option key={o.value} value={o.value}>{o.label}</option>
+                ))}
+              </optgroup>
+              <optgroup label="Quote">
+                {STATUS_OPTIONS.quote.map((o) => (
+                  <option key={o.value} value={o.value}>{o.label}</option>
+                ))}
+              </optgroup>
+            </select>
+            <button onClick={applyBulkStatus} className="px-3 py-1 bg-blue-600 text-white rounded text-sm hover:bg-blue-700" disabled={bulkProcessing}>
+              {bulkProcessing ? 'Applying…' : 'Apply'}
+            </button>
+          </div>
 
-          <button onClick={bulkDownloadPdfs} className="px-3 py-1 border rounded text-sm">
-            Download PDFs
-          </button>
+          <div className="border-l border-gray-300 pl-3">
+            <button onClick={bulkDownloadPdfs} className="px-3 py-1 border rounded text-sm hover:bg-gray-50">
+              Download PDFs
+            </button>
+          </div>
         </div>
         <div className="text-sm text-gray-500">{selectedIds.size} selected</div>
       </div>

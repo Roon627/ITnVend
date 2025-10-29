@@ -9,6 +9,7 @@ import {
   FaCalculator,
   FaChartBar,
   FaQuestionCircle,
+  FaClipboardList,
 } from 'react-icons/fa';
 import { useAuth } from './AuthContext';
 import { useUI } from './UIContext';

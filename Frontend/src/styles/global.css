@@ -19,8 +19,17 @@
   --color-text: #1f2937;
   --color-shadow: rgba(124, 58, 237, 0.08);
   --color-success: #16a34a;
+  --color-success-soft: #ecfdf5;
   --color-error: #dc2626;
   --color-error-soft: #fee2e2;
+  --color-warning: #d97706;
+  --color-warning-soft: #fff7ed;
+  --color-warning: #b7791f; /* warm amber adjusted for mauve */
+  --color-warning-soft: #fff6eb;
+  --color-warning: #b45309;
+  --color-warning-soft: #fff7ed;
+  --color-warning: #c2410c;
+  --color-warning-soft: #fff7ed;
 }
 
 [data-theme='mauve'] {
@@ -259,6 +268,49 @@ a:hover {
   color: var(--color-primary-strong) !important;
 }
 
+/* Map semantic success/warning/error Tailwind utilities to theme variables */
+.text-green-600,
+.text-success {
+  color: var(--color-success) !important;
+}
+
+.bg-green-500,
+.bg-success {
+  background-color: var(--color-success) !important;
+  color: var(--color-on-primary) !important;
+}
+
+.bg-green-100 {
+  background-color: var(--color-success-soft) !important;
+  color: var(--color-success) !important;
+}
+
+.text-yellow-600,
+.text-warning {
+  color: var(--color-warning) !important;
+}
+
+.bg-yellow-500,
+.bg-warning {
+  background-color: var(--color-warning) !important;
+  color: #fff !important;
+}
+
+.bg-yellow-100 {
+  background-color: var(--color-warning-soft) !important;
+  color: var(--color-warning) !important;
+}
+
+.text-red-600,
+.text-error {
+  color: var(--color-error) !important;
+}
+
+.bg-red-100 {
+  background-color: var(--color-error-soft) !important;
+  color: var(--color-error) !important;
+}
+
 .focus\:ring-blue-500:focus,
 .focus\:ring-blue-500:focus-visible,
 .focus\:ring-indigo-500:focus,
@@ -268,4 +320,34 @@ a:hover {
 
 .shadow-theme {
   box-shadow: 0 12px 30px var(--color-shadow);
+}
+
+/* Theme-aware accent utilities used by POS and other pages */
+.accent-gradient {
+  background: linear-gradient(90deg, var(--color-primary), var(--color-primary-strong));
+  color: var(--color-on-primary) !important;
+}
+
+.accent-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  background: linear-gradient(90deg, var(--color-primary), var(--color-primary-strong));
+  color: var(--color-on-primary) !important;
+  padding: 0.6rem 1rem;
+  border-radius: 0.5rem;
+  font-weight: 700;
+  transition: transform 0.12s ease, box-shadow 0.12s ease;
+}
+
+.accent-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 10px 24px rgba(0,0,0,0.08);
+}
+
+.accent-outline {
+  background: transparent;
+  border: 1px solid var(--color-primary-border);
+  color: var(--color-primary-strong);
 }

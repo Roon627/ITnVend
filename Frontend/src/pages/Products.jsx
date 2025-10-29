@@ -235,7 +235,7 @@ function ProductInsight({ product, formatCurrency }) {
   );
 }
 
-function ProductModal({ open, draft, onClose, onChange, onSave, onUploadImage, uploading, saving }) {
+function ProductModal({ open, draft, onClose, onChange, onSave, onUploadImage, uploading, saving, stockChanged, stockReason, onStockReasonChange }) {
   const fileInputRef = useRef(null);
   if (!open || !draft) return null;
   const previewSrc = draft.imageUrl || draft.image;
@@ -306,6 +306,19 @@ function ProductModal({ open, draft, onClose, onChange, onSave, onUploadImage, u
                     className="mt-1 w-full rounded border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
                 </label>
+                {stockChanged && (
+                  <div className="col-span-2 mt-2">
+                    <label className="text-sm font-medium text-slate-600">Reason for stock change (required)</label>
+                    <input
+                      type="text"
+                      value={stockReason}
+                      onChange={(e) => onStockReasonChange && onStockReasonChange(e.target.value)}
+                      placeholder="e.g. Received shipment, correction, damaged"
+                      className="mt-1 w-full rounded border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                    <p className="text-xs text-slate-400 mt-1">A reason will be recorded in the stock audit log.</p>
+                  </div>
+                )}
                 <label className="inline-flex items-center gap-2 text-sm font-medium text-slate-600 mt-6">
                   <input
                     type="checkbox"
@@ -470,6 +483,8 @@ export default function Products() {
   const [modalDraft, setModalDraft] = useState(null);
   const [modalSaving, setModalSaving] = useState(false);
   const [modalUploading, setModalUploading] = useState(false);
+  const [modalOriginalDraft, setModalOriginalDraft] = useState(null);
+  const [modalStockReason, setModalStockReason] = useState('');
 
   const [newImageUploading, setNewImageUploading] = useState(false);
   const newImageInputRef = useRef(null);
@@ -621,6 +636,23 @@ export default function Products() {
       trackInventory: product.track_inventory !== 0,
     });
     setModalOpen(true);
+    setModalOriginalDraft({
+      id: product.id,
+      name: product.name || '',
+      price: product.price != null ? String(product.price) : '',
+      stock: product.stock != null ? String(product.stock) : '',
+      category: product.category || '',
+      subcategory: product.subcategory || '',
+      description: product.description || '',
+      technicalDetails: product.technical_details || '',
+      sku: product.sku || '',
+      barcode: product.barcode || '',
+      cost: product.cost != null ? String(product.cost) : '',
+      image: product.image || '',
+      imageUrl: product.image_source || '',
+      trackInventory: product.track_inventory !== 0,
+    });
+    setModalStockReason('');
   };
 
   const handleModalSave = async () => {
@@ -646,10 +678,67 @@ export default function Products() {
         cost: modalDraft.cost ? parseFloat(modalDraft.cost) : 0,
         trackInventory: modalDraft.trackInventory,
       };
+
+      // Detect if only stock changed compared to original draft
+      let onlyStockChanged = false;
+      try {
+        if (modalOriginalDraft) {
+          const orig = {
+            name: modalOriginalDraft.name || '',
+            price: modalOriginalDraft.price ? parseFloat(modalOriginalDraft.price) : 0,
+            stock: modalOriginalDraft.stock ? parseInt(modalOriginalDraft.stock, 10) : 0,
+            category: modalOriginalDraft.category || null,
+            subcategory: modalOriginalDraft.subcategory || null,
+            image: modalOriginalDraft.image || null,
+            imageUrl: modalOriginalDraft.imageUrl || null,
+            description: modalOriginalDraft.description || null,
+            technicalDetails: modalOriginalDraft.technicalDetails || null,
+            sku: modalOriginalDraft.sku || null,
+            barcode: modalOriginalDraft.barcode || null,
+            cost: modalOriginalDraft.cost ? parseFloat(modalOriginalDraft.cost) : 0,
+            trackInventory: modalOriginalDraft.trackInventory,
+          };
+          const changedKeys = Object.keys(payload).filter((k) => {
+            const a = payload[k] == null ? null : payload[k];
+            const b = orig[k] == null ? null : orig[k];
+            // treat number vs string normalization
+            return String(a) !== String(b);
+          });
+          onlyStockChanged = changedKeys.length === 1 && changedKeys[0] === 'stock';
+        }
+      } catch (e) {
+        // ignore comparison errors
+      }
+
+      // If stock changed, require a reason
+      const stockChanged = modalOriginalDraft && (parseInt(modalDraft.stock || 0, 10) !== parseInt(modalOriginalDraft.stock || 0, 10));
+      if (stockChanged && (!modalStockReason || String(modalStockReason).trim().length === 0)) {
+        toast.push('Please provide a reason for stock changes (required)', 'warning');
+        setModalSaving(false);
+        return;
+      }
+
+      if (onlyStockChanged) {
+        // Use the dedicated adjust-stock endpoint for purely stock edits
+        await api.post(`/products/${modalDraft.id}/adjust-stock`, { new_stock: payload.stock, reason: String(modalStockReason).trim() });
+        toast.push('Stock adjusted', 'info');
+        setModalOpen(false);
+        setModalDraft(null);
+        setModalOriginalDraft(null);
+        setModalStockReason('');
+        await fetchProducts();
+        setModalSaving(false);
+        return;
+      }
+
+      // Include the reason in the generic product update so backend can use it if supported
+      if (stockChanged) payload.reason = String(modalStockReason).trim();
       const updated = await api.put(`/products/${modalDraft.id}`, payload);
       toast.push('Product updated', 'info');
       setModalOpen(false);
       setModalDraft(null);
+      setModalOriginalDraft(null);
+      setModalStockReason('');
       setSelectedProduct(updated);
       await fetchProducts();
     } catch (err) {
@@ -1325,6 +1414,9 @@ export default function Products() {
         onUploadImage={handleModalImageUpload}
         uploading={modalUploading}
         saving={modalSaving}
+        stockChanged={modalOriginalDraft && modalDraft && (parseInt(modalDraft.stock||0,10) !== parseInt(modalOriginalDraft.stock||0,10))}
+        stockReason={modalStockReason}
+        onStockReasonChange={(v) => setModalStockReason(v)}
       />
     </div>
   );

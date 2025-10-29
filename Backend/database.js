@@ -181,6 +181,21 @@ export async function setupDatabase() {
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP
         );
 
+        -- Stock adjustments audit table
+        CREATE TABLE IF NOT EXISTS stock_adjustments (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            product_id INTEGER NOT NULL,
+            staff_id INTEGER,
+            username TEXT,
+            delta INTEGER,
+            new_stock INTEGER,
+            reason TEXT,
+            reference TEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (product_id) REFERENCES products(id),
+            FOREIGN KEY (staff_id) REFERENCES staff(id)
+        );
+
         CREATE TABLE IF NOT EXISTS notifications (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             staff_id INTEGER,

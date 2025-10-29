@@ -3,14 +3,26 @@ import cors from 'cors';
 import os from 'os';
 import fs from 'fs';
 import path from 'path';
+import { createServer } from 'http';
+import { Server } from 'socket.io';
 import { setupDatabase } from './database.js';
 import { generateInvoicePdf } from './invoice-service.js';
+import { getWebSocketService } from './websocket-service.js';
+import cacheService from './cache-service.js';
 import nodemailer from 'nodemailer';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
 
 const app = express();
+const server = createServer(app);
+const io = new Server(server, {
+  cors: {
+    origin: true,
+    credentials: true
+  }
+});
+
 app.set('trust proxy', true);
 const port = 4000;
 
@@ -45,7 +57,13 @@ app.get('/', (req, res) => {
 app.get('/health', async (req, res) => {
     try {
         const settings = db ? await db.get('SELECT id FROM settings WHERE id = 1') : null;
-        res.json({ status: 'ok', db: !!settings, pid: process.pid });
+        const redisStatus = await cacheService.ping();
+        res.json({
+            status: 'ok',
+            db: !!settings,
+            redis: redisStatus,
+            pid: process.pid
+        });
     } catch (err) {
         res.status(500).json({ status: 'error', error: err.message });
     }
@@ -295,8 +313,35 @@ async function startServer() {
             }
             console.log('Seeded default admin user: username=admin password=admin (please change)');
         }
-        app.listen(port, '0.0.0.0', () => {
+
+        // WebSocket connection handling
+        io.on('connection', (socket) => {
+            console.log('Client connected:', socket.id);
+
+            socket.on('disconnect', () => {
+                console.log('Client disconnected:', socket.id);
+            });
+
+            socket.on('join', (room) => {
+                socket.join(room);
+                console.log(`Client ${socket.id} joined room: ${room}`);
+            });
+
+            socket.on('leave', (room) => {
+                socket.leave(room);
+                console.log(`Client ${socket.id} left room: ${room}`);
+            });
+        });
+
+        // Make io available globally for broadcasting
+        global.io = io;
+
+        // Initialize WebSocket service
+        const wsService = getWebSocketService();
+
+        server.listen(port, '0.0.0.0', () => {
             console.log(`Server running at http://0.0.0.0:${port}`);
+            console.log(`WebSocket server ready`);
         });
         // Cleanup uploaded images older than 30 days (run once on startup and then daily)
         async function cleanupOldImages(days = 30) {
@@ -341,6 +386,23 @@ async function startServer() {
 }
 
 startServer();
+
+// Handle graceful shutdown
+process.on('SIGINT', async () => {
+    console.log('Shutting down server...');
+    if (cacheService) {
+        await cacheService.close();
+    }
+    process.exit(0);
+});
+
+process.on('SIGTERM', async () => {
+    console.log('Shutting down server...');
+    if (cacheService) {
+        await cacheService.close();
+    }
+    process.exit(0);
+});
 
 // Seed Data Endpoint
 app.get('/api/seed', async (req, res) => {
@@ -418,24 +480,40 @@ app.post('/api/login', async (req, res) => {
 // Product Routes
 app.get('/api/products', async (req, res) => {
     const { category, subcategory, search } = req.query;
-    let query = 'SELECT * FROM products WHERE 1=1';
-    const params = [];
 
-    if (category) {
-        query += ' AND category = ?';
-        params.push(category);
-    }
-    if (subcategory) {
-        query += ' AND subcategory = ?';
-        params.push(subcategory);
-    }
-    if (search) {
-        query += ' AND name LIKE ?';
-        params.push(`%${search}%`);
-    }
+    // Create cache key based on query parameters
+    const cacheKey = `products:${JSON.stringify({ category, subcategory, search })}`;
 
     try {
+        // Try to get from cache first
+        const cachedProducts = await cacheService.get(cacheKey);
+        if (cachedProducts) {
+            console.log('Serving products from cache');
+            return res.json(cachedProducts);
+        }
+
+        // Cache miss - fetch from database
+        let query = 'SELECT * FROM products WHERE 1=1';
+        const params = [];
+
+        if (category) {
+            query += ' AND category = ?';
+            params.push(category);
+        }
+        if (subcategory) {
+            query += ' AND subcategory = ?';
+            params.push(subcategory);
+        }
+        if (search) {
+            query += ' AND name LIKE ?';
+            params.push(`%${search}%`);
+        }
+
         const products = await db.all(query, params);
+
+        // Cache the result for 5 minutes
+        await cacheService.set(cacheKey, products, 300);
+
         res.json(products);
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -444,6 +522,14 @@ app.get('/api/products', async (req, res) => {
 
 app.get('/api/products/categories', async (req, res) => {
     try {
+        // Try to get from cache first
+        const cachedCategories = await cacheService.getCategories();
+        if (cachedCategories) {
+            console.log('Serving product categories from cache');
+            return res.json(cachedCategories);
+        }
+
+        // Cache miss - fetch from database
         const categories = await db.all('SELECT DISTINCT category, subcategory FROM products ORDER BY category, subcategory');
         const categoryMap = categories.reduce((acc, { category, subcategory }) => {
             if (!acc[category]) {
@@ -454,6 +540,10 @@ app.get('/api/products/categories', async (req, res) => {
             }
             return acc;
         }, {});
+
+        // Cache the result for 10 minutes (categories change less frequently)
+        await cacheService.setCategories(categoryMap, 600);
+
         res.json(categoryMap);
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -528,6 +618,11 @@ app.post('/api/products', authMiddleware, requireRole('cashier'), async (req, re
             type: normalizedStock <= 5 ? 'warning' : 'info',
             metadata: { productId: result.lastID }
         });
+
+        // Invalidate product caches
+        await cacheService.invalidateProducts();
+        await cacheService.invalidateCategories();
+
         res.status(201).json(product);
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -594,6 +689,20 @@ app.put('/api/products/:id', authMiddleware, requireRole('cashier'), async (req,
                 id
             ]
         );
+        // If stock changed as part of this update, record a stock_adjustments audit entry
+        try {
+            const prevStock = Number(product.stock || 0);
+            if (Number(normalizedStock) !== prevStock) {
+                const delta = Number(normalizedStock) - prevStock;
+                await db.run(
+                    'INSERT INTO stock_adjustments (product_id, staff_id, username, delta, new_stock, reason) VALUES (?, ?, ?, ?, ?, ?)',
+                    [id, req.user?.staffId || null, req.user?.username || null, delta, Number(normalizedStock), 'updated via product edit']
+                );
+                await logActivity('product', id, 'adjust_stock', req.user?.username, JSON.stringify({ prev: prevStock, next: normalizedStock, delta }));
+            }
+        } catch (e) {
+            console.warn('Failed to record stock adjustment during product update', e?.message || e);
+        }
         const updated = await db.get('SELECT * FROM products WHERE id = ?', [id]);
         await logActivity('product', id, 'update', req.user?.username, JSON.stringify(updated));
         if (normalizedStock <= 5) {
@@ -607,6 +716,28 @@ app.put('/api/products/:id', authMiddleware, requireRole('cashier'), async (req,
             });
         }
         res.json(updated);
+
+        // Invalidate product caches
+        await cacheService.invalidateProducts();
+        await cacheService.invalidateCategories();
+
+        // WebSocket broadcast for real-time updates
+        try {
+            const wsService = getWebSocketService();
+            if (normalizedStock !== Number(product.stock || 0)) {
+                wsService.notifyStockChange(id, {
+                    productId: id,
+                    productName: updated.name,
+                    previousStock: Number(product.stock || 0),
+                    newStock: normalizedStock,
+                    delta: normalizedStock - Number(product.stock || 0),
+                    updatedBy: req.user?.username || 'system'
+                });
+            }
+            wsService.notifyCustomerUpdate({ type: 'product_updated', product: updated });
+        } catch (wsErr) {
+            console.warn('WebSocket broadcast failed:', wsErr.message);
+        }
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
@@ -721,7 +852,74 @@ app.delete('/api/products/:id', authMiddleware, requireRole('manager'), async (r
             type: 'info',
             metadata: { productId: Number(req.params.id) }
         });
+
+        // Invalidate product caches
+        await cacheService.invalidateProducts();
+        await cacheService.invalidateCategories();
+
         res.status(204).end();
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Stock adjustment endpoint (recorded for audit). Managers and admins only.
+app.post('/api/products/:id/adjust-stock', authMiddleware, requireRole(['manager','admin']), async (req, res) => {
+    const { id } = req.params;
+    const { new_stock, reason, reference } = req.body || {};
+    if (new_stock == null) return res.status(400).json({ error: 'new_stock is required' });
+    if (!reason || String(reason).trim().length === 0) return res.status(400).json({ error: 'reason is required for audit' });
+    try {
+        const product = await db.get('SELECT * FROM products WHERE id = ?', [id]);
+        if (!product) return res.status(404).json({ error: 'Product not found' });
+        const prev = Number(product.stock || 0);
+        const next = parseInt(new_stock, 10) || 0;
+        const delta = next - prev;
+
+        // update product stock
+        await db.run('UPDATE products SET stock = ? WHERE id = ?', [next, id]);
+
+        // insert stock adjustment record
+        const r = await db.run(
+            'INSERT INTO stock_adjustments (product_id, staff_id, username, delta, new_stock, reason, reference) VALUES (?, ?, ?, ?, ?, ?, ?)',
+            [id, req.user?.staffId || null, req.user?.username || null, delta, next, reason || null, reference || null]
+        );
+
+        const adjustment = await db.get('SELECT * FROM stock_adjustments WHERE id = ?', [r.lastID]);
+
+        // log activity and optionally notify low stock
+        await logActivity('product', id, 'adjust_stock', req.user?.username, JSON.stringify({ prev, next, delta, reason }));
+        if (next <= 5) {
+            await queueNotification({
+                staffId: null,
+                username: null,
+                title: 'Low stock warning',
+                message: `${product.name} stock adjusted to ${next} (low)`,
+                type: 'warning',
+                metadata: { productId: Number(id), newStock: next }
+            });
+        }
+
+        const updated = await db.get('SELECT * FROM products WHERE id = ?', [id]);
+        res.json({ product: updated, adjustment });
+
+        // WebSocket broadcast for real-time updates
+        try {
+            const wsService = getWebSocketService();
+            wsService.notifyStockChange(id, {
+                productId: id,
+                productName: product.name,
+                previousStock: prev,
+                newStock: next,
+                delta: delta,
+                reason: reason,
+                reference: reference,
+                adjustedBy: req.user?.username || 'system',
+                timestamp: new Date()
+            });
+        } catch (wsErr) {
+            console.warn('WebSocket broadcast failed:', wsErr.message);
+        }
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
@@ -831,6 +1029,60 @@ app.get('/api/notifications', authMiddleware, async (req, res) => {
     }
 });
 
+// List stock adjustments (with filters and optional CSV export)
+app.get('/api/stock-adjustments', authMiddleware, requireRole('manager'), async (req, res) => {
+    try {
+        const page = Math.max(1, parseInt(req.query.page || '1', 10));
+        const pageSize = Math.min(200, Math.max(10, parseInt(req.query.pageSize || '50', 10)));
+        const productId = req.query.productId ? parseInt(req.query.productId, 10) : null;
+        const username = req.query.username ? String(req.query.username) : null;
+        const startDate = req.query.startDate ? String(req.query.startDate) : null;
+        const endDate = req.query.endDate ? String(req.query.endDate) : null;
+        const exportCsv = String(req.query.export || '').toLowerCase() === 'csv';
+
+        let where = 'WHERE 1=1';
+        const params = [];
+        if (productId) { where += ' AND sa.product_id = ?'; params.push(productId); }
+        if (username) { where += ' AND sa.username = ?'; params.push(username); }
+        if (startDate) { where += ' AND sa.created_at >= ?'; params.push(startDate); }
+        if (endDate) { where += ' AND sa.created_at <= ?'; params.push(endDate); }
+
+        const totalRow = await db.get(`SELECT COUNT(*) as c FROM stock_adjustments sa ${where}`, params);
+        const total = totalRow ? totalRow.c : 0;
+
+        const offset = (page - 1) * pageSize;
+        const rows = await db.all(
+            `SELECT sa.*, p.name as product_name FROM stock_adjustments sa LEFT JOIN products p ON p.id = sa.product_id ${where} ORDER BY sa.created_at DESC LIMIT ? OFFSET ?`,
+            [...params, pageSize, offset]
+        );
+
+        if (exportCsv) {
+            // Build a simple CSV
+            const header = ['id','product_id','product_name','staff_id','username','delta','new_stock','reason','reference','created_at'];
+            const lines = [header.join(',')];
+            for (const r of rows) {
+                const vals = header.map((h) => {
+                    let v = r[h] == null ? '' : String(r[h]);
+                    // escape quotes
+                    if (v.includes(',') || v.includes('"') || v.includes('\n')) {
+                        v = '"' + v.replace(/"/g, '""') + '"';
+                    }
+                    return v;
+                });
+                lines.push(vals.join(','));
+            }
+            const csv = lines.join('\n');
+            res.setHeader('Content-Type', 'text/csv');
+            res.setHeader('Content-Disposition', `attachment; filename="stock_adjustments_${Date.now()}.csv"`);
+            return res.send(csv);
+        }
+
+        res.json({ total, page, pageSize, items: rows });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
 app.post('/api/notifications/:id/read', authMiddleware, async (req, res) => {
     try {
         const { id } = req.params;
@@ -904,6 +1156,10 @@ app.put('/api/customers/:id', async (req, res) => {
             [name, email, phone || null, address || null, gst_number || null, registration_number || null, is_business ? 1 : 0, id]
         );
         const customer = await db.get('SELECT * FROM customers WHERE id = ?', [id]);
+
+        // Invalidate customer cache
+        await cacheService.invalidateCustomers();
+
         res.json(customer);
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -912,8 +1168,24 @@ app.put('/api/customers/:id', async (req, res) => {
 
 // Customer Routes
 app.get('/api/customers', async (req, res) => {
-    const customers = await db.all('SELECT * FROM customers');
-    res.json(customers);
+    try {
+        // Try to get from cache first
+        const cachedCustomers = await cacheService.getCustomers();
+        if (cachedCustomers) {
+            console.log('Serving customers from cache');
+            return res.json(cachedCustomers);
+        }
+
+        // Cache miss - fetch from database
+        const customers = await db.all('SELECT * FROM customers');
+
+        // Cache the result for 5 minutes
+        await cacheService.setCustomers(customers, 300);
+
+        res.json(customers);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
 });
 
 app.post('/api/customers', async (req, res) => {
@@ -925,6 +1197,10 @@ app.post('/api/customers', async (req, res) => {
             [name, email || null, phone || null, address || null, gst_number || null, registration_number || null, is_business ? 1 : 0]
         );
         const customer = await db.get('SELECT * FROM customers WHERE id = ?', [result.lastID]);
+
+        // Invalidate customer cache
+        await cacheService.invalidateCustomers();
+
         res.status(201).json(customer);
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -934,6 +1210,10 @@ app.post('/api/customers', async (req, res) => {
 app.delete('/api/customers/:id', async (req, res) => {
     try {
         await db.run('DELETE FROM customers WHERE id = ?', [req.params.id]);
+
+        // Invalidate customer cache
+        await cacheService.invalidateCustomers();
+
         res.status(204).end();
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -962,6 +1242,14 @@ app.get('/api/customers/:id/invoices', async (req, res) => {
 // Settings Routes
 app.get('/api/settings', async (req, res) => {
     try {
+        // Try to get from cache first
+        const cachedSettings = await cacheService.getSettings();
+        if (cachedSettings) {
+            console.log('Serving settings from cache');
+            return res.json(cachedSettings);
+        }
+
+        // Cache miss - fetch from database
         const settings = await db.get('SELECT * FROM settings WHERE id = 1');
         let outlet = null;
         if (settings && settings.current_outlet_id) {
@@ -979,8 +1267,13 @@ app.get('/api/settings', async (req, res) => {
             };
         }
         // also include email settings if present
-    const emailCfg = await db.get('SELECT provider, api_key, email_from, email_to, smtp_host, smtp_port, smtp_user FROM settings_email ORDER BY id DESC LIMIT 1');
-        res.json({ ...settings, outlet, email: emailCfg || null });
+        const emailCfg = await db.get('SELECT provider, api_key, email_from, email_to, smtp_host, smtp_port, smtp_user FROM settings_email ORDER BY id DESC LIMIT 1');
+        const fullSettings = { ...settings, outlet, email: emailCfg || null };
+
+        // Cache the result for 10 minutes (settings change infrequently)
+        await cacheService.setSettings(fullSettings, 600);
+
+        res.json(fullSettings);
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
@@ -1031,6 +1324,10 @@ app.put('/api/settings', authMiddleware, requireRole(['admin', 'manager']), asyn
         }
         const settings = await db.get('SELECT * FROM settings WHERE id = 1');
         const emailCfg = await db.get('SELECT provider, api_key, email_from, email_to, smtp_host, smtp_port, smtp_user FROM settings_email ORDER BY id DESC LIMIT 1');
+
+        // Invalidate settings cache
+        await cacheService.invalidateSettings();
+
         res.json({ ...settings, email: emailCfg || null });
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -1919,6 +2216,36 @@ app.post('/api/orders', async (req, res) => {
                 metadata: { orderId, invoiceId, total: invTotal }
             });
             res.status(201).json({ message: 'Order created successfully', orderId, invoiceId });
+
+            // WebSocket broadcast for real-time updates
+            try {
+                const wsService = getWebSocketService();
+                const orderData = {
+                    orderId,
+                    invoiceId,
+                    customer: {
+                        name: customer.name,
+                        email: customer.email,
+                        phone: customer.phone
+                    },
+                    total: invTotal,
+                    items: sanitizedCart,
+                    paymentMethod,
+                    status: paymentMethod === 'transfer' ? 'awaiting_verification' : 'pending',
+                    timestamp: new Date()
+                };
+                wsService.notifyNewOrder(orderData);
+                wsService.notifyInvoiceCreated({
+                    id: invoiceId,
+                    customer: customer.name,
+                    total: invTotal,
+                    type: 'invoice',
+                    status: 'issued',
+                    timestamp: new Date()
+                });
+            } catch (wsErr) {
+                console.warn('WebSocket broadcast failed:', wsErr.message);
+            }
         } catch (err) {
             console.error('Order creation failed (invoice/journal step):', err);
             return res.status(500).json({ error: 'Order created but failed to create invoice/journal' });

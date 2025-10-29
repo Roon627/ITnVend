@@ -18,13 +18,14 @@ import Cart from './pages/Cart';
 import Checkout from './pages/Checkout';
 import OrderConfirmation from './pages/OrderConfirmation';
 import ProductDetail from './pages/ProductDetail';
-import Accounting from './pages/Accounting';
+import Accounting from './pages/Accounting/Accounting';
 import Reports from './pages/Reports/Reports';
 import Profile from './pages/Profile';
 import Help from './pages/Help';
 import { AuthProvider, useAuth } from './components/AuthContext';
 import { UIProvider, useUI } from './components/UIContext';
 import { NotificationsProvider } from './components/NotificationsContext';
+import { WebSocketProvider } from './components/WebSocketContext';
 
 const ONLY_ADMIN = import.meta.env.VITE_ONLY_ADMIN === '1';
 
@@ -90,49 +91,51 @@ function App() {
   );
 
   return (
-    <AuthProvider>
-      <NotificationsProvider>
-        <UIProvider>
-          <BrowserRouter>
-            <Routes>
-              {ONLY_ADMIN ? (
-                <Route
-                  path="/*"
-                  element={
-                    <AdminOnly>
-                      <AdminLayout>{adminRoutes}</AdminLayout>
-                    </AdminOnly>
-                  }
-                />
-              ) : (
-                <>
-                  <Route path="/" element={<PublicLayout><Home /></PublicLayout>} />
-                  <Route path="/home" element={<PublicLayout><Home /></PublicLayout>} />
-                  <Route path="/store" element={<PublicLayout><PublicProducts /></PublicLayout>} />
-                  <Route path="/product/:id" element={<PublicLayout><ProductDetail /></PublicLayout>} />
-                  <Route path="/cart" element={<PublicLayout><Cart /></PublicLayout>} />
-                  <Route path="/checkout" element={<PublicLayout><Checkout /></PublicLayout>} />
-                  <Route path="/confirmation" element={<PublicLayout><OrderConfirmation /></PublicLayout>} />
-                  <Route path="/vendor-onboarding" element={<PublicLayout><VendorOnboarding /></PublicLayout>} />
-                  <Route path="/privacy" element={<PublicLayout><Privacy /></PublicLayout>} />
-                  <Route path="/use" element={<PublicLayout><UsePolicy /></PublicLayout>} />
-                  <Route path="/login" element={<Login />} />
+    <WebSocketProvider>
+      <AuthProvider>
+        <NotificationsProvider>
+          <UIProvider>
+            <BrowserRouter>
+              <Routes>
+                {ONLY_ADMIN ? (
                   <Route
-                    path="/admin/*"
+                    path="/*"
                     element={
                       <AdminOnly>
                         <AdminLayout>{adminRoutes}</AdminLayout>
                       </AdminOnly>
                     }
                   />
-                  <Route path="*" element={<Navigate to="/" replace />} />
-                </>
-              )}
-            </Routes>
-          </BrowserRouter>
-        </UIProvider>
-      </NotificationsProvider>
-    </AuthProvider>
+                ) : (
+                  <>
+                    <Route path="/" element={<PublicLayout><Home /></PublicLayout>} />
+                    <Route path="/home" element={<PublicLayout><Home /></PublicLayout>} />
+                    <Route path="/store" element={<PublicLayout><PublicProducts /></PublicLayout>} />
+                    <Route path="/product/:id" element={<PublicLayout><ProductDetail /></PublicLayout>} />
+                    <Route path="/cart" element={<PublicLayout><Cart /></PublicLayout>} />
+                    <Route path="/checkout" element={<PublicLayout><Checkout /></PublicLayout>} />
+                    <Route path="/confirmation" element={<PublicLayout><OrderConfirmation /></PublicLayout>} />
+                    <Route path="/vendor-onboarding" element={<PublicLayout><VendorOnboarding /></PublicLayout>} />
+                    <Route path="/privacy" element={<PublicLayout><Privacy /></PublicLayout>} />
+                    <Route path="/use" element={<PublicLayout><UsePolicy /></PublicLayout>} />
+                    <Route path="/login" element={<Login />} />
+                    <Route
+                      path="/admin/*"
+                      element={
+                        <AdminOnly>
+                          <AdminLayout>{adminRoutes}</AdminLayout>
+                        </AdminOnly>
+                      }
+                    />
+                    <Route path="*" element={<Navigate to="/" replace />} />
+                  </>
+                )}
+              </Routes>
+            </BrowserRouter>
+          </UIProvider>
+        </NotificationsProvider>
+      </AuthProvider>
+    </WebSocketProvider>
   );
 }
 

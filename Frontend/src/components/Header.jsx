@@ -6,6 +6,7 @@ import { FaBars, FaBell, FaTimes, FaChevronDown } from 'react-icons/fa';
 import { useAuth } from './AuthContext';
 import { useToast } from './ToastContext';
 import { useNotifications } from './NotificationsContext';
+import { useWebSocket } from './WebSocketContext';
 
 function formatRelativeTime(value) {
   if (!value) return '';
@@ -43,6 +44,7 @@ export default function Header() {
   const { user, reauthRequired, attemptRefresh, logout } = useAuth();
   const toast = useToast();
   const { notifications, unreadCount, markRead, markAllRead } = useNotifications();
+  const { isConnected: wsConnected } = useWebSocket();
   const notificationsRef = useRef(null);
   const notificationsButtonRef = useRef(null);
   const notificationsPanelRef = useRef(null);
@@ -186,6 +188,7 @@ export default function Header() {
         <div className="flex items-center gap-4">
             <div className="flex items-center gap-3">
               <div className={`h-3 w-3 rounded-full ${online ? 'bg-green-500' : 'bg-red-400'}`} title={online ? 'Online' : 'Offline'} />
+              <div className={`h-3 w-3 rounded-full ${wsConnected ? 'bg-blue-500' : 'bg-gray-400'}`} title={wsConnected ? 'Real-time connected' : 'Real-time disconnected'} />
               <button onClick={() => window.open('/', '_blank')} className="text-sm px-3 py-2 rounded-md border">Store</button>
               <button onClick={() => navigate(mk('/help'))} className="text-sm px-3 py-2 rounded-md border">Help</button>
               <div className="relative" ref={profileRef}>

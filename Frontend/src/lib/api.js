@@ -45,14 +45,15 @@ function appendParams(path, params) {
 
 async function fetchWithRetry(path, options = {}, retries = 2, backoff = 200) {
   let attempt = 0;
+  let url = null;
   while (attempt <= retries) {
     try {
       if (!options.headers) options.headers = {};
       if (authToken) options.headers['Authorization'] = `Bearer ${authToken}`;
       // include credentials so HttpOnly refresh cookie is sent
       options.credentials = 'include';
-      // normalize path to backend API route
-      let url;
+  // normalize path to backend API route
+  url = null;
       if (/^https?:\/\//.test(path)) {
         url = path;
       } else if (path.startsWith('/api')) {
@@ -66,12 +67,38 @@ async function fetchWithRetry(path, options = {}, retries = 2, backoff = 200) {
       const res = await fetch(url, options);
       if (!res.ok) {
         const text = await res.text();
-        throw new Error(text || res.statusText);
+        const err = new Error(text || res.statusText);
+        // attach status for callers to inspect
+        err.status = res.status;
+        err.response = res;
+        throw err;
       }
       const contentType = res.headers.get('content-type') || '';
       if (contentType.includes('application/json')) return res.json();
       return res;
     } catch (err) {
+      // If this was the last attempt and we received a 404 from the dev server
+      // try a direct call to the backend host used by the Vite proxy (helpful in local dev)
+      if (attempt === retries && typeof window !== 'undefined' && err && err.status === 404 && url && url.startsWith('/api')) {
+        try {
+          const direct = `http://localhost:4000${url}`; // fallback target used in vite.config.js
+          if (!options.headers) options.headers = {};
+          if (authToken) options.headers['Authorization'] = `Bearer ${authToken}`;
+          options.credentials = 'include';
+          const directRes = await fetch(direct, options);
+          if (!directRes.ok) {
+            const text2 = await directRes.text();
+            const err2 = new Error(text2 || directRes.statusText);
+            err2.status = directRes.status;
+            throw err2;
+          }
+          const ct = directRes.headers.get('content-type') || '';
+          if (ct.includes('application/json')) return directRes.json();
+          return directRes;
+        } catch (err2) {
+          throw err2;
+        }
+      }
       if (attempt === retries) throw err;
       await wait(backoff * Math.pow(2, attempt));
       attempt += 1;
