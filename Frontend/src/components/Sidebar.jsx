@@ -61,6 +61,11 @@ export default function Sidebar() {
             <FaChartBar /> {!sidebarCollapsed && 'Reports'}
           </NavLink>
         )}
+        {canViewReports && (
+          <NavLink to={mk('/operations')} className={linkClass}>
+            <FaCog /> {!sidebarCollapsed && 'Operations'}
+          </NavLink>
+        )}
         {canManageStaff && (
           <NavLink to={mk('/staff')} className={linkClass}>
             <FaUserCog /> {!sidebarCollapsed && 'Staff'}

@@ -9,8 +9,10 @@ class CacheService {
 
   async init() {
     try {
-      // Redis connection configuration
-      const redisUrl = process.env.REDIS_URL || 'redis://localhost:6379';
+  // Redis connection configuration: allow either REDIS_URL or REDIS_HOST/REDIS_PORT
+  const redisHost = process.env.REDIS_HOST || 'localhost';
+  const redisPort = process.env.REDIS_PORT || '6379';
+  const redisUrl = process.env.REDIS_URL || `redis://${redisHost}:${redisPort}`;
 
       this.client = redis.createClient({
         url: redisUrl,

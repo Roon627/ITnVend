@@ -47,9 +47,9 @@ const Accounting = () => {
           break;
         }
         case 'reports': {
-          const tb = await api.get('/api/reports/trial-balance');
-          const bs = await api.get('/api/reports/balance-sheet');
-          const pl = await api.get('/api/reports/profit-loss');
+          const tb = await api.get('/api/accounts/reports/trial-balance');
+          const bs = await api.get('/api/accounts/reports/balance-sheet');
+          const pl = await api.get('/api/accounts/reports/profit-loss');
           setTrialBalance(tb);
           setBalanceSheet(bs);
           setProfitLoss(pl);

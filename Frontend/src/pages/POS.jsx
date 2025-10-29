@@ -26,10 +26,6 @@ export default function POS() {
   const [newCustomer, setNewCustomer] = useState({ name: '', email: '', phone: '' });
   const [quantityInput, setQuantityInput] = useState({});
   const [activeTab, setActiveTab] = useState('products'); // products, history, held
-  const [stockModalOpen, setStockModalOpen] = useState(false);
-  const [stockModalProduct, setStockModalProduct] = useState(null);
-  const [stockModalValue, setStockModalValue] = useState('');
-  const [stockModalReason, setStockModalReason] = useState('');
 
   const { settings: globalSettings, formatCurrency } = useSettings();
   const toast = useToast();
@@ -333,42 +329,6 @@ export default function POS() {
     }
   };
 
-  const handleOpenStockModal = (product) => {
-    setStockModalProduct(product);
-    setStockModalValue(product.stock ?? 0);
-    setStockModalReason('');
-    setStockModalOpen(true);
-  };
-
-  const handleSaveStock = async () => {
-    if (!stockModalProduct) return;
-    // Only managers/admins allowed to perform official stock adjustments
-    const allowed = user && ['manager', 'admin'].includes(user.role);
-    if (!allowed) {
-      toast.push('Only managers or administrators may adjust stock', 'warning');
-      return;
-    }
-    // enforce reason client-side (server also validates)
-    if (!stockModalReason || String(stockModalReason).trim().length === 0) {
-      toast.push('Please provide a reason for this stock adjustment (required)', 'warning');
-      return;
-    }
-
-    const newStock = parseInt(stockModalValue, 10) || 0;
-    try {
-      const res = await api.post(`/products/${stockModalProduct.id}/adjust-stock`, { new_stock: newStock, reason: String(stockModalReason).trim() });
-      // refresh products
-      api.get('/products').then(setProducts);
-      toast.push('Stock updated', 'success');
-      setStockModalOpen(false);
-      setStockModalProduct(null);
-      setStockModalReason('');
-    } catch (err) {
-      console.error('Failed to update stock', err);
-      toast.push('Failed to update stock', 'error');
-    }
-  };
-
   const filteredCustomers = customers.filter(c =>
     c.name.toLowerCase().includes(customerSearchTerm.toLowerCase()) ||
     c.email?.toLowerCase().includes(customerSearchTerm.toLowerCase())
@@ -515,24 +475,6 @@ export default function POS() {
                               >
                                 +5
                               </button>
-                              { (user && ['manager','admin'].includes(user.role)) ? (
-                                <button
-                                  onClick={(e) => { e.stopPropagation(); setStockModalProduct(p); setStockModalValue(p.stock ?? 0); setStockModalReason(''); setStockModalOpen(true); }}
-                                  title="Edit stock"
-                                  className="w-10 h-10 bg-gray-50 rounded-md text-sm hover:bg-gray-100 flex items-center justify-center"
-                                  aria-label={`Edit stock for ${p.name}`}
-                                >
-                                  ✎
-                                </button>
-                              ) : (
-                                <button
-                                  disabled
-                                  title="Edit stock (manager only)"
-                                  className="w-10 h-10 bg-gray-50 rounded-md text-sm opacity-40 cursor-not-allowed flex items-center justify-center"
-                                >
-                                  ✎
-                                </button>
-                              )}
                             </div>
                           </div>
                         )}
@@ -805,55 +747,6 @@ export default function POS() {
               >
                 Cancel
               </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Stock Edit Modal */}
-      {stockModalOpen && stockModalProduct && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 w-full max-w-sm mx-4">
-            <h3 className="text-lg font-semibold mb-4">Edit Stock — {stockModalProduct.name}</h3>
-            <div className="mb-4">
-              <label className="block text-sm font-medium text-gray-700 mb-2">Stock quantity</label>
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => setStockModalValue((v) => String(Math.max(0, (parseInt(v, 10) || 0) - 1)))}
-                  className="w-10 h-10 bg-gray-100 rounded-md"
-                  type="button"
-                >
-                  -
-                </button>
-                <input
-                  type="number"
-                  value={stockModalValue}
-                  onChange={(e) => setStockModalValue(e.target.value)}
-                  className="flex-1 px-3 py-2 border border-gray-300 rounded-md"
-                  min="0"
-                />
-                <button
-                  onClick={() => setStockModalValue((v) => String((parseInt(v, 10) || 0) + 1))}
-                  className="w-10 h-10 bg-gray-100 rounded-md"
-                  type="button"
-                >
-                  +
-                </button>
-              </div>
-            </div>
-            <div className="mb-4">
-              <label className="block text-sm font-medium text-gray-700 mb-2">Reason (required for audit)</label>
-              <input
-                type="text"
-                value={stockModalReason}
-                onChange={(e) => setStockModalReason(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md"
-                placeholder="e.g. Received shipment, inventory correction, damaged"
-              />
-            </div>
-            <div className="flex gap-2">
-              <button onClick={handleSaveStock} className="btn-primary px-4 py-2">Save</button>
-              <button onClick={() => setStockModalOpen(false)} className="btn-muted px-4 py-2">Cancel</button>
             </div>
           </div>
         </div>

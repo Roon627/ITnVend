@@ -20,6 +20,7 @@ import OrderConfirmation from './pages/OrderConfirmation';
 import ProductDetail from './pages/ProductDetail';
 import Accounting from './pages/Accounting/Accounting';
 import Reports from './pages/Reports/Reports';
+import Operations from './pages/Operations/Operations';
 import Profile from './pages/Profile';
 import Help from './pages/Help';
 import { AuthProvider, useAuth } from './components/AuthContext';
@@ -85,6 +86,7 @@ function App() {
       <Route path="/staff" element={<RoleGuard minRole="admin"><Staff /></RoleGuard>} />
       <Route path="/accounting" element={<RoleGuard minRole="accounts"><Accounting /></RoleGuard>} />
       <Route path="/reports" element={<RoleGuard minRole="manager"><Reports /></RoleGuard>} />
+      <Route path="/operations" element={<RoleGuard minRole="manager"><Operations /></RoleGuard>} />
       <Route path="/settings" element={<RoleGuard minRole="manager"><Settings /></RoleGuard>} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

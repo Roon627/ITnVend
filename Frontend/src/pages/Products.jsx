@@ -618,6 +618,16 @@ export default function Products() {
     }
   };
 
+  const handleQuickStockUpdate = async (productId, newStock, reason) => {
+    try {
+      await api.post(`/products/${productId}/adjust-stock`, { new_stock: newStock, reason });
+      toast.push('Stock updated successfully', 'success');
+      await fetchProducts();
+    } catch (err) {
+      toast.push('Failed to update stock', 'error');
+    }
+  };
+
   const handleBeginEdit = (product) => {
     setModalDraft({
       id: product.id,
@@ -1210,6 +1220,26 @@ export default function Products() {
                             >
                               <FaEdit /> Edit
                             </button>
+                            {(user && ['manager','admin'].includes(user.role)) && (
+                              <button
+                                type="button"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  const newStock = prompt(`Update stock for "${product.name}" (current: ${product.stock || 0}):`, product.stock || 0);
+                                  if (newStock !== null) {
+                                    const stockValue = parseInt(newStock, 10) || 0;
+                                    const reason = prompt('Reason for stock adjustment (required):');
+                                    if (reason && reason.trim()) {
+                                      handleQuickStockUpdate(product.id, stockValue, reason.trim());
+                                    }
+                                  }
+                                }}
+                                className="inline-flex items-center gap-1 rounded-md border px-3 py-1.5 text-xs text-blue-600 hover:bg-blue-50"
+                                title="Quick stock adjustment"
+                              >
+                                📦 Stock
+                              </button>
+                            )}
                             {canDelete && (
                               <button
                                 type="button"

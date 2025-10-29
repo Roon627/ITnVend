@@ -364,6 +364,111 @@ export async function setupDatabase() {
             is_closed INTEGER DEFAULT 0,
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP
         );
+
+        -- Operations tables
+        CREATE TABLE IF NOT EXISTS shifts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            opened_by TEXT NOT NULL,
+            closed_by TEXT,
+            opened_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            closed_at DATETIME,
+            starting_cash REAL DEFAULT 0,
+            actual_cash REAL,
+            cash_counts TEXT, -- JSON string of cash denomination counts
+            discrepancy REAL DEFAULT 0,
+            notes TEXT
+        );
+
+        CREATE TABLE IF NOT EXISTS day_end_closes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            close_date DATE NOT NULL,
+            actual_cash REAL,
+            discrepancy REAL DEFAULT 0,
+            notes TEXT,
+            closed_by TEXT NOT NULL,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE TABLE IF NOT EXISTS monthly_closes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            month INTEGER NOT NULL, -- 1-12
+            year INTEGER NOT NULL,
+            closed_by TEXT NOT NULL,
+            closed_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE TABLE IF NOT EXISTS card_transactions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            transaction_id TEXT UNIQUE,
+            amount DECIMAL(10,2) NOT NULL,
+            status TEXT DEFAULT 'pending',
+            card_type TEXT,
+            reference_number TEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE TABLE IF NOT EXISTS purchases (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            supplier_id INTEGER,
+            reference_number TEXT,
+            purchase_date DATE NOT NULL,
+            total_amount REAL NOT NULL,
+            status TEXT DEFAULT 'pending', -- pending, received, cancelled
+            reversed INTEGER DEFAULT 0,
+            reversed_at DATETIME,
+            reversed_by TEXT,
+            reversal_reason TEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (supplier_id) REFERENCES vendors(id)
+        );
+
+        CREATE TABLE IF NOT EXISTS purchase_items (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            purchase_id INTEGER,
+            product_id INTEGER,
+            quantity INTEGER NOT NULL,
+            unit_cost REAL NOT NULL,
+            total_cost REAL NOT NULL,
+            received_quantity INTEGER DEFAULT 0,
+            FOREIGN KEY (purchase_id) REFERENCES purchases(id),
+            FOREIGN KEY (product_id) REFERENCES products(id)
+        );
+
+        CREATE TABLE IF NOT EXISTS suppliers (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            contact_person TEXT,
+            email TEXT,
+            phone TEXT,
+            address TEXT,
+            gst_number TEXT,
+            payment_terms TEXT,
+            is_active INTEGER DEFAULT 1,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE TABLE IF NOT EXISTS inventory_transactions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            product_id INTEGER,
+            type TEXT NOT NULL, -- sale, purchase, adjustment, transfer
+            quantity INTEGER NOT NULL,
+            unit_cost REAL DEFAULT 0,
+            reference TEXT, -- invoice id, purchase id, etc.
+            created_by TEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (product_id) REFERENCES products(id)
+        );
+
+        CREATE TABLE IF NOT EXISTS cash_transactions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            type TEXT NOT NULL, -- cash_in, cash_out
+            amount REAL NOT NULL,
+            description TEXT,
+            reference TEXT,
+            created_by TEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
     `);
 
     await ensureColumn(db, 'products', 'image', 'TEXT');
@@ -389,7 +494,9 @@ export async function setupDatabase() {
     await ensureColumn(db, 'orders', 'payment_reference', 'TEXT');
     await ensureColumn(db, 'orders', 'payment_slip', 'TEXT');
 
-    await ensureColumn(db, 'settings', 'jwt_secret', 'TEXT');
+    await ensureColumn(db, 'invoices', 'total_amount', 'REAL DEFAULT 0');
+    await ensureColumn(db, 'invoices', 'payment_method', 'TEXT');
+    await ensureColumn(db, 'invoices', 'payment_reference', 'TEXT');
 
     // ensure a default settings row exists with id = 1
     const existing = await db.get('SELECT id FROM settings WHERE id = 1');
