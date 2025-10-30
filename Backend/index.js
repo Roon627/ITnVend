@@ -1615,7 +1615,13 @@ app.post('/api/invoices', async (req, res) => {
     const type = (rawType || 'invoice').toLowerCase() === 'quote' ? 'quote' : 'invoice';
 
     try {
-        const subtotal = items.reduce((sum, item) => sum + item.price * item.quantity, 0);
+        // Ignore items with non-positive quantity to avoid charging tax on zero-quantity lines
+        const validItems = (items || []).filter(it => Number(it.quantity || 0) > 0);
+        if (validItems.length === 0) {
+            return res.status(400).json({ error: 'No items with positive quantity were provided' });
+        }
+
+        const subtotal = validItems.reduce((sum, item) => sum + (Number(item.price || 0) * Number(item.quantity || 0)), 0);
 
         const settingsRow = await db.get('SELECT * FROM settings WHERE id = 1');
         let outlet = null;
@@ -1646,16 +1652,18 @@ app.post('/api/invoices', async (req, res) => {
         const customerRow = await db.get('SELECT name, email FROM customers WHERE id = ?', [customerId]);
         const customerName = customerRow ? customerRow.name : 'Customer';
 
-        for (const item of items) {
+        // Insert only valid items (quantity > 0) to invoice_items and adjust stock accordingly
+        for (const item of validItems) {
+            const qty = Number(item.quantity || 0);
+            const price = Number(item.price || 0);
             await db.run(
                 'INSERT INTO invoice_items (invoice_id, product_id, quantity, price) VALUES (?, ?, ?, ?)',
-                [invoiceId, item.id || null, item.quantity, item.price]
+                [invoiceId, item.id || null, qty, price]
             );
             if (type === 'invoice' && item.id) {
                 const productRow = await db.get('SELECT stock, track_inventory, name FROM products WHERE id = ?', [item.id]);
                 if (productRow && (productRow.track_inventory === null || productRow.track_inventory === undefined || productRow.track_inventory)) {
                     const currentStock = parseInt(productRow.stock ?? 0, 10) || 0;
-                    const qty = parseInt(item.quantity ?? 0, 10) || 0;
                     if (currentStock < qty) {
                         throw new Error(`Insufficient stock for product ${productRow.name || item.id}`);
                     }

@@ -607,13 +607,22 @@ export async function setupDatabase() {
             { name: 'Adobe Creative Cloud for Teams', price: 79.99, stock: 300, category: 'Procurement', subcategory: 'Digital Licenses' },
             { name: 'Slack Pro Subscription (per user/year)', price: 87.00, stock: 1000, category: 'Procurement', subcategory: 'Digital Licenses' },
             { name: 'Zoom Business License (per host/year)', price: 199.90, stock: 1000, category: 'Procurement', subcategory: 'Digital Licenses' },
+            { name: 'POS License - Single Terminal (1 year)', price: 199.00, stock: 1000, category: 'Procurement', subcategory: 'Digital Licenses' },
+            { name: 'POS License - Multi-Terminal (per terminal/year)', price: 149.00, stock: 500, category: 'Procurement', subcategory: 'Digital Licenses' },
 
             // Procurement > Hardware
             { name: 'Dell Latitude 7430 Business Laptop', price: 1450.00, stock: 50, category: 'Procurement', subcategory: 'Hardware' },
             { name: 'Apple MacBook Pro 14" (M3 Pro)', price: 2199.00, stock: 40, category: 'Procurement', subcategory: 'Hardware' },
             { name: 'Logitech MX Master 3S for Business', price: 109.99, stock: 200, category: 'Procurement', subcategory: 'Hardware' },
             { name: 'Cisco Catalyst 9120AX Access Point', price: 650.00, stock: 100, category: 'Procurement', subcategory: 'Hardware' },
-            
+            { name: 'Thermal Printer - Desktop (USB)', price: 249.00, stock: 25, category: 'Procurement', subcategory: 'Hardware' },
+            { name: 'Barcode Scanner - USB', price: 49.99, stock: 0, category: 'Procurement', subcategory: 'Hardware' },
+            { name: 'Cash Drawer - Heavy Duty', price: 89.99, stock: 10, category: 'Procurement', subcategory: 'Hardware' },
+
+            // POS Consumables (include some zero-stock items intentionally)
+            { name: 'Receipt Paper Roll (pack of 10)', price: 12.50, stock: 0, category: 'Consumables', subcategory: 'POS Supplies' },
+            { name: 'Thermal Printer Replacement Head', price: 45.00, stock: 0, category: 'Consumables', subcategory: 'POS Supplies' },
+
             // Managed IT Services
             { name: 'MSP - Standard Support Tier (per user/month)', price: 75.00, stock: 100, category: 'Managed IT', subcategory: 'Support Plans' },
             { name: 'MSP - Premium Support Tier (per user/month)', price: 150.00, stock: 100, category: 'Managed IT', subcategory: 'Support Plans' },
@@ -621,13 +630,16 @@ export async function setupDatabase() {
             { name: 'Quarterly Security Audit', price: 2500.00, stock: 20, category: 'Managed IT', subcategory: 'Security' },
 
             // Digital Media Services
-            { name: 'Social Media Management Retainer', price: 1200.00, stock: 15, category: 'Digital Media', subcategory: 'Retainers' },
+            { name: 'Social Media Management Retainer', price: 300.00, stock: 15, category: 'Digital Media', subcategory: 'Retainers' },
             { name: 'Content Creation Package (5 assets)', price: 800.00, stock: 30, category: 'Digital Media', subcategory: 'Content' },
             { name: 'SEO & Analytics Report', price: 600.00, stock: 50, category: 'Digital Media', subcategory: 'Analytics' },
 
             // Smart Vending Solutions
             { name: 'Smart Vending Machine - Model S', price: 4500.00, stock: 10, category: 'Smart Vending', subcategory: 'Hardware' },
             { name: 'Vending Telemetry & Restock Plan (per machine/month)', price: 49.99, stock: 100, category: 'Smart Vending', subcategory: 'Service Plans' },
+
+            // Extras & spare parts
+            { name: 'Spare Parts Kit - Vending (assorted)', price: 120.00, stock: 5, category: 'Smart Vending', subcategory: 'Parts' },
         ];
 
         const stmt = await db.prepare('INSERT INTO products (name, price, stock, category, subcategory) VALUES (?, ?, ?, ?, ?)');

@@ -263,13 +263,15 @@ export default function POS() {
   };
 
   const handleCheckout = async (type = 'invoice') => {
-    if (!selectedCustomerId || cart.length === 0) {
-      toast.push('Please select a customer and add items to the cart.', 'warning');
+    // Only send items with quantity > 0 to the server
+    const validItemsForCheckout = cart.filter(i => Number(i.quantity || 0) > 0);
+    if (!selectedCustomerId || validItemsForCheckout.length === 0) {
+      toast.push('Please select a customer and add items (quantity > 0) to the cart.', 'warning');
       return;
     }
 
     try {
-      const payload = { customerId: Number(selectedCustomerId), items: cart, type };
+      const payload = { customerId: Number(selectedCustomerId), items: validItemsForCheckout, type };
       const created = await api.post('/invoices', payload);
 
       // Create transaction record
@@ -278,7 +280,7 @@ export default function POS() {
         type,
         customerId: selectedCustomerId,
         customerName: customers.find(c => c.id == selectedCustomerId)?.name,
-        items: cart,
+        items: validItemsForCheckout,
         subtotal: cartTotal,
         taxAmount,
         total: totalWithTax,
@@ -340,7 +342,9 @@ export default function POS() {
     return matchesSearch && matchesCategory;
   });
 
-  const cartTotal = cart.reduce((t, i) => t + i.price * i.quantity, 0);
+  // Only consider items with positive quantity for totals and tax
+  const validCartItems = cart.filter(i => Number(i.quantity || 0) > 0);
+  const cartTotal = validCartItems.reduce((t, i) => t + Number(i.price || 0) * Number(i.quantity || 0), 0);
   const gstRate = globalSettings?.outlet?.gst_rate ?? globalSettings?.gst_rate ?? 0;
   const taxAmount = +(cartTotal * (gstRate / 100));
   const totalWithTax = +(cartTotal + taxAmount);
