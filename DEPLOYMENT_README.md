@@ -18,9 +18,12 @@
 
 ### 3. Directory Structure
 ```bash
+sudo mkdir -p /var/www/ITnVend/Backend/public/images
 sudo mkdir -p /var/www/estore.itnvend.com/html
 sudo mkdir -p /var/www/pos.itnvend.com/html
 sudo chown -R $USER:$USER /var/www
+sudo chown -R www-data:www-data /var/www/ITnVend/Backend/public
+sudo chmod -R 755 /var/www/ITnVend/Backend/public
 ```
 
 ## Deployment Steps
@@ -73,6 +76,26 @@ server {
     root /var/www/estore.itnvend.com/html;
     index index.html;
 
+    # Serve uploaded images
+    location /uploads/ {
+        alias /var/www/ITnVend/Backend/public/images/;
+        access_log off;
+        add_header Cache-Control "public, max-age=31536000, immutable";
+    }
+
+    # Handle WebSocket connections
+    location /socket.io/ {
+        proxy_pass http://localhost:4000;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_cache_bypass $http_upgrade;
+    }
+
     location / {
         try_files $uri $uri/ /index.html;
     }
@@ -99,6 +122,31 @@ server {
 
     root /var/www/pos.itnvend.com/html;
     index index.html;
+
+    # Serve uploaded images
+    location /uploads/ {
+        alias /var/www/ITnVend/Backend/public/images/;
+        access_log off;
+        add_header Cache-Control "public, max-age=31536000, immutable";
+    }
+
+    # Redirect root to /admin for POS
+    location = / {
+        return 302 /admin;
+    }
+
+    # Handle WebSocket connections
+    location /socket.io/ {
+        proxy_pass http://localhost:4000;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_cache_bypass $http_upgrade;
+    }
 
     location / {
         try_files $uri $uri/ /index.html;
@@ -165,8 +213,16 @@ DATABASE_PATH=./database.db
 ### Common Issues:
 1. **Build fails**: Ensure Node.js 22+ and npm are installed
 2. **API not working**: Check backend is running on port 4000
-3. **WebSocket issues**: Verify Redis is running
+3. **WebSocket issues**: Verify Redis is running and Nginx is proxying `/socket.io/`
 4. **Email not sending**: Configure SMTP in Settings UI
+
+### WebSocket Connection Issues:
+If you see "realtime disconnected":
+1. **Check Nginx configuration**: Ensure `/socket.io/` location block is present
+2. **Verify backend logs**: Look for "WebSocket server ready" and connection messages
+3. **Check Redis**: WebSocket service requires Redis for pub/sub
+4. **Browser console**: Check for WebSocket connection errors
+5. **Firewall**: Ensure port 4000 is accessible internally
 
 ### Logs:
 ```bash
@@ -176,4 +232,7 @@ pm2 logs itnvend-backend
 # Nginx logs
 sudo tail -f /var/log/nginx/error.log
 sudo tail -f /var/log/nginx/access.log
+
+# Check WebSocket connections
+curl -I http://localhost:4000/socket.io/
 ```

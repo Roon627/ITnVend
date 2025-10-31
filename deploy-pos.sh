@@ -19,7 +19,11 @@ VITE_ONLY_ADMIN=1 npm run build
 sudo cp -r dist-admin/* /var/www/pos.itnvend.com/html/
 
 # Copy/update environment file
-sudo cp ../.env /var/www/pos.itnvend.com/
+sudo cp ../.env /var/www/ITnVend/
+
+# Set proper permissions for image uploads
+sudo chown -R www-data:www-data /var/www/ITnVend/Backend/public
+sudo chmod -R 755 /var/www/ITnVend/Backend/public
 
 # Restart services
 sudo systemctl restart nginx

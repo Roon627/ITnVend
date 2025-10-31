@@ -19,7 +19,11 @@ npm run build
 sudo cp -r dist/* /var/www/estore.itnvend.com/html/
 
 # Copy/update environment file
-sudo cp ../.env /var/www/estore.itnvend.com/
+sudo cp ../.env /var/www/ITnVend/
+
+# Set proper permissions for image uploads
+sudo chown -R www-data:www-data /var/www/ITnVend/Backend/public
+sudo chmod -R 755 /var/www/ITnVend/Backend/public
 
 # Restart services
 sudo systemctl restart nginx
