@@ -9,6 +9,8 @@ import Settings from './pages/Settings/Settings';
 import Staff from './pages/Staff';
 import Login from './pages/Login';
 import Home from './pages/Home';
+import ForgotPassword from './pages/ForgotPassword';
+import ResetPassword from './pages/ResetPassword';
 import Privacy from './pages/Privacy';
 import UsePolicy from './pages/UsePolicy';
 import VendorOnboarding from './pages/VendorOnboarding';
@@ -121,6 +123,8 @@ function App() {
                     <Route path="/privacy" element={<PublicLayout><Privacy /></PublicLayout>} />
                     <Route path="/use" element={<PublicLayout><UsePolicy /></PublicLayout>} />
                     <Route path="/login" element={<Login />} />
+                    <Route path="/forgot-password" element={<ForgotPassword />} />
+                    <Route path="/reset-password" element={<ResetPassword />} />
                     <Route
                       path="/admin/*"
                       element={

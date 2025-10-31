@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useState, useRef } from 'react';
 import api, { setAuthToken } from '../lib/api';
+import { parseJwt, LS_TOKEN_KEY, LS_ROLE_KEY, LS_USERNAME_KEY } from '../lib/authHelpers';
 
 const AuthContext = createContext(null);
 
@@ -7,9 +8,9 @@ export function AuthProvider({ children }) {
   // Initialize synchronously from localStorage to avoid a render flash that redirects to /login
   const [user, setUser] = useState(() => {
     try {
-  const t = localStorage.getItem('ITnvend_token');
-  const role = localStorage.getItem('ITnvend_role');
-  const username = localStorage.getItem('ITnvend_username');
+      const t = localStorage.getItem(LS_TOKEN_KEY);
+      const role = localStorage.getItem(LS_ROLE_KEY);
+      const username = localStorage.getItem(LS_USERNAME_KEY);
       if (t) {
         // ensure api wrapper has token immediately
         setAuthToken(t);
@@ -24,16 +25,7 @@ export function AuthProvider({ children }) {
   const refreshTimerRef = useRef(null);
   const lastRefreshAttemptRef = useRef(0);
 
-  function parseJwt(token) {
-    try {
-      const payload = token.split('.')[1];
-      const decoded = JSON.parse(atob(payload));
-      return decoded;
-    } catch (e) {
-      return null;
-    }
-  }
-
+  // parseJwt moved to src/lib/authHelpers.js
   async function attemptRefresh() {
     // Don't attempt refresh if we're already refreshing or if reauth is required
     if (reauthRequired) return false;
@@ -75,10 +67,10 @@ export function AuthProvider({ children }) {
     try {
       if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
 
-      const t = localStorage.getItem('ITnvend_token');
+  const t = localStorage.getItem(LS_TOKEN_KEY);
       if (!t) return;
 
-      const payload = parseJwt(t);
+  const payload = parseJwt(t);
       if (!payload || !payload.exp) return;
 
       const expiresAt = payload.exp * 1000;
@@ -115,8 +107,8 @@ export function AuthProvider({ children }) {
     const res = await api.post('/login', { username, password });
     // res contains { token, role }
     setAuthToken(res.token);
-  localStorage.setItem('ITnvend_role', res.role);
-  localStorage.setItem('ITnvend_username', username);
+  localStorage.setItem(LS_ROLE_KEY, res.role);
+  localStorage.setItem(LS_USERNAME_KEY, username);
     // token is also stored by setAuthToken helper
     setUser({ token: res.token, role: res.role, username });
     setReauthRequired(false);
@@ -127,8 +119,8 @@ export function AuthProvider({ children }) {
   // Switch to a different user token (impersonation)
   function switchUser(token, role, username) {
     setAuthToken(token);
-  if (role) localStorage.setItem('ITnvend_role', role);
-  if (username) localStorage.setItem('ITnvend_username', username);
+  if (role) localStorage.setItem(LS_ROLE_KEY, role);
+  if (username) localStorage.setItem(LS_USERNAME_KEY, username);
     // switch may also include a refresh token stored by caller
     // refresh token is stored as HttpOnly cookie set by server on impersonation/login
     setUser({ token, role, username });
@@ -137,8 +129,8 @@ export function AuthProvider({ children }) {
 
   function logout() {
     setAuthToken(null);
-  localStorage.removeItem('ITnvend_role');
-  localStorage.removeItem('ITnvend_username');
+  localStorage.removeItem(LS_ROLE_KEY);
+  localStorage.removeItem(LS_USERNAME_KEY);
     // clear refresh token cookie server-side
     try { api.post('/token/logout'); } catch (e) { /* ignore */ }
     setUser(null);
@@ -153,7 +145,7 @@ export function AuthProvider({ children }) {
   // schedule refresh when AuthProvider mounts
   useEffect(() => {
     // Only try to refresh if we have a potentially valid token or refresh cookies
-    const hasToken = localStorage.getItem('ITnvend_token');
+    const hasToken = localStorage.getItem(LS_TOKEN_KEY);
     const hasRefreshCookie = typeof document !== 'undefined' &&
       (document.cookie.includes('ITnvend_refresh=') || document.cookie.includes('irnvend_refresh='));
 

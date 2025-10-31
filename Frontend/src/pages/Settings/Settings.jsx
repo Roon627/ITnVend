@@ -34,6 +34,10 @@ const DEFAULT_FORM = {
   smtp_port: '',
   smtp_user: '',
   smtp_pass: '',
+  smtp_secure: 0,
+  smtp_require_tls: 0,
+  smtp_from_name: '',
+  smtp_reply_to: '',
   email_template_invoice: '',
   email_template_quote: '',
   email_template_quote_request: '',
@@ -62,7 +66,7 @@ export default function Settings() {
   const [newOutlet, setNewOutlet] = useState(DEFAULT_NEW_OUTLET);
   const [status, setStatus] = useState('idle');
 
-  const refreshSettings = async () => {
+  const refreshSettings = useCallback(async () => {
     try {
       const s = await api.get('/settings');
       setGlobalSettings(s);
@@ -72,7 +76,7 @@ export default function Settings() {
     } finally {
       setSettingsLoading(false);
     }
-  };
+  }, [push]);
 
   const fetchOutlets = useCallback(async () => {
     try {
@@ -87,7 +91,7 @@ export default function Settings() {
   useEffect(() => {
     fetchOutlets();
     refreshSettings();
-  }, [fetchOutlets]);
+  }, [fetchOutlets, refreshSettings]);
 
   const defaultSettings = useMemo(
     () => ({
@@ -126,6 +130,10 @@ export default function Settings() {
       smtp_port: globalSettings.email?.smtp_port ?? '',
       smtp_user: globalSettings.email?.smtp_user ?? '',
       smtp_pass: '',
+      smtp_secure: globalSettings.email?.smtp_secure ?? 0,
+      smtp_require_tls: globalSettings.email?.smtp_require_tls ?? 0,
+      smtp_from_name: globalSettings.email?.smtp_from_name ?? '',
+      smtp_reply_to: globalSettings.email?.smtp_reply_to ?? '',
       email_template_invoice: globalSettings.email_template_invoice ?? globalSettings.invoice_template ?? '',
       email_template_quote: globalSettings.email_template_quote ?? '',
       email_template_quote_request: globalSettings.email_template_quote_request ?? '',

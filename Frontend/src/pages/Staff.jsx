@@ -1,6 +1,5 @@
 import React, { useEffect, useState } from 'react';
 import { api, setAuthToken } from '../lib/api';
-import { useAuth } from '../components/AuthContext';
 import { useToast } from '../components/ToastContext';
 
 export default function Staff() {

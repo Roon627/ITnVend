@@ -6,7 +6,7 @@
 // - If the path starts with '/', but not '/api', prepend '/api' so '/customers' -> '/api/customers'
 // - If the path is a relative path (no leading '/'), prepend '/api/' as well
 
-const API_BASE = '';
+const API_BASE = import.meta.env.VITE_API_BASE || '';
 let authToken = null;
 
 export function setAuthToken(token) {
@@ -63,6 +63,8 @@ async function fetchWithRetry(path, options = {}, retries = 2, backoff = 200) {
       } else {
         url = `/api/${path}`;
       }
+      // prepend configurable API base for production deployments
+      url = (API_BASE ? API_BASE : '') + url;
 
       const res = await fetch(url, options);
       if (!res.ok) {
