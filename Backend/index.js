@@ -83,11 +83,13 @@ app.get('/health', async (req, res) => {
 let db;
 let JWT_SECRET = null;
 
-async function sendNotificationEmail(subject, html, toOverride) {
+async function sendNotificationEmail(subject, html, toOverride, throwOnError = false) {
     try {
         const emailCfg = await db.get('SELECT * FROM settings_email ORDER BY id DESC LIMIT 1');
         if (!emailCfg) return;
-        const from = emailCfg.email_from || emailCfg.smtp_user || 'no-reply@example.com';
+    const fromAddress = emailCfg.email_from || emailCfg.smtp_user || 'no-reply@example.com';
+    const fromName = emailCfg.smtp_from_name || null;
+    const from = fromName ? `${fromName} <${fromAddress}>` : fromAddress;
         const to = toOverride || emailCfg.email_to || emailCfg.email_from;
 
         if (emailCfg.provider === 'sendgrid' && emailCfg.api_key) {
@@ -107,25 +109,28 @@ async function sendNotificationEmail(subject, html, toOverride) {
         }
 
         if (emailCfg.provider === 'smtp' && emailCfg.smtp_host) {
+            const port = Number(emailCfg.smtp_port) || 465;
+            const secureFlag = (emailCfg.smtp_secure === 1) || port === 465;
+            const requireTLS = emailCfg.smtp_require_tls === 1;
             const transporter = nodemailer.createTransport({
                 host: emailCfg.smtp_host,
-                port: Number(emailCfg.smtp_port) || 465,
-                secure: Number(emailCfg.smtp_port) === 465,
+                port,
+                secure: secureFlag,
+                requireTLS,
                 auth: {
                     user: emailCfg.smtp_user,
                     pass: emailCfg.smtp_pass || emailCfg.api_key
                 }
             });
-            await transporter.sendMail({
-                from,
-                to,
-                subject,
-                html
-            });
-            return;
+            const mailOptions = { from, to, subject, html };
+            if (emailCfg.smtp_reply_to) mailOptions.replyTo = emailCfg.smtp_reply_to;
+            await transporter.sendMail(mailOptions);
+            return { ok: true };
         }
     } catch (err) {
         console.warn('Failed to send notification email', err?.message || err);
+        if (throwOnError) throw err;
+        return { ok: false, error: err?.message || String(err) };
     }
 }
 
@@ -498,6 +503,59 @@ app.post('/api/login', async (req, res) => {
 
     } catch (err) {
         res.status(500).json({ error: err.message });
+    }
+});
+
+// Password reset request (staff only)
+app.post('/api/password-reset/request', async (req, res) => {
+    const { email } = req.body || {};
+    if (!email) return res.status(400).json({ error: 'Missing email' });
+    try {
+        const staff = await db.get('SELECT * FROM staff WHERE email = ?', [email]);
+        // Always return OK to avoid leaking which emails exist
+        if (!staff) return res.json({ status: 'ok' });
+
+        const token = crypto.randomBytes(32).toString('hex');
+        const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
+        const expiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString(); // 1 hour
+        await db.run('INSERT INTO password_reset_tokens (staff_id, token_hash, expires_at) VALUES (?, ?, ?)', [staff.id, tokenHash, expiresAt]);
+
+        const frontendBase = process.env.FRONTEND_URL || req.get('origin') || `${req.protocol}://${req.get('host')}`;
+        const resetLink = `${frontendBase.replace(/\/$/, '')}/reset-password?token=${token}`;
+
+        const settings = await db.get('SELECT email_template_password_reset_subject, email_template_password_reset FROM settings WHERE id = 1');
+        const subject = (settings && settings.email_template_password_reset_subject) ? settings.email_template_password_reset_subject : 'Reset your password';
+        const template = (settings && settings.email_template_password_reset) ? settings.email_template_password_reset : 'Hello {{name}},<br/><br/>Click the link below to reset your password:<br/><a href="{{reset_link}}">Reset password</a><br/><br/>If you did not request this, ignore this email.';
+        const html = (template || '').replace(/{{name}}/g, staff.display_name || staff.username || '').replace(/{{reset_link}}/g, resetLink);
+
+        // fire-and-forget email sending
+        try { await sendNotificationEmail(subject, html, staff.email); } catch (e) { console.warn('Failed to send reset email', e?.message || e); }
+        await logActivity('staff', staff.id, 'password_reset_requested', staff.username, `Password reset requested for ${staff.email}`);
+        return res.json({ status: 'ok' });
+    } catch (err) {
+        console.error('password reset request error', err?.message || err);
+        return res.status(500).json({ error: 'Internal error' });
+    }
+});
+
+// Password reset confirmation
+app.post('/api/password-reset/confirm', async (req, res) => {
+    const { token, password } = req.body || {};
+    if (!token || !password) return res.status(400).json({ error: 'Missing token or password' });
+    try {
+        const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
+        const row = await db.get('SELECT * FROM password_reset_tokens WHERE token_hash = ? AND used = 0', [tokenHash]);
+        if (!row) return res.status(400).json({ error: 'Invalid or used token' });
+        if (new Date(row.expires_at) < new Date()) return res.status(400).json({ error: 'Token expired' });
+
+        const hashed = await bcrypt.hash(password, 10);
+        await db.run('UPDATE staff SET password = ? WHERE id = ?', [hashed, row.staff_id]);
+        await db.run('UPDATE password_reset_tokens SET used = 1 WHERE id = ?', [row.id]);
+        await logActivity('staff', row.staff_id, 'password_reset', null, 'Password reset via token');
+        return res.json({ status: 'ok' });
+    } catch (err) {
+        console.error('password reset confirm error', err?.message || err);
+        return res.status(500).json({ error: 'Internal error' });
     }
 });
 
@@ -1291,7 +1349,8 @@ app.get('/api/settings', async (req, res) => {
             };
         }
         // also include email settings if present
-        const emailCfg = await db.get('SELECT provider, api_key, email_from, email_to, smtp_host, smtp_port, smtp_user FROM settings_email ORDER BY id DESC LIMIT 1');
+    // include SMTP flags and friendly from/reply-to in the returned payload so frontend can render them
+    const emailCfg = await db.get('SELECT provider, api_key, email_from, email_to, smtp_host, smtp_port, smtp_user, smtp_pass, smtp_secure, smtp_require_tls, smtp_from_name, smtp_reply_to FROM settings_email ORDER BY id DESC LIMIT 1');
         const fullSettings = { ...settings, outlet, email: emailCfg || null };
 
         // Cache the result for 10 minutes (settings change infrequently)
@@ -1308,7 +1367,7 @@ app.put('/api/settings', authMiddleware, requireRole(['admin', 'manager']), asyn
     try {
         const { outlet_name, currency, gst_rate, store_address, invoice_template, current_outlet_id,
             email_provider, email_api_key, email_from, email_to,
-            smtp_host, smtp_port, smtp_user, smtp_pass,
+            smtp_host, smtp_port, smtp_user, smtp_pass, smtp_secure, smtp_require_tls, smtp_from_name, smtp_reply_to,
             email_template_invoice, email_template_quote, email_template_quote_request } = req.body;
 
         // Define fields managers are allowed to update
@@ -1329,25 +1388,49 @@ app.put('/api/settings', authMiddleware, requireRole(['admin', 'manager']), asyn
         );
 
         // Only admins may update email configuration and email templates
-        if (req.user && req.user.role !== 'admin' && (email_provider || email_api_key || email_from || email_to || smtp_host || smtp_port || smtp_user || smtp_pass || email_template_invoice || email_template_quote || email_template_quote_request)) {
+        if (req.user && req.user.role !== 'admin' && (email_provider || email_api_key || email_from || email_to || smtp_host || smtp_port || smtp_user || smtp_pass || smtp_secure || smtp_require_tls || smtp_from_name || smtp_reply_to || email_template_invoice || email_template_quote || email_template_quote_request)) {
             return res.status(403).json({ error: 'Only administrators may modify email/SMTP settings' });
         }
 
         // update email config if provided (store as last row in settings_email)
-        if (email_provider || email_api_key || email_from || email_to || smtp_host || smtp_port || smtp_user || smtp_pass) {
-            await db.run('INSERT INTO settings_email (provider, api_key, email_from, email_to, smtp_host, smtp_port, smtp_user, smtp_pass) VALUES (?, ?, ?, ?, ?, ?, ?, ?)', [
-                email_provider || null,
-                email_api_key || null,
-                email_from || null,
-                email_to || null,
-                smtp_host || null,
-                smtp_port || null,
-                smtp_user || null,
-                smtp_pass || null
-            ]);
+        if (email_provider || email_api_key || email_from || email_to || smtp_host || smtp_port || smtp_user || smtp_pass || smtp_secure || smtp_require_tls || smtp_from_name || smtp_reply_to) {
+            // Fetch existing email config so we don't overwrite fields the admin didn't submit (e.g. password)
+            const existingEmail = await db.get('SELECT * FROM settings_email ORDER BY id DESC LIMIT 1');
+
+            const nextProvider = (typeof email_provider !== 'undefined' && email_provider !== null) ? email_provider : (existingEmail ? existingEmail.provider : null);
+            const nextApiKey = (typeof email_api_key !== 'undefined' && email_api_key !== null) ? email_api_key : (existingEmail ? existingEmail.api_key : null);
+            const nextFrom = (typeof email_from !== 'undefined' && email_from !== null) ? email_from : (existingEmail ? existingEmail.email_from : null);
+            const nextTo = (typeof email_to !== 'undefined' && email_to !== null) ? email_to : (existingEmail ? existingEmail.email_to : null);
+            const nextHost = (typeof smtp_host !== 'undefined' && smtp_host !== null) ? smtp_host : (existingEmail ? existingEmail.smtp_host : null);
+            const nextPort = (typeof smtp_port !== 'undefined' && smtp_port !== null) ? smtp_port : (existingEmail ? existingEmail.smtp_port : null);
+            const nextUser = (typeof smtp_user !== 'undefined' && smtp_user !== null) ? smtp_user : (existingEmail ? existingEmail.smtp_user : null);
+            // Do NOT return the existing password to the client, but preserve it when admin does not submit a new one
+            const nextPass = (typeof smtp_pass !== 'undefined' && smtp_pass !== null && smtp_pass !== '') ? smtp_pass : (existingEmail ? existingEmail.smtp_pass : null);
+            const nextSecure = (typeof smtp_secure !== 'undefined' && smtp_secure !== null) ? (smtp_secure ? 1 : 0) : (existingEmail ? (existingEmail.smtp_secure ? 1 : 0) : 0);
+            const nextRequireTLS = (typeof smtp_require_tls !== 'undefined' && smtp_require_tls !== null) ? (smtp_require_tls ? 1 : 0) : (existingEmail ? (existingEmail.smtp_require_tls ? 1 : 0) : 0);
+            const nextFromName = (typeof smtp_from_name !== 'undefined' && smtp_from_name !== null) ? smtp_from_name : (existingEmail ? existingEmail.smtp_from_name : null);
+            const nextReplyTo = (typeof smtp_reply_to !== 'undefined' && smtp_reply_to !== null) ? smtp_reply_to : (existingEmail ? existingEmail.smtp_reply_to : null);
+
+            await db.run(
+                'INSERT INTO settings_email (provider, api_key, email_from, email_to, smtp_host, smtp_port, smtp_user, smtp_pass, smtp_secure, smtp_require_tls, smtp_from_name, smtp_reply_to) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                [
+                    nextProvider,
+                    nextApiKey,
+                    nextFrom,
+                    nextTo,
+                    nextHost,
+                    nextPort,
+                    nextUser,
+                    nextPass,
+                    nextSecure,
+                    nextRequireTLS,
+                    nextFromName,
+                    nextReplyTo
+                ]
+            );
         }
         const settings = await db.get('SELECT * FROM settings WHERE id = 1');
-        const emailCfg = await db.get('SELECT provider, api_key, email_from, email_to, smtp_host, smtp_port, smtp_user FROM settings_email ORDER BY id DESC LIMIT 1');
+    const emailCfg = await db.get('SELECT provider, api_key, email_from, email_to, smtp_host, smtp_port, smtp_user, smtp_pass, smtp_secure, smtp_require_tls, smtp_from_name, smtp_reply_to FROM settings_email ORDER BY id DESC LIMIT 1');
 
         // Invalidate settings cache
         await cacheService.invalidateSettings();
@@ -1370,8 +1453,8 @@ app.post('/api/settings/test-smtp', authMiddleware, requireRole('admin'), async 
     const subject = 'ITnVend SMTP test message';
     const html = `<p>This is a test message from ITnVend to verify email settings.</p><p>If you receive this, SMTP is configured correctly.</p>`;
 
-        await sendNotificationEmail(subject, html, to);
-        res.json({ success: true, to });
+    await sendNotificationEmail(subject, html, to, true);
+    res.json({ success: true, to });
     } catch (err) {
         console.warn('SMTP test failed', err?.message || err);
         res.status(500).json({ error: err.message || String(err) });

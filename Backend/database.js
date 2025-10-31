@@ -100,6 +100,8 @@ export async function setupDatabase() {
             email_template_invoice TEXT,
             email_template_quote TEXT,
             email_template_quote_request TEXT,
+            email_template_password_reset_subject TEXT,
+            email_template_password_reset TEXT,
             current_outlet_id INTEGER DEFAULT 1
         );
 
@@ -113,6 +115,18 @@ export async function setupDatabase() {
             smtp_port INTEGER,
             smtp_user TEXT,
             smtp_pass TEXT
+        );
+
+
+        -- Password reset tokens for staff (one-time, short lived)
+        CREATE TABLE IF NOT EXISTS password_reset_tokens (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            staff_id INTEGER NOT NULL,
+            token_hash TEXT NOT NULL,
+            expires_at DATETIME NOT NULL,
+            used INTEGER DEFAULT 0,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (staff_id) REFERENCES staff(id)
         );
 
         -- Quotes submitted by public (kept for records)
@@ -501,7 +515,7 @@ export async function setupDatabase() {
     // ensure a default settings row exists with id = 1
     const existing = await db.get('SELECT id FROM settings WHERE id = 1');
     if (!existing) {
-        await db.run("INSERT INTO settings (id, outlet_name, currency, gst_rate, current_outlet_id) VALUES (1, 'My Outlet', 'MVR', 0, 1)");
+        await db.run(`INSERT INTO settings (id, outlet_name, currency, gst_rate, email_template_password_reset_subject, email_template_password_reset, current_outlet_id) VALUES (1, 'My Outlet', 'MVR', 0, 'Reset your password', 'Hello {{name}},<br/><br/>Click the link below to reset your password:<br/><a href="{{reset_link}}">Reset password</a><br/><br/>If you did not request this, ignore this email.', 1)`);
     }
 
     // ensure at least one outlet exists; seed from settings values if needed
@@ -538,6 +552,14 @@ export async function setupDatabase() {
     const hasQuoteReqTemplateCol = settingsInfo.some(c => c.name === 'email_template_quote_request');
     if (!hasQuoteReqTemplateCol) {
         try { await db.run("ALTER TABLE settings ADD COLUMN email_template_quote_request TEXT"); } catch (e) { /* ignore */ }
+    }
+    const hasPwSubj = settingsInfo.some(c => c.name === 'email_template_password_reset_subject');
+    if (!hasPwSubj) {
+        try { await db.run("ALTER TABLE settings ADD COLUMN email_template_password_reset_subject TEXT"); } catch (e) { /* ignore */ }
+    }
+    const hasPwTpl = settingsInfo.some(c => c.name === 'email_template_password_reset');
+    if (!hasPwTpl) {
+        try { await db.run("ALTER TABLE settings ADD COLUMN email_template_password_reset TEXT"); } catch (e) { /* ignore */ }
     }
 
     const invoiceInfo = await db.all("PRAGMA table_info('invoices')");
@@ -596,10 +618,22 @@ export async function setupDatabase() {
     if (!emailCols.includes('smtp_pass')) {
         try { await db.run('ALTER TABLE settings_email ADD COLUMN smtp_pass TEXT'); } catch (e) { /* ignore */ }
     }
+    if (!emailCols.includes('smtp_secure')) {
+        try { await db.run("ALTER TABLE settings_email ADD COLUMN smtp_secure INTEGER DEFAULT 0"); } catch (e) { /* ignore */ }
+    }
+    if (!emailCols.includes('smtp_require_tls')) {
+        try { await db.run("ALTER TABLE settings_email ADD COLUMN smtp_require_tls INTEGER DEFAULT 0"); } catch (e) { /* ignore */ }
+    }
+    if (!emailCols.includes('smtp_from_name')) {
+        try { await db.run("ALTER TABLE settings_email ADD COLUMN smtp_from_name TEXT"); } catch (e) { /* ignore */ }
+    }
+    if (!emailCols.includes('smtp_reply_to')) {
+        try { await db.run("ALTER TABLE settings_email ADD COLUMN smtp_reply_to TEXT"); } catch (e) { /* ignore */ }
+    }
 
-    // Seed initial products if the table is empty
+    // Seed initial products if the table is empty. Controlled by SEED_PRODUCTS env var to avoid demo data in production.
     const productCount = await db.get('SELECT COUNT(*) as c FROM products');
-    if (!productCount || productCount.c === 0) {
+    if ((process.env.SEED_PRODUCTS === 'true') && (!productCount || productCount.c === 0)) {
         const products = [
             // Procurement > Digital Licenses
             { name: 'Microsoft 365 Business Standard', price: 12.50, stock: 1000, category: 'Procurement', subcategory: 'Digital Licenses' },
@@ -647,6 +681,10 @@ export async function setupDatabase() {
             await stmt.run(p.name, p.price, p.stock, p.category, p.subcategory);
         }
         await stmt.finalize();
+    } else {
+        if (!productCount || productCount.c === 0) {
+            console.log('SEED_PRODUCTS is not enabled; skipping default product seeding.');
+        }
     }
 
     // Seed default roles if not exist
