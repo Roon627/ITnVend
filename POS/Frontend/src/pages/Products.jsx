@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Link } from 'react-router-dom';
 import { FaEdit, FaTrash, FaUpload, FaTimes, FaPlus, FaFileImport, FaExternalLinkAlt } from 'react-icons/fa';
 import api from '../lib/api';
@@ -306,6 +307,57 @@ function ProductInsight({ product, formatCurrency }) {
 
 function ProductModal({ open, draft, onClose, onChange, onSave, onUploadImage, uploading, saving, stockChanged, stockReason, onStockReasonChange, categoryTree, lookups, onTagsChanged, createBrand, createMaterial, createColor, createCategoryRoot, createSubcategory, createSubsubcategory }) {
   const fileInputRef = useRef(null);
+  const modalRef = useRef(null);
+  const [modalVisible, setModalVisible] = useState(false);
+  // close on Escape for convenience
+  useEffect(() => {
+    if (!open) return undefined;
+    const onKey = (e) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [open, onClose]);
+
+  // manage enter/exit animation state
+  useEffect(() => {
+    if (open) {
+      // allow next tick to trigger CSS transition
+      const id = setTimeout(() => setModalVisible(true), 10);
+      return () => clearTimeout(id);
+    }
+    setModalVisible(false);
+  }, [open]);
+
+  // focus trap: keep focus within modal while open
+  useEffect(() => {
+    if (!open) return undefined;
+    const root = modalRef.current;
+    if (!root) return undefined;
+    const focusable = Array.from(
+      root.querySelectorAll('a[href], button:not([disabled]), textarea, input, select, [tabindex]:not([tabindex="-1"])')
+    ).filter((el) => !el.hasAttribute('disabled') && el.offsetParent !== null);
+    if (focusable.length) focusable[0].focus();
+
+    const onKey = (e) => {
+      if (e.key !== 'Tab') return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (e.shiftKey) {
+        if (document.activeElement === first) {
+          e.preventDefault();
+          last.focus();
+        }
+      } else {
+        if (document.activeElement === last) {
+          e.preventDefault();
+          first.focus();
+        }
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [open]);
   if (!open || !draft) return null;
   const previewSrc = resolveMediaUrl(draft.imagePreview || draft.imageUrl || draft.image);
 
@@ -320,12 +372,12 @@ function ProductModal({ open, draft, onClose, onChange, onSave, onUploadImage, u
     onChange(key, event);
   };
 
-  return (
-    <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center px-4">
-      <div className="bg-white rounded-xl shadow-2xl w-full max-w-6xl max-h-[92vh] overflow-hidden flex flex-col">
+  return createPortal(
+    <div onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }} className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center px-4 py-4" role="dialog" aria-modal="true" aria-labelledby="product-modal-title">
+      <div ref={modalRef} className={`bg-white rounded-xl shadow-2xl w-full max-w-6xl max-h-[92vh] overflow-hidden flex flex-col transform transition-all duration-300 ease-out ${modalVisible ? 'translate-y-0 opacity-100' : 'translate-y-6 opacity-0'}`} style={{outline: 'none'}} tabIndex={-1}>
         <header className="flex items-center justify-between px-6 py-4 border-b">
           <div>
-            <h2 className="text-xl font-semibold text-slate-800">{draft.id ? 'Edit product' : 'Add product'}</h2>
+            <h2 id="product-modal-title" className="text-xl font-semibold text-slate-800">{draft.id ? 'Edit product' : 'Add product'}</h2>
             <p className="text-sm text-slate-500">Edit product details. Changes are saved to the POS backend.</p>
           </div>
           <div className="flex items-center gap-3">
@@ -427,7 +479,9 @@ function ProductModal({ open, draft, onClose, onChange, onSave, onUploadImage, u
               <SelectField
                 label="Category"
                 value={draft.categoryId || ''}
-                onChange={(v) => {
+                onChange={async (v) => {
+                  // refresh lookups/tree in case user added categories in Manage Lookups
+                  try { if (typeof refreshLookups === 'function') await refreshLookups(); } catch (e) { /* ignore */ }
                   handleFieldChange('categoryId')({ target: { value: v } });
                   handleFieldChange('subcategoryId')({ target: { value: '' } });
                   handleFieldChange('subsubcategoryId')({ target: { value: '' } });
@@ -440,7 +494,8 @@ function ProductModal({ open, draft, onClose, onChange, onSave, onUploadImage, u
               <SelectField
                 label="Subcategory"
                 value={draft.subcategoryId || ''}
-                onChange={(v) => {
+                onChange={async (v) => {
+                  try { if (typeof refreshLookups === 'function') await refreshLookups(); } catch (e) { /* ignore */ }
                   handleFieldChange('subcategoryId')({ target: { value: v } });
                   handleFieldChange('subsubcategoryId')({ target: { value: '' } });
                   let name = '';
@@ -546,7 +601,9 @@ function ProductModal({ open, draft, onClose, onChange, onSave, onUploadImage, u
           </div>
         </footer>
       </div>
-    </div>
+    </div>,
+    // render overlay directly into document.body so it's not affected by parent layout transforms
+    typeof document !== 'undefined' ? document.body : null
   );
 }
 
@@ -635,7 +692,12 @@ export default function Products() {
     fetchLookupsAndTree();
   }, [fetchLookupsAndTree]);
 
-  const handleModalFieldChange = (key, value) => {
+  const handleModalFieldChange = (key, value, updatedDraft) => {
+    // Allow callers to provide a fully-assembled draft to perform atomic updates
+    if (updatedDraft) {
+      setModalDraft(updatedDraft);
+      return;
+    }
     setModalDraft((prev) => (prev ? { ...prev, [key]: value } : null));
   };
 
