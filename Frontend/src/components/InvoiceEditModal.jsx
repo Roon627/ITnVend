@@ -30,7 +30,7 @@ export default function InvoiceEditModal({ invoiceId, onClose, onSaved }) {
           stock: it.product_stock ?? 0,
           image: it.product_image || null
         })));
-      } catch (err) {
+      } catch {
         toast.push('Failed to load invoice for edit', 'error');
         onClose && onClose();
       } finally {
@@ -49,7 +49,7 @@ export default function InvoiceEditModal({ invoiceId, onClose, onSaved }) {
         const res = await api.get(`/products?search=${encodeURIComponent(productSearch)}`);
         if (!active) return;
         setProductResults((res || []).slice(0, 10));
-      } catch (err) {
+      } catch {
         // ignore
       }
     }, 300);

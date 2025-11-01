@@ -51,8 +51,7 @@ export default function Header() {
   const profileRef = useRef(null);
   const profileButtonRef = useRef(null);
   const [profileOpen, setProfileOpen] = useState(false);
-  const ADMIN_BASE = import.meta.env.VITE_ONLY_ADMIN === '1' ? '' : '/admin';
-  const mk = (path) => `${ADMIN_BASE}${path.startsWith('/') ? path : `/${path}`}`;
+  const storeUrl = import.meta.env.VITE_ESTORE_URL || 'http://localhost:5174';
 
   useEffect(() => {
     api.get('/settings').then((s) => {
@@ -162,13 +161,13 @@ export default function Header() {
   };
 
   return (
-    <header className="bg-white border-b">
+    <header className="bg-white border-b sticky top-0 z-30">
       {reauthRequired && (
         <div className="bg-yellow-100 text-yellow-800 px-4 py-2 text-sm text-center">
           Your session needs re-authentication. <button className="underline ml-2" onClick={async () => { const ok = await attemptRefresh(); if (!ok) { toast.push('Please log in again', 'error'); window.location.href = '/login'; } }}>Try refresh</button>
         </div>
       )}
-      <div className="container mx-auto px-6 py-4 flex items-center justify-between">
+      <div className="mx-auto max-w-7xl px-4 sm:px-6 py-4 flex flex-wrap items-center justify-between gap-4">
         <div className="flex items-center gap-3">
           <button
             className="p-2 rounded-md hover:bg-gray-100"
@@ -185,12 +184,12 @@ export default function Header() {
           </div>
         </div>
 
-        <div className="flex items-center gap-4">
-            <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center justify-end gap-2 sm:gap-3">
+            <div className="flex items-center gap-2 sm:gap-3">
               <div className={`h-3 w-3 rounded-full ${online ? 'bg-green-500' : 'bg-red-400'}`} title={online ? 'Online' : 'Offline'} />
               <div className={`h-3 w-3 rounded-full ${wsConnected ? 'bg-blue-500' : 'bg-gray-400'}`} title={wsConnected ? 'Real-time connected' : 'Real-time disconnected'} />
-              <button onClick={() => window.open('/', '_blank')} className="text-sm px-3 py-2 rounded-md border">Store</button>
-              <button onClick={() => navigate(mk('/help'))} className="text-sm px-3 py-2 rounded-md border">Help</button>
+              <button onClick={() => window.open(storeUrl, '_blank', 'noopener,noreferrer')} className="text-xs sm:text-sm px-3 py-2 rounded-md border">Store</button>
+              <button onClick={() => navigate('/help')} className="text-xs sm:text-sm px-3 py-2 rounded-md border">Help</button>
               <div className="relative" ref={profileRef}>
                 <button
                   ref={profileButtonRef}
@@ -218,14 +217,14 @@ export default function Header() {
                   >
                     <button
                       role="menuitem"
-                      onClick={() => { setProfileOpen(false); navigate(mk('/profile')); }}
+                      onClick={() => { setProfileOpen(false); navigate('/profile'); }}
                       className="w-full text-left px-4 py-2 hover:bg-slate-50"
                     >
                       View profile
                     </button>
                     <button
                       role="menuitem"
-                      onClick={() => { setProfileOpen(false); navigate(mk('/settings')); }}
+                      onClick={() => { setProfileOpen(false); navigate('/settings'); }}
                       className="w-full text-left px-4 py-2 hover:bg-slate-50"
                     >
                       Settings

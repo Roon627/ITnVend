@@ -16,7 +16,7 @@ export function AuthProvider({ children }) {
         setAuthToken(t);
         return { token: t, role: role || null, username: username || null };
       }
-    } catch (e) {
+    } catch {
       // ignore
     }
     return null;
@@ -56,7 +56,7 @@ export function AuthProvider({ children }) {
         try {
           const body = await err?.response?.json?.();
           console.warn('Refresh response body:', body);
-        } catch (e) { /* ignore */ }
+        } catch { /* ignore */ }
       }
     }
     setReauthRequired(true);
@@ -67,10 +67,10 @@ export function AuthProvider({ children }) {
     try {
       if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
 
-  const t = localStorage.getItem(LS_TOKEN_KEY);
+      const t = localStorage.getItem(LS_TOKEN_KEY);
       if (!t) return;
 
-  const payload = parseJwt(t);
+      const payload = parseJwt(t);
       if (!payload || !payload.exp) return;
 
       const expiresAt = payload.exp * 1000;
@@ -97,7 +97,7 @@ export function AuthProvider({ children }) {
       refreshTimerRef.current = setTimeout(() => {
         attemptRefresh();
       }, when);
-    } catch (e) {
+    } catch {
       // ignore
       setReauthRequired(true);
     }
@@ -107,8 +107,8 @@ export function AuthProvider({ children }) {
     const res = await api.post('/login', { username, password });
     // res contains { token, role }
     setAuthToken(res.token);
-  localStorage.setItem(LS_ROLE_KEY, res.role);
-  localStorage.setItem(LS_USERNAME_KEY, username);
+    localStorage.setItem(LS_ROLE_KEY, res.role);
+    localStorage.setItem(LS_USERNAME_KEY, username);
     // token is also stored by setAuthToken helper
     setUser({ token: res.token, role: res.role, username });
     setReauthRequired(false);
@@ -119,8 +119,8 @@ export function AuthProvider({ children }) {
   // Switch to a different user token (impersonation)
   function switchUser(token, role, username) {
     setAuthToken(token);
-  if (role) localStorage.setItem(LS_ROLE_KEY, role);
-  if (username) localStorage.setItem(LS_USERNAME_KEY, username);
+    if (role) localStorage.setItem(LS_ROLE_KEY, role);
+    if (username) localStorage.setItem(LS_USERNAME_KEY, username);
     // switch may also include a refresh token stored by caller
     // refresh token is stored as HttpOnly cookie set by server on impersonation/login
     setUser({ token, role, username });
@@ -129,17 +129,17 @@ export function AuthProvider({ children }) {
 
   function logout() {
     setAuthToken(null);
-  localStorage.removeItem(LS_ROLE_KEY);
-  localStorage.removeItem(LS_USERNAME_KEY);
+    localStorage.removeItem(LS_ROLE_KEY);
+    localStorage.removeItem(LS_USERNAME_KEY);
     // clear refresh token cookie server-side
-    try { api.post('/token/logout'); } catch (e) { /* ignore */ }
+    try { api.post('/token/logout'); } catch { /* ignore */ }
     setUser(null);
   }
 
   // expose switch helper on window for quick invocation from other pages
   useEffect(() => {
-  window.__ITNVEND_SWITCH_USER__ = switchUser;
-  return () => { try { delete window.__ITNVEND_SWITCH_USER__; } catch (e) {} };
+    window.__ITNVEND_SWITCH_USER__ = switchUser;
+    return () => { try { delete window.__ITNVEND_SWITCH_USER__; } catch { /* ignore */ } };
   }, []);
 
   // schedule refresh when AuthProvider mounts
@@ -167,6 +167,8 @@ export function AuthProvider({ children }) {
   );
 }
 
+// This hook is consumed across the app; exporting it alongside the provider is intentional.
+// eslint-disable-next-line react-refresh/only-export-components
 export function useAuth() {
   return useContext(AuthContext);
 }

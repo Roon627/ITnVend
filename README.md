@@ -92,6 +92,10 @@ node index.js
 ```powershell
 cd Frontend
 npm install
+# Optional: tell Vite which host to expose (default already listens on 0.0.0.0)
+# PowerShell example:
+#   $env:VITE_DEV_HOST = "pos.itnvend.com"
+#   $env:VITE_ALLOWED_HOSTS = "pos.itnvend.com,localhost,127.0.0.1"
 npm run dev
 ```
 
@@ -99,6 +103,14 @@ Environment variables and configuration
 ----------------------------------------
 - `JWT_SECRET` / session settings: the server stores a persistent JWT secret in `settings` when it first runs; in Docker/Prod you may prefer to set one via env.
 - For Postgres, use the `.env` variables shown above.
+- `STOREFRONT_API_KEY` (optional): when set, the backend exposes `/api/storefront/preorders` for an external e-commerce site. Requests must send the matching `X-Storefront-Key` header (or `?key=` query) so POS-only deployments can leave this unset and keep the endpoint disabled.
+- Frontend dev helpers:
+	- `VITE_DEV_HOST` — override the dev server bind host (defaults to `true`, which is `0.0.0.0` so domains defined in your hosts file like `pos.itnvend.com` work).
+	- `VITE_ALLOWED_HOSTS` — comma-separated list of hostnames Vite should accept (defaults to `pos.itnvend.com,localhost,127.0.0.1`).
+	- `VITE_HMR_HOST` — optional hostname to force in socket connections if you are proxying the dev server.
+	- `VITE_API_PROXY_TARGET` — change the dev proxy target if the backend is not on `http://localhost:4000`.
+	- `VITE_API_DIRECT_FALLBACK` — optional absolute base used for a last-chance fetch attempt (fills the old `http://localhost:4000` fallback – leave unset if you don’t need it).
+	- `VITE_UPLOAD_BASE` — optional absolute URL that should prefix `/uploads/...` paths (defaults to `VITE_API_BASE` when set). Helpful when the API is on a different domain or port.
 
 Database and seeds
 ------------------
@@ -117,6 +129,7 @@ API surface (summary)
 Below are the most useful endpoints for development (see `Backend/index.js` for the full list):
 
 - GET `/api/products` — list products (supports `category`, `subcategory`, `search` query params). Returns full product rows.
+- GET `/api/products?preorderOnly=true` — list only items flagged for preorder in the POS catalog (authenticated).
 - GET `/api/products/categories` — returns categories/subcategories map.
 - POST `/api/products` — create product (protected)
 - PUT `/api/products/:id` — update product (protected)
@@ -127,6 +140,7 @@ Below are the most useful endpoints for development (see `Backend/index.js` for 
 - POST `/api/uploads` — upload images (multer multipart when available or base64 fallback)
 - GET `/api/outlets` — list outlets
 - POST/PUT `/api/outlets` — manage outlets (protected)
+- GET `/api/storefront/preorders` — storefront-facing feed of preorderable products (requires `STOREFRONT_API_KEY` and `X-Storefront-Key` header).
 
 Authentication & roles
 - The app seeds basic roles (`admin`, `manager`, `cashier`, `accounts`) and a default `admin` staff user if none exists.
@@ -137,6 +151,7 @@ Frontend notes — POS behavior, currency, and GST
 - Currency: global currency lives in the `settings` table and is exposed to the frontend via `SettingsContext`. Formatting is done with Intl.NumberFormat via `formatCurrency(...)` (configured to hide trailing `.00` for integer amounts).
 - GST calculation: the POS calculates GST (tax) using the active outlet's `gst_rate`. Both frontend and backend compute tax on the invoice subtotal. Important fix: the backend and frontend now explicitly ignore items with quantity <= 0 so GST is not added for zero-quantity lines.
 - Adding out-of-stock items: by default the POS UI prevents adding items with `stock <= 0`. If you need backorder/pre-order functionality I can add a toggle or confirmation.
+- Preorders: product editors now include an “Available for preorder” toggle with optional release date/notes. When enabled, the product surfaces in `/api/products?preorderOnly=true` and (if configured) the `/api/storefront/preorders` feed for the estore.
 
 Database reset & seed application (safe options)
 ----------------------------------------------

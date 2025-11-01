@@ -8,18 +8,9 @@ import CustomerDetail from './pages/CustomerDetail';
 import Settings from './pages/Settings/Settings';
 import Staff from './pages/Staff';
 import Login from './pages/Login';
-import Home from './pages/Home';
 import ForgotPassword from './pages/ForgotPassword';
 import ResetPassword from './pages/ResetPassword';
-import Privacy from './pages/Privacy';
-import UsePolicy from './pages/UsePolicy';
-import VendorOnboarding from './pages/VendorOnboarding';
 import Header from './components/Header';
-import PublicProducts from './pages/PublicProducts';
-import Cart from './pages/Cart';
-import Checkout from './pages/Checkout';
-import OrderConfirmation from './pages/OrderConfirmation';
-import ProductDetail from './pages/ProductDetail';
 import Accounting from './pages/Accounting/Accounting';
 import Reports from './pages/Reports/Reports';
 import Operations from './pages/Operations/Operations';
@@ -29,8 +20,6 @@ import { AuthProvider, useAuth } from './components/AuthContext';
 import { UIProvider, useUI } from './components/UIContext';
 import { NotificationsProvider } from './components/NotificationsContext';
 import { WebSocketProvider } from './components/WebSocketContext';
-
-const ONLY_ADMIN = import.meta.env.VITE_ONLY_ADMIN === '1';
 
 function App() {
   function AdminOnly({ children }) {
@@ -48,11 +37,20 @@ function App() {
   }
 
   function AdminLayout({ children }) {
-    const { sidebarCollapsed } = useUI();
+    const { sidebarCollapsed, sidebarOpen, closeSidebar } = useUI();
+    const marginClass = sidebarCollapsed ? 'lg:ml-20' : 'lg:ml-64';
     return (
       <div className="flex">
         <Sidebar />
-        <div className={`flex-1 ${sidebarCollapsed ? 'ml-20' : 'ml-64'} min-h-screen flex flex-col`}>
+        {sidebarOpen && (
+          <button
+            type="button"
+            className="fixed inset-0 z-30 bg-black/30 lg:hidden"
+            aria-hidden="true"
+            onClick={closeSidebar}
+          />
+        )}
+        <div className={`flex-1 min-h-screen flex flex-col transition-[margin] duration-200 ml-0 ${marginClass}`}>
           <Header />
           <main className="flex-1 bg-gray-50">{children}</main>
         </div>
@@ -60,25 +58,10 @@ function App() {
     );
   }
 
-  function PublicLayout({ children }) {
-    return (
-      <div>
-        <a
-          href="#main-content"
-          className="absolute left-2 -top-16 focus:top-2 focus:z-50 focus:bg-white focus:px-3 focus:py-2 focus:rounded-md focus:shadow-md text-sm text-blue-700"
-        >
-          Skip to content
-        </a>
-        <main id="main-content" tabIndex={-1}>
-          {children}
-        </main>
-      </div>
-    );
-  }
-
   const adminRoutes = (
     <Routes>
-      <Route path="/" element={<POS />} />
+      <Route path="/" element={<Navigate to="/pos" replace />} />
+      <Route path="/pos" element={<POS />} />
       <Route path="/products" element={<Products />} />
       <Route path="/invoices" element={<Invoices />} />
       <Route path="/customers" element={<Customers />} />
@@ -101,41 +84,17 @@ function App() {
           <UIProvider>
             <BrowserRouter>
               <Routes>
-                {ONLY_ADMIN ? (
-                  <Route
-                    path="/*"
-                    element={
-                      <AdminOnly>
-                        <AdminLayout>{adminRoutes}</AdminLayout>
-                      </AdminOnly>
-                    }
-                  />
-                ) : (
-                  <>
-                    <Route path="/" element={<PublicLayout><Home /></PublicLayout>} />
-                    <Route path="/home" element={<PublicLayout><Home /></PublicLayout>} />
-                    <Route path="/store" element={<PublicLayout><PublicProducts /></PublicLayout>} />
-                    <Route path="/product/:id" element={<PublicLayout><ProductDetail /></PublicLayout>} />
-                    <Route path="/cart" element={<PublicLayout><Cart /></PublicLayout>} />
-                    <Route path="/checkout" element={<PublicLayout><Checkout /></PublicLayout>} />
-                    <Route path="/confirmation" element={<PublicLayout><OrderConfirmation /></PublicLayout>} />
-                    <Route path="/vendor-onboarding" element={<PublicLayout><VendorOnboarding /></PublicLayout>} />
-                    <Route path="/privacy" element={<PublicLayout><Privacy /></PublicLayout>} />
-                    <Route path="/use" element={<PublicLayout><UsePolicy /></PublicLayout>} />
-                    <Route path="/login" element={<Login />} />
-                    <Route path="/forgot-password" element={<ForgotPassword />} />
-                    <Route path="/reset-password" element={<ResetPassword />} />
-                    <Route
-                      path="/admin/*"
-                      element={
-                        <AdminOnly>
-                          <AdminLayout>{adminRoutes}</AdminLayout>
-                        </AdminOnly>
-                      }
-                    />
-                    <Route path="*" element={<Navigate to="/" replace />} />
-                  </>
-                )}
+                <Route path="/login" element={<Login />} />
+                <Route path="/forgot-password" element={<ForgotPassword />} />
+                <Route path="/reset-password" element={<ResetPassword />} />
+                <Route
+                  path="/*"
+                  element={
+                    <AdminOnly>
+                      <AdminLayout>{adminRoutes}</AdminLayout>
+                    </AdminOnly>
+                  }
+                />
               </Routes>
             </BrowserRouter>
           </UIProvider>

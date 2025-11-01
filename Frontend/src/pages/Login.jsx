@@ -10,7 +10,7 @@ export default function Login() {
   const auth = useAuth();
   const toast = useToast();
   const navigate = useNavigate();
-  const POS_PATH = import.meta.env.VITE_ONLY_ADMIN === '1' ? '/' : '/admin';
+  const POS_PATH = '/pos';
 
   async function submit(e) {
     e.preventDefault();

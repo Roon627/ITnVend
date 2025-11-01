@@ -1,3 +1,4 @@
+/* eslint-disable react-refresh/only-export-components */
 import React from 'react';
 
 // A small, reusable component to render denomination rows and a print helper.

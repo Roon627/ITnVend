@@ -1,10 +1,25 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 
-export default function ReconcileModal({ open, onClose, onSubmit }) {
+export default function ReconcileModal({ open, onClose, onSubmit, initialValues }) {
   const [invoiceId, setInvoiceId] = useState('');
   const [amount, setAmount] = useState('');
   const [method, setMethod] = useState('cash');
   const [reference, setReference] = useState('');
+
+  useEffect(() => {
+    if (!open) return;
+    if (initialValues) {
+      setInvoiceId(initialValues.invoiceId ? String(initialValues.invoiceId) : '');
+      setAmount(initialValues.amount != null ? String(initialValues.amount) : '');
+      if (initialValues.method) setMethod(initialValues.method);
+      if (initialValues.reference) setReference(initialValues.reference);
+    } else {
+      setInvoiceId('');
+      setAmount('');
+      setMethod('cash');
+      setReference('');
+    }
+  }, [open, initialValues]);
 
   if (!open) return null;
 

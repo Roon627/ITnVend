@@ -29,4 +29,16 @@ This document describes how to deploy it from GitHub to a fresh Linux server so 
 | **Domains** | itnvend.com  ·  pos.itnvend.com  ·  estore.itnvend.com |
 | **Privileges** | root or sudo access |
 
-... (trimmed for brevity in tool call)
+## 🔑 Environment variables
+
+Configure these before starting the backend service:
+
+| Variable | Purpose |
+|----------|---------|
+| `PORT` | Override the API listen port (defaults to `4000`). |
+| `DATABASE_URL` | Point the API at a managed Postgres instance instead of SQLite. |
+| `REDIS_URL` / `REDIS_HOST` / `REDIS_PORT` | Redis connection info for cache + websocket fanout. |
+| `JWT_SECRET` | Supply a stable JWT signing key; otherwise, the server seeds one into the DB. |
+| `STOREFRONT_API_KEY` | Optional. Enables the `/api/storefront/preorders` feed for the estore. The storefront must send `X-Storefront-Key` with this value. Leave unset for POS-only customers. |
+
+The React build can target a different API origin by exporting `VITE_API_BASE` before running `npm run build`.

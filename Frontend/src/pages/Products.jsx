@@ -4,6 +4,7 @@ import api from '../lib/api';
 import { useToast } from '../components/ToastContext';
 import { useSettings } from '../components/SettingsContext';
 import { useAuth } from '../components/AuthContext';
+import { resolveMediaUrl } from '../lib/media';
 
 const EMPTY_FORM = {
   name: '',
@@ -19,6 +20,9 @@ const EMPTY_FORM = {
   description: '',
   technicalDetails: '',
   trackInventory: true,
+  availableForPreorder: false,
+  preorderReleaseDate: '',
+  preorderNotes: '',
 };
 
 function normalizeKey(key) {
@@ -78,6 +82,14 @@ function parseCsv(text) {
     return row;
   });
   return { headers, rows };
+}
+
+function buildProductUploadCategory(category, subcategory) {
+  const segments = [category, subcategory]
+    .map((value) => (value ? String(value).trim().toLowerCase() : ''))
+    .filter(Boolean)
+    .map((value) => value.replace(/[^a-z0-9\-_]+/g, '-'));
+  return ['products', ...segments].join('/');
 }
 
 function mapCsvRowToProduct(row) {
@@ -170,7 +182,7 @@ function ProductInsight({ product, formatCurrency }) {
       </div>
     );
   }
-  const previewSrc = product.image_source || product.imageUrl || product.image;
+  const previewSrc = resolveMediaUrl(product.image_source || product.imageUrl || product.image);
   return (
     <div className="space-y-4">
       {previewSrc ? (
@@ -195,6 +207,24 @@ function ProductInsight({ product, formatCurrency }) {
             {product.stock ?? 0}
             {product.track_inventory === 0 ? ' (not tracked)' : ''}
           </p>
+        </div>
+        <div>
+          <p className="text-slate-500">Preorder</p>
+          {product.preorder_enabled ? (
+            <div className="space-y-1">
+              <p className="font-semibold text-emerald-700">Enabled</p>
+              {product.preorder_release_date && (
+                <p className="text-xs text-slate-500">
+                  Release target: {product.preorder_release_date}
+                </p>
+              )}
+              {product.preorder_notes && (
+                <p className="text-xs text-slate-500 whitespace-pre-line">{product.preorder_notes}</p>
+              )}
+            </div>
+          ) : (
+            <p className="font-semibold text-slate-500">Disabled</p>
+          )}
         </div>
         {product.sku && (
           <div>
@@ -238,7 +268,7 @@ function ProductInsight({ product, formatCurrency }) {
 function ProductModal({ open, draft, onClose, onChange, onSave, onUploadImage, uploading, saving, stockChanged, stockReason, onStockReasonChange }) {
   const fileInputRef = useRef(null);
   if (!open || !draft) return null;
-  const previewSrc = draft.imageUrl || draft.image;
+  const previewSrc = resolveMediaUrl(draft.imagePreview || draft.imageUrl || draft.image);
 
   const handleFieldChange = (key) => (event) => {
     const { type, checked, value } = event.target;
@@ -328,7 +358,39 @@ function ProductModal({ open, draft, onClose, onChange, onSave, onUploadImage, u
                   />
                   Track inventory
                 </label>
+                <label className="inline-flex items-center gap-2 text-sm font-medium text-slate-600">
+                  <input
+                    type="checkbox"
+                    checked={draft.availableForPreorder}
+                    onChange={handleFieldChange('availableForPreorder')}
+                    className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                  />
+                  Available for preorder (storefront)
+                </label>
               </div>
+              {draft.availableForPreorder && (
+                <div className="grid gap-3">
+                  <label className="text-sm font-medium text-slate-600">
+                    Release / availability date
+                    <input
+                      type="date"
+                      value={draft.preorderReleaseDate || ''}
+                      onChange={handleFieldChange('preorderReleaseDate')}
+                      className="mt-1 w-full rounded border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </label>
+                  <label className="text-sm font-medium text-slate-600">
+                    Preorder notes
+                    <textarea
+                      value={draft.preorderNotes}
+                      onChange={handleFieldChange('preorderNotes')}
+                      rows={3}
+                      className="mt-1 w-full rounded border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      placeholder="e.g. Ships in 4 weeks, limited launch allocation"
+                    />
+                  </label>
+                </div>
+              )}
               <div className="grid grid-cols-2 gap-3">
                 <label className="text-sm font-medium text-slate-600">
                   Category
@@ -593,6 +655,9 @@ export default function Products() {
         barcode: form.barcode || null,
         cost: form.cost ? parseFloat(form.cost) : 0,
         trackInventory: form.trackInventory,
+        availableForPreorder: form.availableForPreorder,
+        preorderReleaseDate: form.preorderReleaseDate || null,
+        preorderNotes: form.preorderNotes || null,
       };
       const created = await api.post('/products', payload);
       toast.push('Product added', 'info');
@@ -652,7 +717,11 @@ export default function Products() {
       cost: product.cost != null ? product.cost.toString() : '',
       image: product.image || '',
       imageUrl: product.image_source || '',
+      imagePreview: resolveMediaUrl(product.image_source || product.image || ''),
       trackInventory: product.track_inventory !== 0,
+      availableForPreorder: product.preorder_enabled === 1 || product.preorder_enabled === true || product.preorder_enabled === '1',
+      preorderReleaseDate: product.preorder_release_date || '',
+      preorderNotes: product.preorder_notes || '',
     });
     setModalOpen(true);
     setModalOriginalDraft({
@@ -669,7 +738,11 @@ export default function Products() {
       cost: product.cost != null ? String(product.cost) : '',
       image: product.image || '',
       imageUrl: product.image_source || '',
+      imagePreview: resolveMediaUrl(product.image_source || product.image || ''),
       trackInventory: product.track_inventory !== 0,
+      availableForPreorder: product.preorder_enabled === 1 || product.preorder_enabled === true || product.preorder_enabled === '1',
+      preorderReleaseDate: product.preorder_release_date || '',
+      preorderNotes: product.preorder_notes || '',
     });
     setModalStockReason('');
   };
@@ -698,6 +771,9 @@ export default function Products() {
           barcode: modalDraft.barcode || null,
           cost: modalDraft.cost ? parseFloat(modalDraft.cost) : 0,
           trackInventory: modalDraft.trackInventory,
+          availableForPreorder: modalDraft.availableForPreorder,
+          preorderReleaseDate: modalDraft.preorderReleaseDate || null,
+          preorderNotes: modalDraft.preorderNotes || null,
         };
         const created = await api.post('/products', payload);
         toast.push('Product added', 'info');
@@ -724,6 +800,9 @@ export default function Products() {
         barcode: modalDraft.barcode || null,
         cost: modalDraft.cost ? parseFloat(modalDraft.cost) : 0,
         trackInventory: modalDraft.trackInventory,
+        availableForPreorder: modalDraft.availableForPreorder,
+        preorderReleaseDate: modalDraft.preorderReleaseDate || null,
+        preorderNotes: modalDraft.preorderNotes || null,
       };
 
       // Detect if only stock changed compared to original draft
@@ -801,14 +880,16 @@ export default function Products() {
     try {
       const formData = new FormData();
       formData.append('file', file);
-      formData.append('category', 'products');
+      const uploadCategory = buildProductUploadCategory(form.category, form.subcategory);
+      formData.append('category', uploadCategory);
       const result = await api.upload('/uploads', formData);
       const storedPath = result?.path || result?.url || '';
       const absoluteUrl = result?.url || storedPath;
       setForm((prev) => ({
         ...prev,
         image: storedPath,
-        imageUrl: absoluteUrl,
+        imageUrl: storedPath,
+        imagePreview: absoluteUrl,
       }));
       toast.push('Image uploaded', 'info');
     } catch (err) {
@@ -825,11 +906,14 @@ export default function Products() {
     try {
       const formData = new FormData();
       formData.append('file', file);
-      formData.append('category', 'products');
+      const uploadCategory = buildProductUploadCategory(modalDraft?.category, modalDraft?.subcategory);
+      formData.append('category', uploadCategory);
       const result = await api.upload('/uploads', formData);
       const storedPath = result?.path || result?.url || '';
       const absoluteUrl = result?.url || storedPath;
-      setModalDraft((prev) => (prev ? { ...prev, image: storedPath, imageUrl: absoluteUrl } : prev));
+      setModalDraft((prev) =>
+        prev ? { ...prev, image: storedPath, imageUrl: storedPath, imagePreview: absoluteUrl } : prev
+      );
       toast.push('Image updated', 'info');
     } catch (err) {
       toast.push(err?.message || 'Failed to upload image', 'error');
@@ -935,7 +1019,7 @@ export default function Products() {
 
   return (
     <div className="p-6 space-y-6">
-      <div className="flex items-center justify-between flex-wrap gap-3">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-semibold text-slate-900">Products</h1>
           <p className="text-sm text-slate-500">
@@ -955,25 +1039,25 @@ export default function Products() {
       {/* Add product moved to modal: click the button above to open the product editor */}
 
       <section className="space-y-6 rounded-lg bg-white p-6 shadow-sm">
-        <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div>
             <h2 className="text-lg font-semibold text-slate-800">Catalog overview</h2>
             <p className="text-sm text-slate-500">
               Filter products, edit details, and monitor stock levels.
             </p>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-col sm:flex-row flex-wrap items-stretch sm:items-center gap-2 w-full lg:w-auto">
             <input
               type="search"
               value={searchValue}
               onChange={(event) => setSearchValue(event.target.value)}
               placeholder="Search by name or SKU"
-              className="w-48 rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full sm:w-48 rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
             <select
               value={filters.category}
               onChange={(event) => handleFilterChange('category', event.target.value)}
-              className="rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full sm:w-auto rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
             >
               <option value="">All categories</option>
               {categoryOptions.map((option) => (
@@ -985,7 +1069,7 @@ export default function Products() {
             <select
               value={filters.subcategory}
               onChange={(event) => handleFilterChange('subcategory', event.target.value)}
-              className="rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full sm:w-auto rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
               disabled={!availableSubcategories.length}
             >
               <option value="">All subcategories</option>
@@ -998,7 +1082,7 @@ export default function Products() {
             <button
               type="button"
               onClick={fetchProducts}
-              className="rounded-md border px-3 py-2 text-sm hover:bg-slate-100"
+              className="w-full sm:w-auto rounded-md border px-3 py-2 text-sm hover:bg-slate-100"
               disabled={loading}
             >
               Refresh
@@ -1018,6 +1102,7 @@ export default function Products() {
                   No products found. Adjust filters or add a new product.
                 </div>
               ) : (
+                <div className="overflow-x-auto">
                 <table className="min-w-full divide-y divide-slate-200 text-sm">
                   <thead className="bg-slate-50 text-xs uppercase text-slate-500">
                     <tr>
@@ -1040,6 +1125,11 @@ export default function Products() {
                           <div className="space-x-2 text-xs text-slate-500">
                             {product.sku && <span>SKU: {product.sku}</span>}
                             {product.barcode && <span>Barcode: {product.barcode}</span>}
+                            {(product.preorder_enabled === 1 || product.preorder_enabled === true || product.preorder_enabled === '1') && (
+                              <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 font-semibold text-emerald-700">
+                                Preorder
+                              </span>
+                            )}
                           </div>
                         </td>
                         <td className="px-4 py-3 text-slate-700">
@@ -1102,6 +1192,7 @@ export default function Products() {
                     ))}
                   </tbody>
                 </table>
+                </div>
               )}
             </div>
 

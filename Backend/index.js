@@ -23,6 +23,8 @@ const io = new Server(server, {
   }
 });
 
+const STOREFRONT_API_KEY = process.env.STOREFRONT_API_KEY || null;
+
 app.set('trust proxy', true);
 // make port configurable so multiple services can run without colliding
 const port = process.env.PORT ? parseInt(process.env.PORT, 10) : 4000;
@@ -235,6 +237,47 @@ app.use('/api', (req, res, next) => {
 const imagesDir = path.join(process.cwd(), 'public', 'images');
 try { fs.mkdirSync(imagesDir, { recursive: true }); } catch (e) { /* ignore */ }
 app.use('/uploads', express.static(imagesDir));
+app.use('/images', express.static(imagesDir));
+
+function sanitizeSegments(input, fallback = 'uncategorized') {
+    if (!input) return [fallback];
+    const value = Array.isArray(input) ? input : String(input).split(/[\\/]+/);
+    const segments = value
+        .map((segment) => String(segment || '').trim().toLowerCase())
+        .map((segment) => segment.replace(/[^a-z0-9\-_]+/g, '-'))
+        .filter(Boolean);
+    if (!segments.length) return [fallback];
+    return segments;
+}
+
+function ensureUploadDir(category, fallback = 'uncategorized') {
+    const segments = sanitizeSegments(category, fallback);
+    const dir = path.join(imagesDir, ...segments);
+    fs.mkdirSync(dir, { recursive: true });
+    return { dir, segments };
+}
+
+function normalizeUploadPath(raw) {
+    if (!raw || typeof raw !== 'string') return null;
+    let value = raw.trim();
+    if (/^https?:\/\//i.test(value)) {
+        try {
+            const url = new URL(value);
+            value = url.pathname;
+        } catch (err) {
+            return null;
+        }
+    }
+    if (value.startsWith('/uploads/')) {
+        value = value.slice('/uploads/'.length);
+    }
+    if (value.startsWith('uploads/')) {
+        value = value.slice('uploads/'.length);
+    }
+    const normalized = path.posix.normalize(value).replace(/^\.\//, '');
+    if (!normalized || normalized.includes('..')) return null;
+    return normalized;
+}
 
 // Setup upload endpoint: prefer multer multipart handling if available, otherwise fall back to base64 JSON upload
 (async function setupUploadsRoute() {
@@ -244,11 +287,13 @@ app.use('/uploads', express.static(imagesDir));
         // configure multer storage
         const storage = multer.diskStorage({
             destination: function (req, file, cb) {
-                // allow category via query param or form field
                 const category = (req.query && req.query.category) || (req.body && req.body.category) || 'uncategorized';
-                const dir = path.join(imagesDir, category.replace(/[^a-z0-9\-_]/gi, '_'));
-                try { fs.mkdirSync(dir, { recursive: true }); } catch (e) { /* ignore */ }
-                cb(null, dir);
+                try {
+                    const { dir } = ensureUploadDir(category, 'uncategorized');
+                    cb(null, dir);
+                } catch (err) {
+                    cb(err);
+                }
             },
             filename: function (req, file, cb) {
                 const safe = `${Date.now()}-${file.originalname.replace(/[^a-z0-9\.\-_]/gi, '_')}`;
@@ -289,8 +334,7 @@ app.use('/uploads', express.static(imagesDir));
                     ext = parts[1] ? '.' + parts[1].split('+')[0] : '';
                 }
                 const cat = (req.query && req.query.category) || category || 'uncategorized';
-                const dir = path.join(imagesDir, String(cat).replace(/[^a-z0-9\-_]/gi, '_'));
-                try { fs.mkdirSync(dir, { recursive: true }); } catch (e) { /* ignore */ }
+                const { dir } = ensureUploadDir(cat, 'uncategorized');
                 const safeName = `${Date.now()}-${(filename || 'upload').replace(/[^a-z0-9\.\-_]/gi, '_')}${ext}`;
                 const filePath = path.join(dir, safeName);
                 const buffer = Buffer.from(base64, 'base64');
@@ -561,10 +605,10 @@ app.post('/api/password-reset/confirm', async (req, res) => {
 
 // Product Routes
 app.get('/api/products', async (req, res) => {
-    const { category, subcategory, search } = req.query;
+    const { category, subcategory, search, preorderOnly } = req.query;
 
     // Create cache key based on query parameters
-    const cacheKey = `products:${JSON.stringify({ category, subcategory, search })}`;
+    const cacheKey = `products:${JSON.stringify({ category, subcategory, search, preorderOnly: preorderOnly === 'true' })}`;
 
     try {
         // Try to get from cache first
@@ -589,6 +633,9 @@ app.get('/api/products', async (req, res) => {
         if (search) {
             query += ' AND name LIKE ?';
             params.push(`%${search}%`);
+        }
+        if (preorderOnly === 'true') {
+            query += ' AND preorder_enabled = 1';
         }
 
         const products = await db.all(query, params);
@@ -632,6 +679,40 @@ app.get('/api/products/categories', async (req, res) => {
     }
 });
 
+app.get('/api/storefront/preorders', async (req, res) => {
+    if (!STOREFRONT_API_KEY) {
+        return res.status(404).json({ error: 'Storefront API not configured' });
+    }
+    const providedKey = req.headers['x-storefront-key'] || req.query.key;
+    if (!providedKey || providedKey !== STOREFRONT_API_KEY) {
+        return res.status(403).json({ error: 'Invalid storefront key' });
+    }
+    try {
+        const products = await db.all(
+            `SELECT id, name, price, stock, sku, barcode, image, image_source, description, technical_details, preorder_enabled, preorder_release_date, preorder_notes
+             FROM products
+             WHERE preorder_enabled = 1`
+        );
+        const transformed = products.map((p) => ({
+            id: p.id,
+            name: p.name,
+            price: p.price,
+            stock: p.stock,
+            sku: p.sku,
+            barcode: p.barcode,
+            image: p.image,
+            imageUrl: p.image_source,
+            description: p.description,
+            technicalDetails: p.technical_details,
+            preorderReleaseDate: p.preorder_release_date,
+            preorderNotes: p.preorder_notes,
+        }));
+        res.json(transformed);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
 app.post('/api/products', authMiddleware, requireRole('cashier'), async (req, res) => {
     const {
         name,
@@ -646,7 +727,10 @@ app.post('/api/products', authMiddleware, requireRole('cashier'), async (req, re
         sku,
         barcode,
         cost,
-        trackInventory = true
+        trackInventory = true,
+        availableForPreorder = false,
+        preorderReleaseDate,
+        preorderNotes
     } = req.body;
     if (!name || price == null) return res.status(400).json({ error: 'Missing fields' });
     const normalizedStock = Number.isFinite(stock) ? stock : parseInt(stock || '0', 10) || 0;
@@ -658,6 +742,9 @@ app.post('/api/products', authMiddleware, requireRole('cashier'), async (req, re
     const storedImage = image?.trim() || null;
     const storedImageSource = imageUrl?.trim() || null;
     const technical = technicalDetails || null;
+    const preorderEnabled = availableForPreorder ? 1 : 0;
+    const preorderDate = typeof preorderReleaseDate === 'string' && preorderReleaseDate.trim() ? preorderReleaseDate.trim() : null;
+    const preorderMessage = typeof preorderNotes === 'string' && preorderNotes.trim() ? preorderNotes.trim() : null;
     // server-side SKU uniqueness and barcode validation
     try {
         if (trimmedSku) {
@@ -672,8 +759,8 @@ app.post('/api/products', authMiddleware, requireRole('cashier'), async (req, re
     }
     try {
         const result = await db.run(
-            `INSERT INTO products (name, price, stock, category, subcategory, image, image_source, description, technical_details, sku, barcode, cost, track_inventory)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            `INSERT INTO products (name, price, stock, category, subcategory, image, image_source, description, technical_details, sku, barcode, cost, track_inventory, preorder_enabled, preorder_release_date, preorder_notes)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             [
                 name,
                 normalizedPrice,
@@ -687,7 +774,10 @@ app.post('/api/products', authMiddleware, requireRole('cashier'), async (req, re
                 trimmedSku,
                 trimmedBarcode,
                 normalizedCost,
-                normalizedTrack
+                normalizedTrack,
+                preorderEnabled,
+                preorderDate,
+                preorderMessage
             ]
         );
         const product = await db.get('SELECT * FROM products WHERE id = ?', [result.lastID]);
@@ -696,8 +786,10 @@ app.post('/api/products', authMiddleware, requireRole('cashier'), async (req, re
             staffId: null,
             username: null,
             title: 'New product added',
-            message: `${name} is now available${normalizedStock <= 5 ? ` (low stock: ${normalizedStock})` : ''}`,
-            type: normalizedStock <= 5 ? 'warning' : 'info',
+            message: preorderEnabled
+                ? `${name} is now available for preorder${normalizedStock <= 5 ? ` (current stock: ${normalizedStock})` : ''}`
+                : `${name} is now available${normalizedStock <= 5 ? ` (low stock: ${normalizedStock})` : ''}`,
+            type: preorderEnabled ? 'info' : (normalizedStock <= 5 ? 'warning' : 'info'),
             metadata: { productId: result.lastID }
         });
 
@@ -726,7 +818,10 @@ app.put('/api/products/:id', authMiddleware, requireRole('cashier'), async (req,
         sku,
         barcode,
         cost,
-        trackInventory = true
+        trackInventory = true,
+        availableForPreorder,
+        preorderReleaseDate,
+        preorderNotes
     } = req.body;
     try {
         const product = await db.get('SELECT * FROM products WHERE id = ?', [id]);
@@ -741,6 +836,15 @@ app.put('/api/products/:id', authMiddleware, requireRole('cashier'), async (req,
         const storedImage = image != null ? (image.trim() || null) : (product.image ?? null);
         const storedImageSource = imageUrl != null ? (imageUrl.trim() || null) : (product.image_source ?? null);
         const technical = technicalDetails != null ? technicalDetails : product.technical_details;
+        const preorderEnabled = typeof availableForPreorder === 'boolean'
+            ? (availableForPreorder ? 1 : 0)
+            : (product.preorder_enabled ?? 0);
+        const preorderDate = preorderReleaseDate !== undefined
+            ? (typeof preorderReleaseDate === 'string' && preorderReleaseDate.trim() ? preorderReleaseDate.trim() : null)
+            : (product.preorder_release_date ?? null);
+        const preorderMessage = preorderNotes !== undefined
+            ? (typeof preorderNotes === 'string' && preorderNotes.trim() ? preorderNotes.trim() : null)
+            : (product.preorder_notes ?? null);
 
         // server-side SKU uniqueness & barcode validation for updates
         if (trimmedSku) {
@@ -752,7 +856,7 @@ app.put('/api/products/:id', authMiddleware, requireRole('cashier'), async (req,
         }
         await db.run(
             `UPDATE products
-             SET name = ?, price = ?, stock = ?, category = ?, subcategory = ?, image = ?, image_source = ?, description = ?, technical_details = ?, sku = ?, barcode = ?, cost = ?, track_inventory = ?
+             SET name = ?, price = ?, stock = ?, category = ?, subcategory = ?, image = ?, image_source = ?, description = ?, technical_details = ?, sku = ?, barcode = ?, cost = ?, track_inventory = ?, preorder_enabled = ?, preorder_release_date = ?, preorder_notes = ?
              WHERE id = ?`,
             [
                 name ?? product.name,
@@ -768,6 +872,9 @@ app.put('/api/products/:id', authMiddleware, requireRole('cashier'), async (req,
                 trimmedBarcode,
                 normalizedCost,
                 normalizedTrack,
+                preorderEnabled,
+                preorderDate,
+                preorderMessage,
                 id
             ]
         );
@@ -1814,6 +1921,56 @@ app.post('/api/invoices', async (req, res) => {
             metadata: { invoiceId, type, customerId, total }
         });
 
+        const paymentInfo = req.body?.paymentInfo;
+        if (paymentInfo && type === 'invoice') {
+            try {
+                const paymentMethodValue = typeof paymentInfo.method === 'string' ? paymentInfo.method : 'cash';
+                const paymentMethod = paymentMethodValue;
+                const methodLower = paymentMethodValue.toLowerCase();
+                const isTransferPayment = ['transfer', 'bank_transfer'].includes(methodLower);
+                const paymentReference = paymentInfo.reference || null;
+                const paymentAmount = Number.isFinite(Number(paymentInfo.amount)) ? Number(paymentInfo.amount) : total;
+                let slipPath = null;
+
+                if (paymentInfo.slipPath) {
+                    const normalized = normalizeUploadPath(paymentInfo.slipPath);
+                    if (normalized) slipPath = `/uploads/${normalized}`;
+                }
+
+                if (!slipPath && isTransferPayment && paymentInfo.slip) {
+                    try {
+                        let base64 = paymentInfo.slip;
+                        let ext = 'png';
+                        const match = String(base64).match(/^data:(.+);base64,(.+)$/);
+                        if (match) {
+                            const mime = match[1];
+                            base64 = match[2];
+                            const parts = mime.split('/');
+                            ext = parts[1] ? parts[1].split('+')[0] : ext;
+                        }
+                        const now = new Date();
+                        const slipCategory = ['payment_slips', String(now.getFullYear()), String(now.getMonth() + 1).padStart(2, '0')];
+                        const { dir } = ensureUploadDir(slipCategory, 'payment_slips');
+                        const fileName = `slip-${Date.now()}-${Math.random().toString(36).slice(2, 10)}.${ext || 'png'}`;
+                        const filePath = path.join(dir, fileName);
+                        fs.writeFileSync(filePath, Buffer.from(base64, 'base64'));
+                        const rel = path.relative(imagesDir, filePath).replace(/\\/g, '/');
+                        slipPath = `/uploads/${rel}`;
+                    } catch (err) {
+                        console.warn('Failed to persist payment slip for invoice', err?.message || err);
+                    }
+                }
+
+                await db.run(
+                    'INSERT INTO payments (invoice_id, amount, method, note, reference, slip_path) VALUES (?, ?, ?, ?, ?, ?)',
+                    [invoiceId, paymentAmount, paymentMethod, null, paymentReference, slipPath]
+                );
+                await db.run('UPDATE invoices SET payment_method = ?, payment_reference = ? WHERE id = ?', [paymentMethod, paymentReference, invoiceId]);
+            } catch (err) {
+                console.warn('Failed to record payment info for invoice', err?.message || err);
+            }
+        }
+
         res.status(201).json({
             id: invoiceId,
             message: `${type === 'invoice' ? 'Invoice' : 'Quote'} created`,
@@ -2268,7 +2425,7 @@ app.post('/api/invoices/:id/pdf-link', authMiddleware, async (req, res) => {
 
 // Order processing for guests
 app.post('/api/orders', async (req, res) => {
-    const { customer, cart, payment } = req.body || {};
+    const { customer, cart, payment, source, isPreorder: explicitPreorder } = req.body || {};
     const sanitizedCart = Array.isArray(cart)
         ? cart.filter((item) => item && Number(item.quantity) > 0 && item.id != null)
         : [];
@@ -2282,14 +2439,28 @@ app.post('/api/orders', async (req, res) => {
         return res.status(400).json({ error: 'Missing customer data or cart is empty' });
     }
 
-    const paymentMethod = payment?.method || 'cod';
+    const normalizedSource = typeof source === 'string' && source.trim() ? source.trim().toLowerCase() : 'pos';
+    const providedStorefrontKey = req.headers['x-storefront-key'] || req.body?.storefrontKey || req.query?.key;
+    const requiresStorefrontKey = STOREFRONT_API_KEY && normalizedSource !== 'pos';
+    if (requiresStorefrontKey && providedStorefrontKey !== STOREFRONT_API_KEY) {
+        return res.status(403).json({ error: 'Invalid storefront key' });
+    }
+
+    const paymentMethodRaw = payment?.method || 'cod';
+    const paymentMethod = String(paymentMethodRaw).toLowerCase();
+    const isTransferMethod = ['transfer', 'bank_transfer'].includes(paymentMethod);
     const paymentReference = payment?.reference || null;
     let paymentSlipPath = null;
 
-    if (paymentMethod === 'transfer' && payment?.slip) {
+    if (payment?.slipPath) {
+        const normalized = normalizeUploadPath(payment.slipPath);
+        if (normalized) {
+            paymentSlipPath = `/uploads/${normalized}`;
+        }
+    }
+
+    if (!paymentSlipPath && isTransferMethod && payment?.slip) {
         try {
-            const slipDir = path.join(imagesDir, 'payment_slips');
-            fs.mkdirSync(slipDir, { recursive: true });
             let base64 = payment.slip;
             let ext = 'png';
             const match = String(base64).match(/^data:(.+);base64,(.+)$/);
@@ -2299,8 +2470,11 @@ app.post('/api/orders', async (req, res) => {
                 const parts = mime.split('/');
                 ext = parts[1] ? parts[1].split('+')[0] : ext;
             }
+            const now = new Date();
+            const slipCategory = ['payment_slips', String(now.getFullYear()), String(now.getMonth() + 1).padStart(2, '0')];
+            const { dir } = ensureUploadDir(slipCategory, 'payment_slips');
             const fileName = `slip-${Date.now()}-${Math.random().toString(36).slice(2, 10)}.${ext || 'png'}`;
-            const filePath = path.join(slipDir, fileName);
+            const filePath = path.join(dir, fileName);
             fs.writeFileSync(filePath, Buffer.from(base64, 'base64'));
             const rel = path.relative(imagesDir, filePath).replace(/\\/g, '/');
             paymentSlipPath = `/uploads/${rel}`;
@@ -2310,31 +2484,69 @@ app.post('/api/orders', async (req, res) => {
     }
 
     try {
-        const total = sanitizedCart.reduce((sum, item) => sum + (Number(item.price) || 0) * (Number(item.quantity) || 0), 0);
+        const itemsWithDetails = [];
+        let hasPreorderItems = explicitPreorder === true || explicitPreorder === 1;
+
+        for (const item of sanitizedCart) {
+            let productRow = null;
+            try {
+                productRow = await db.get('SELECT preorder_enabled, track_inventory FROM products WHERE id = ?', [item.id]);
+            } catch (err) {
+                console.warn('Failed to inspect product for preorder status', err?.message || err);
+            }
+            const quantity = Number(item.quantity) || 0;
+            const price = Number(item.price) || 0;
+            const itemPreorder = item.preorder === true || item.preorder === 1 || (productRow && productRow.preorder_enabled === 1);
+            if (itemPreorder) hasPreorderItems = true;
+            itemsWithDetails.push({
+                id: item.id,
+                quantity,
+                price,
+                isPreorder: itemPreorder,
+                trackInventory: productRow ? productRow.track_inventory : 1,
+            });
+        }
+
+        const total = itemsWithDetails.reduce((sum, item) => sum + item.price * item.quantity, 0);
+        const orderStatus = hasPreorderItems ? 'preorder' : (isTransferMethod ? 'awaiting_verification' : 'pending');
 
         const orderResult = await db.run(
-            'INSERT INTO orders (customer_name, customer_email, customer_phone, customer_company, total, status, payment_method, payment_reference, payment_slip) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+            'INSERT INTO orders (customer_name, customer_email, customer_phone, customer_company, total, status, payment_method, payment_reference, payment_slip, source, is_preorder) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
             [
                 customer.name,
                 customer.email,
                 customer.phone || null,
                 customer.company || null,
                 total,
-                paymentMethod === 'transfer' ? 'awaiting_verification' : 'pending',
+                orderStatus,
                 paymentMethod,
                 paymentReference || null,
-                paymentSlipPath
+                paymentSlipPath,
+                normalizedSource,
+                hasPreorderItems ? 1 : 0
             ]
         );
         const orderId = orderResult.lastID;
 
-        const stmt = await db.prepare('INSERT INTO order_items (order_id, product_id, quantity, price) VALUES (?, ?, ?, ?)');
-        for (const item of sanitizedCart) {
-            await stmt.run(orderId, item.id, Number(item.quantity) || 0, Number(item.price) || 0);
-            // Decrement stock
-            await db.run('UPDATE products SET stock = stock - ? WHERE id = ?', [item.quantity, item.id]);
+        const stmt = await db.prepare('INSERT INTO order_items (order_id, product_id, quantity, price, is_preorder) VALUES (?, ?, ?, ?, ?)');
+        for (const item of itemsWithDetails) {
+            await stmt.run(orderId, item.id, item.quantity, item.price, item.isPreorder ? 1 : 0);
+            // Only decrement stock for non-preorder items where inventory is tracked
+            if (!item.isPreorder && item.trackInventory !== 0) {
+                await db.run('UPDATE products SET stock = stock - ? WHERE id = ?', [item.quantity, item.id]);
+            }
         }
         await stmt.finalize();
+        if (hasPreorderItems) {
+            await queueNotification({
+                staffId: null,
+                username: null,
+                title: 'New preorder received',
+                message: `Order #${orderId} from ${customer.name} includes preorder items`,
+                type: 'info',
+                metadata: { orderId, source: normalizedSource }
+            });
+        }
         // ensure customer is persisted
         try {
             const existing = await db.get('SELECT * FROM customers WHERE email = ?', [customer.email]);
@@ -2354,15 +2566,16 @@ app.post('/api/orders', async (req, res) => {
             const gstRate = parseFloat(settingsRow?.gst_rate || 0);
             const outletId = settingsRow?.current_outlet_id || null;
 
-            const invResult = await db.run('INSERT INTO invoices (customer_id, subtotal, tax_amount, total, outlet_id, type, status) VALUES (?, ?, ?, ?, ?, ?, ?)', [null, 0, 0, 0, outletId, 'invoice', 'issued']);
+            const invoiceStatus = hasPreorderItems ? 'preorder' : 'issued';
+            const invResult = await db.run('INSERT INTO invoices (customer_id, subtotal, tax_amount, total, outlet_id, type, status) VALUES (?, ?, ?, ?, ?, ?, ?)', [null, 0, 0, 0, outletId, 'invoice', invoiceStatus]);
             const invoiceId = invResult.lastID;
 
             // persist invoice_items and compute subtotal
             let invSubtotal = 0;
             const invStmt = await db.prepare('INSERT INTO invoice_items (invoice_id, product_id, quantity, price) VALUES (?, ?, ?, ?)');
-            for (const item of sanitizedCart) {
-                await invStmt.run(invoiceId, item.id, Number(item.quantity) || 0, Number(item.price) || 0);
-                invSubtotal += (Number(item.price) || 0) * (Number(item.quantity) || 0);
+            for (const item of itemsWithDetails) {
+                await invStmt.run(invoiceId, item.id, item.quantity, item.price);
+                invSubtotal += item.price * item.quantity;
             }
             await invStmt.finalize();
 
@@ -2433,7 +2646,7 @@ app.post('/api/orders', async (req, res) => {
                     total: invTotal,
                     items: sanitizedCart,
                     paymentMethod,
-                    status: paymentMethod === 'transfer' ? 'awaiting_verification' : 'pending',
+                    status: isTransferMethod ? 'awaiting_verification' : 'pending',
                     timestamp: new Date()
                 };
                 wsService.notifyNewOrder(orderData);

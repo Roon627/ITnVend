@@ -1,3 +1,4 @@
+/* eslint-disable react-refresh/only-export-components */
 import { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import api from '../lib/api';
 
@@ -66,6 +67,7 @@ export function SettingsProvider({ children }) {
         ...options,
       }).format(val);
     } catch (err) {
+      console.warn('Falling back to manual currency formatting', err);
       // Fallback if Intl doesn't support the code
       const val = Number(amount ?? 0);
       const cents = Math.round(Math.abs((val - Math.trunc(val)) * 100));

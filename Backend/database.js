@@ -38,7 +38,10 @@ export async function setupDatabase() {
             sku TEXT UNIQUE,
             barcode TEXT,
             cost REAL DEFAULT 0,
-            track_inventory INTEGER DEFAULT 1
+            track_inventory INTEGER DEFAULT 1,
+            preorder_enabled INTEGER DEFAULT 0,
+            preorder_release_date TEXT,
+            preorder_notes TEXT
         );
 
         -- Customers (extended for business details)
@@ -85,6 +88,8 @@ export async function setupDatabase() {
             amount REAL NOT NULL,
             method TEXT,
             note TEXT,
+            reference TEXT,
+            slip_path TEXT,
             recorded_at DATETIME DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY(invoice_id) REFERENCES invoices(id)
         );
@@ -155,9 +160,16 @@ export async function setupDatabase() {
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             customer_name TEXT NOT NULL,
             customer_email TEXT NOT NULL,
+            customer_phone TEXT,
+            customer_company TEXT,
             total REAL NOT NULL,
             status TEXT DEFAULT 'pending',
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            payment_method TEXT,
+            payment_reference TEXT,
+            payment_slip TEXT,
+            source TEXT DEFAULT 'pos',
+            is_preorder INTEGER DEFAULT 0
         );
 
         CREATE TABLE IF NOT EXISTS order_items (
@@ -166,6 +178,7 @@ export async function setupDatabase() {
             product_id INTEGER,
             quantity INTEGER NOT NULL,
             price REAL NOT NULL,
+            is_preorder INTEGER DEFAULT 0,
             FOREIGN KEY (order_id) REFERENCES orders(id),
             FOREIGN KEY (product_id) REFERENCES products(id)
         );
@@ -493,6 +506,9 @@ export async function setupDatabase() {
     await ensureColumn(db, 'products', 'barcode', 'TEXT');
     await ensureColumn(db, 'products', 'cost', 'REAL DEFAULT 0');
     await ensureColumn(db, 'products', 'track_inventory', 'INTEGER DEFAULT 1');
+    await ensureColumn(db, 'products', 'preorder_enabled', 'INTEGER DEFAULT 0');
+    await ensureColumn(db, 'products', 'preorder_release_date', 'TEXT');
+    await ensureColumn(db, 'products', 'preorder_notes', 'TEXT');
     await db.run('CREATE UNIQUE INDEX IF NOT EXISTS idx_products_sku ON products(sku)');
 
     // staff avatar column for profile images
@@ -507,6 +523,11 @@ export async function setupDatabase() {
     await ensureColumn(db, 'orders', 'payment_method', 'TEXT');
     await ensureColumn(db, 'orders', 'payment_reference', 'TEXT');
     await ensureColumn(db, 'orders', 'payment_slip', 'TEXT');
+    await ensureColumn(db, 'orders', 'source', "TEXT DEFAULT 'pos'");
+    await ensureColumn(db, 'orders', 'is_preorder', 'INTEGER DEFAULT 0');
+    await ensureColumn(db, 'order_items', 'is_preorder', 'INTEGER DEFAULT 0');
+    await ensureColumn(db, 'payments', 'reference', 'TEXT');
+    await ensureColumn(db, 'payments', 'slip_path', 'TEXT');
 
     await ensureColumn(db, 'invoices', 'total_amount', 'REAL DEFAULT 0');
     await ensureColumn(db, 'invoices', 'payment_method', 'TEXT');

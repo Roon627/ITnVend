@@ -145,7 +145,21 @@ class CacheService {
   }
 
   async invalidateProducts() {
-    return this.del(CacheService.key.products());
+    if (!this.client || !this.isConnected) {
+      return false;
+    }
+    try {
+      const patternKeys = await this.client.keys('products:*');
+      if (patternKeys.length) {
+        await this.client.del(patternKeys);
+      }
+      // ensure legacy key is cleared as well
+      await this.client.del(CacheService.key.products());
+      return true;
+    } catch (error) {
+      console.warn('Redis invalidate products error:', error.message);
+      return false;
+    }
   }
 
   async getProduct(id) {

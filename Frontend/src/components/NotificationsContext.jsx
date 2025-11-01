@@ -34,10 +34,10 @@ export function NotificationsProvider({ children }) {
         const params = unreadOnly ? { unreadOnly: true } : undefined;
         const result = await api.get('/notifications', { params, signal: controller.signal });
         setNotifications(Array.isArray(result) ? result : []);
-      } catch (err) {
+      } catch {
         // swallow auth errors silently to avoid noisy UI when token expires
-        if (process.env.NODE_ENV !== 'production') {
-          console.debug('Failed to load notifications', err?.message || err);
+        if (import.meta.env.DEV) {
+          console.debug('Failed to load notifications');
         }
       } finally {
         if (pendingFetch.current === controller) {
@@ -110,6 +110,7 @@ export function NotificationsProvider({ children }) {
   );
 }
 
+// eslint-disable-next-line react-refresh/only-export-components
 export function useNotifications() {
   return useContext(NotificationsContext);
 }

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
 import { useWebSocket } from '../components/WebSocketContext';
 
 /**
@@ -7,13 +7,20 @@ import { useWebSocket } from '../components/WebSocketContext';
  * @param {function} callback - Callback function to handle the event
  * @param {Array} deps - Dependencies for the effect
  */
-export const useWebSocketEvent = (event, callback, deps = []) => {
+export const useWebSocketEvent = (event, callback) => {
   const { on, off } = useWebSocket();
 
   useEffect(() => {
+    if (!event || typeof callback !== 'function') return undefined;
     const cleanup = on(event, callback);
-    return cleanup;
-  }, [event, ...deps]);
+    return () => {
+      if (typeof cleanup === 'function') {
+        cleanup();
+      } else if (off) {
+        off(event, callback);
+      }
+    };
+  }, [event, callback, on, off]);
 };
 
 /**
@@ -93,5 +100,9 @@ export const useWebSocketRoom = (room, shouldJoin = true) => {
       joinRoom(room);
       return () => leaveRoom(room);
     }
-  }, [room, shouldJoin]);
+    if (!shouldJoin && room) {
+      leaveRoom(room);
+    }
+    return undefined;
+  }, [room, shouldJoin, joinRoom, leaveRoom]);
 };

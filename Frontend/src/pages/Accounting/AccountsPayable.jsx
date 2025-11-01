@@ -311,7 +311,15 @@ export default function AccountsPayable({ invoices = [], onRefresh }) {
         </table>
       </div>
 
-      <ReconcileModal open={showReconcile} onClose={() => setShowReconcile(false)} onSubmit={onReconcileSubmit} />
+      <ReconcileModal
+        open={showReconcile}
+        onClose={() => {
+          setShowReconcile(false);
+          setReconcilePayload(null);
+        }}
+        onSubmit={onReconcileSubmit}
+        initialValues={reconcilePayload}
+      />
     </div>
   );
 }

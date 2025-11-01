@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { FaBuilding, FaSearch, FaTrashAlt, FaUser, FaUsers, FaArrowRight } from 'react-icons/fa';
 import api from '../lib/api';
@@ -82,20 +82,20 @@ export default function Customers() {
   const [customerSaving, setCustomerSaving] = useState(false);
   const toast = useToast();
   const navigate = useNavigate();
-  const ADMIN_BASE = import.meta.env.VITE_ONLY_ADMIN === '1' ? '' : '/admin';
 
-  useEffect(() => {
-    fetchCustomers();
-  }, []);
-
-  const fetchCustomers = async () => {
+  const fetchCustomers = useCallback(async () => {
     try {
       const res = await api.get('/customers');
       setCustomers(res || []);
     } catch (err) {
+      console.error('Failed to load customers', err);
       toast.push('Failed to load customers', 'error');
     }
-  };
+  }, [toast]);
+
+  useEffect(() => {
+    fetchCustomers();
+  }, [fetchCustomers]);
 
   const metrics = useMemo(() => {
     const total = customers.length;
@@ -123,27 +123,6 @@ export default function Customers() {
       .sort((a, b) => a.name.localeCompare(b.name));
   }, [customers, searchTerm, segmentFilter]);
 
-  const handleChange = (event) => {
-    const { name, value, type, checked } = event.target;
-    setForm((prev) => ({ ...prev, [name]: type === 'checkbox' ? checked : value }));
-  };
-
-  const handleAdd = async (event) => {
-    event.preventDefault();
-    if (!form.name || !form.email) {
-      toast.push('Name and email are required.', 'error');
-      return;
-    }
-    try {
-      await api.post('/customers', form);
-      toast.push('Customer added', 'info');
-      setForm(initialForm);
-      fetchCustomers();
-    } catch (err) {
-      toast.push(err?.response?.data?.error || 'Failed to add customer', 'error');
-    }
-  };
-
   const handleDelete = async (id, event) => {
     event?.stopPropagation();
     if (!window.confirm('Delete this customer?')) return;
@@ -152,6 +131,7 @@ export default function Customers() {
       toast.push('Customer deleted', 'info');
       fetchCustomers();
     } catch (err) {
+      console.error('Failed to delete customer', err);
       toast.push('Failed to delete customer', 'error');
     }
   };
@@ -283,7 +263,7 @@ export default function Customers() {
                 <tr
                   key={customer.id}
                   className="hover:bg-gray-50 cursor-pointer"
-                  onClick={() => navigate(`${ADMIN_BASE}/customers/${customer.id}`)}
+                  onClick={() => navigate(`/customers/${customer.id}`)}
                 >
                   <td className="px-4 py-3">
                     <div className="font-semibold text-gray-900">{customer.name}</div>
@@ -319,7 +299,7 @@ export default function Customers() {
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
-                          navigate(`${ADMIN_BASE}/customers/${customer.id}`);
+                          navigate(`/customers/${customer.id}`);
                         }}
                         className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-700"
                       >

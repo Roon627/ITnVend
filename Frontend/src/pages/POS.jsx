@@ -1,10 +1,11 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import api from '../lib/api';
 import { useToast } from '../components/ToastContext';
 import { useSettings } from '../components/SettingsContext';
 import { useAuth } from '../components/AuthContext';
 import InvoiceEditModal from '../components/InvoiceEditModal';
 import { useStockUpdates, useOrderUpdates, useWebSocketRoom } from '../hooks/useWebSocket';
+import { resolveMediaUrl } from '../lib/media';
 
 export default function POS() {
   const [products, setProducts] = useState([]);
@@ -23,6 +24,22 @@ export default function POS() {
   const [changeAmount, setChangeAmount] = useState(0);
   const [showReceipt, setShowReceipt] = useState(false);
   const [lastTransaction, setLastTransaction] = useState(null);
+  const [paymentReference, setPaymentReference] = useState('');
+  const [paymentSlipPath, setPaymentSlipPath] = useState(null);
+  const [paymentSlipPreview, setPaymentSlipPreview] = useState(null);
+  const [paymentSlipUploading, setPaymentSlipUploading] = useState(false);
+
+  const resetPaymentDetails = useCallback(() => {
+    setPaymentReference('');
+    setPaymentSlipPath(null);
+    setPaymentSlipPreview(null);
+    setPaymentSlipUploading(false);
+  }, []);
+
+  const closePaymentModal = useCallback(() => {
+    setShowPaymentModal(false);
+    resetPaymentDetails();
+  }, [resetPaymentDetails]);
   const [showCustomerModal, setShowCustomerModal] = useState(false);
   const [newCustomer, setNewCustomer] = useState({ name: '', email: '', phone: '' });
   const [quantityInput, setQuantityInput] = useState({});
@@ -92,7 +109,7 @@ export default function POS() {
           break;
         case 'escape':
           e.preventDefault();
-          if (showPaymentModal) setShowPaymentModal(false);
+          if (showPaymentModal) closePaymentModal();
           if (showCustomerModal) setShowCustomerModal(false);
           if (showReceipt) setShowReceipt(false);
           break;
@@ -103,7 +120,42 @@ export default function POS() {
 
     window.addEventListener('keydown', handleKeyPress);
     return () => window.removeEventListener('keydown', handleKeyPress);
-  }, [showPaymentModal, showCustomerModal, showReceipt]);
+  }, [showPaymentModal, showCustomerModal, showReceipt, closePaymentModal]);
+
+  useEffect(() => {
+    const isTransferPayment = paymentMethod === 'bank_transfer' || paymentMethod === 'transfer';
+    if (!isTransferPayment) {
+      resetPaymentDetails();
+    }
+  }, [paymentMethod, resetPaymentDetails]);
+
+  const handlePaymentSlipUpload = async (file) => {
+    if (!file) return;
+    setPaymentSlipUploading(true);
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      const now = new Date();
+      const category = `payment_slips/${now.getFullYear()}/${String(now.getMonth() + 1).padStart(2, '0')}`;
+      formData.append('category', category);
+      const result = await api.upload('/uploads', formData);
+      const storedPath = result?.path || result?.url || '';
+      const previewUrl = result?.url || storedPath;
+      setPaymentSlipPath(storedPath || null);
+      setPaymentSlipPreview(previewUrl || null);
+      toast.push('Transfer slip uploaded', 'info');
+    } catch (err) {
+      toast.push(err?.message || 'Failed to upload transfer slip', 'error');
+    } finally {
+      setPaymentSlipUploading(false);
+    }
+  };
+
+  const clearPaymentSlip = () => {
+    setPaymentSlipPath(null);
+    setPaymentSlipPreview(null);
+    setPaymentSlipUploading(false);
+  };
 
   useEffect(() => {
     if (activeTab === 'history') {
@@ -281,7 +333,6 @@ export default function POS() {
     }
 
     setChangeAmount(paid - total);
-    setShowPaymentModal(false);
     handleCheckout('invoice');
   };
 
@@ -294,7 +345,19 @@ export default function POS() {
     }
 
     try {
-      const payload = { customerId: Number(selectedCustomerId), items: validItemsForCheckout, type };
+      const paymentInfo = type === 'invoice' ? {
+        method: paymentMethod,
+        amount: parseFloat(paymentAmount) || totalWithTax,
+        reference: paymentReference || null,
+        slipPath: paymentSlipPath || null,
+      } : null;
+
+      const payload = {
+        customerId: Number(selectedCustomerId),
+        items: validItemsForCheckout,
+        type,
+        ...(paymentInfo ? { paymentInfo } : {}),
+      };
       const created = await api.post('/invoices', payload);
 
       // Create transaction record
@@ -314,7 +377,8 @@ export default function POS() {
       };
 
       setLastTransaction(transaction);
-  await loadTransactionHistory();
+      setShowPaymentModal(false);
+      await loadTransactionHistory();
 
       // Get signed PDF link and open it
       const linkResp = await api.post(`/invoices/${created.id}/pdf-link`);
@@ -328,6 +392,7 @@ export default function POS() {
       setPaymentAmount('');
       setChangeAmount(0);
       setPaymentMethod('cash');
+      resetPaymentDetails();
       setShowReceipt(true);
 
       toast.push(type === 'invoice' ? 'Invoice created successfully' : 'Quote generated successfully', 'success');
@@ -411,6 +476,7 @@ export default function POS() {
   const gstRate = globalSettings?.outlet?.gst_rate ?? globalSettings?.gst_rate ?? 0;
   const taxAmount = +(cartTotal * (gstRate / 100));
   const totalWithTax = +(cartTotal + taxAmount);
+  const isTransferPayment = paymentMethod === 'bank_transfer' || paymentMethod === 'transfer';
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -425,28 +491,28 @@ export default function POS() {
         <span className="mx-2">c: Focus Cart</span>
       </div>
 
-      <main className="p-6">
-        <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
+      <main className="p-4 sm:p-6">
+        <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 lg:gap-8">
           {/* Left Panel - Products/Categories/History */}
           <div className="lg:col-span-3">
             {/* Tab Navigation */}
             <div className="bg-white rounded-xl shadow-lg p-4 mb-6">
-              <div className="flex space-x-4 border-b">
+              <div className="flex flex-wrap items-center gap-2 sm:gap-4 border-b overflow-x-auto pb-2">
                 <button
                   onClick={() => setActiveTab('products')}
-                  className={`py-2 px-4 font-medium ${activeTab === 'products' ? 'border-b-2 border-blue-500 text-blue-600' : 'text-gray-500'}`}
+                  className={`whitespace-nowrap py-2 px-4 font-medium ${activeTab === 'products' ? 'border-b-2 border-blue-500 text-blue-600' : 'text-gray-500'}`}
                 >
                   Products (F2)
                 </button>
                 <button
                   onClick={() => setActiveTab('history')}
-                  className={`py-2 px-4 font-medium ${activeTab === 'history' ? 'border-b-2 border-blue-500 text-blue-600' : 'text-gray-500'}`}
+                  className={`whitespace-nowrap py-2 px-4 font-medium ${activeTab === 'history' ? 'border-b-2 border-blue-500 text-blue-600' : 'text-gray-500'}`}
                 >
                   History (F3)
                 </button>
                 <button
                   onClick={() => setActiveTab('held')}
-                  className={`py-2 px-4 font-medium ${activeTab === 'held' ? 'border-b-2 border-blue-500 text-blue-600' : 'text-gray-500'}`}
+                  className={`whitespace-nowrap py-2 px-4 font-medium ${activeTab === 'held' ? 'border-b-2 border-blue-500 text-blue-600' : 'text-gray-500'}`}
                 >
                   Held Orders ({heldOrders.length})
                 </button>
@@ -483,19 +549,23 @@ export default function POS() {
 
                 {/* Products Grid - larger cards with images and click-to-add */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-6">
-                  {filteredProducts.map((p) => (
-                    <div
-                      key={p.id}
-                      role="button"
-                      tabIndex={0}
-                      onKeyDown={(e) => { if (e.key === 'Enter') addToCart(p); }}
-                      onClick={() => addToCart(p)}
-                      className={`border rounded-lg overflow-hidden bg-white flex flex-col transition-all duration-200 cursor-pointer ${p.stock > 0 ? 'hover:shadow-2xl hover:scale-105' : 'opacity-60 grayscale'}`}
-                      aria-label={`Add ${p.name} to cart`}
-                    >
+                  {filteredProducts.map((p) => {
+                    const imageSrc = resolveMediaUrl(
+                      p.image_source || p.imageUrl || p.image || p.image_url || null
+                    );
+                    return (
+                      <div
+                        key={p.id}
+                        role="button"
+                        tabIndex={0}
+                        onKeyDown={(e) => { if (e.key === 'Enter') addToCart(p); }}
+                        onClick={() => addToCart(p)}
+                        className={`border rounded-lg overflow-hidden bg-white flex flex-col transition-all duration-200 cursor-pointer ${p.stock > 0 ? 'hover:shadow-2xl hover:scale-105' : 'opacity-60 grayscale'}`}
+                        aria-label={`Add ${p.name} to cart`}
+                      >
                       {/* Image (if present) */}
-                      { (p.image || p.image_url) ? (
-                        <img src={p.image || p.image_url} alt={p.name} className="h-40 w-full object-cover" />
+                      {imageSrc ? (
+                        <img src={imageSrc} alt={p.name} className="h-40 w-full object-cover" />
                       ) : (
                         <div className="h-40 w-full bg-gray-100 flex items-center justify-center text-gray-400">No image</div>
                       ) }
@@ -515,7 +585,7 @@ export default function POS() {
                         )}
 
                         {p.stock > 0 && (
-                          <div className="mt-4 flex items-center gap-3">
+                          <div className="mt-4 flex flex-wrap items-center gap-3">
                             <input
                               onClick={(e) => e.stopPropagation()}
                               type="number"
@@ -529,7 +599,7 @@ export default function POS() {
 
                             <button
                               onClick={(e) => { e.stopPropagation(); addToCart(p, quantityInput[p.id] || 1); }}
-                              className="flex-1 accent-btn px-4 py-2 rounded-md font-semibold"
+                              className="flex-1 accent-btn px-4 py-2 rounded-md font-semibold min-w-[120px]"
                             >
                               Add
                             </button>
@@ -546,8 +616,9 @@ export default function POS() {
                           </div>
                         )}
                       </div>
-                    </div>
-                  ))}
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             )}
@@ -685,7 +756,7 @@ export default function POS() {
 
           {/* Right Panel - Cart and Customer */}
           <div className="row-start-1 lg:row-auto">
-            <div className="bg-white rounded-xl shadow-lg p-6 sticky top-6 lg:col-start-4">
+            <div className="bg-white rounded-xl shadow-lg p-6 lg:sticky lg:top-6 lg:col-start-4">
               {/* Customer Selection */}
               <div className="mb-6">
                 <div className="flex justify-between items-center mb-2">
@@ -697,7 +768,7 @@ export default function POS() {
                     + Add Customer
                   </button>
                 </div>
-                <div className="flex gap-2">
+                <div className="flex flex-col sm:flex-row gap-2">
                   <input
                     type="text"
                     placeholder="Search customers..."
@@ -860,17 +931,76 @@ export default function POS() {
               <div className="mb-4 p-3 bg-green-50 rounded">
                 <p className="text-green-800 font-medium">Change: {formatCurrency(parseFloat(paymentAmount) - totalWithTax)}</p>
               </div>
+              )}
+
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-gray-700 mb-2">Reference Number</label>
+              <input
+                type="text"
+                value={paymentReference}
+                onChange={(e) => setPaymentReference(e.target.value)}
+                placeholder="Enter transfer reference"
+                className="w-full px-3 py-2 border border-gray-300 rounded-md"
+              />
+            </div>
+
+            {isTransferPayment && (
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-gray-700 mb-2">Transfer Slip</label>
+                {paymentSlipPreview ? (
+                  <div className="space-y-2">
+                    <img
+                      src={resolveMediaUrl(paymentSlipPreview)}
+                      alt="Transfer slip"
+                      className="max-h-40 w-full rounded border object-contain"
+                    />
+                    <div className="flex items-center gap-3">
+                      <a
+                        href={resolveMediaUrl(paymentSlipPreview)}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-sm text-blue-600 hover:underline"
+                      >
+                        Open
+                      </a>
+                      <button
+                        type="button"
+                        onClick={clearPaymentSlip}
+                        className="text-sm text-red-600 hover:text-red-700"
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2">
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) handlePaymentSlipUpload(file);
+                        if (e.target) e.target.value = '';
+                      }}
+                      disabled={paymentSlipUploading}
+                      className="text-sm"
+                    />
+                    {paymentSlipUploading && <span className="text-sm text-gray-500">Uploading…</span>}
+                  </div>
+                )}
+              </div>
             )}
 
             <div className="flex gap-2">
               <button
                 onClick={handlePayment}
+                disabled={isTransferPayment && paymentSlipUploading}
                 className="flex-1 bg-green-500 text-white px-4 py-2 rounded font-semibold hover:bg-green-600"
               >
                 Complete Payment
               </button>
               <button
-                onClick={() => setShowPaymentModal(false)}
+                onClick={closePaymentModal}
                 className="flex-1 bg-gray-500 text-white px-4 py-2 rounded font-semibold hover:bg-gray-600"
               >
                 Cancel
