@@ -16,6 +16,7 @@ import Reports from './pages/Reports/Reports';
 import Operations from './pages/Operations/Operations';
 import Profile from './pages/Profile';
 import Help from './pages/Help';
+import ManageLookups from './pages/ManageLookups';
 import { AuthProvider, useAuth } from './components/AuthContext';
 import { UIProvider, useUI } from './components/UIContext';
 import { NotificationsProvider } from './components/NotificationsContext';
@@ -73,6 +74,7 @@ function App() {
       <Route path="/reports" element={<RoleGuard minRole="manager"><Reports /></RoleGuard>} />
       <Route path="/operations" element={<RoleGuard minRole="manager"><Operations /></RoleGuard>} />
       <Route path="/settings" element={<RoleGuard minRole="manager"><Settings /></RoleGuard>} />
+      <Route path="/manage-lookups" element={<RoleGuard minRole="admin"><ManageLookups /></RoleGuard>} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );

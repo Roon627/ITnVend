@@ -1,10 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { FaEdit, FaTrash, FaUpload, FaTimes, FaPlus, FaFileImport } from 'react-icons/fa';
+import { Link } from 'react-router-dom';
+import { FaEdit, FaTrash, FaUpload, FaTimes, FaPlus, FaFileImport, FaExternalLinkAlt } from 'react-icons/fa';
 import api from '../lib/api';
 import { useToast } from '../components/ToastContext';
 import { useSettings } from '../components/SettingsContext';
 import { useAuth } from '../components/AuthContext';
 import { resolveMediaUrl } from '../lib/media';
+import SelectField from '../components/SelectField';
+import TagChips from '../components/TagChips';
+import SpecPreview from '../components/SpecPreview';
+import { makeSku } from '../lib/sku';
 
 const EMPTY_FORM = {
   name: '',
@@ -99,8 +104,8 @@ function parseCsv(text) {
   return { headers, rows };
 }
 
-function buildProductUploadCategory(category, subcategory) {
-  const segments = [category, subcategory]
+function buildProductUploadCategory(category, subcategory, subsubcategory) {
+  const segments = [category, subcategory, subsubcategory]
     .map((value) => (value ? String(value).trim().toLowerCase() : ''))
     .filter(Boolean)
     .map((value) => value.replace(/[^a-z0-9\-_]+/g, '-'));
@@ -299,14 +304,20 @@ function ProductInsight({ product, formatCurrency }) {
   );
 }
 
-function ProductModal({ open, draft, onClose, onChange, onSave, onUploadImage, uploading, saving, stockChanged, stockReason, onStockReasonChange }) {
+function ProductModal({ open, draft, onClose, onChange, onSave, onUploadImage, uploading, saving, stockChanged, stockReason, onStockReasonChange, categoryTree, lookups, onTagsChanged, createBrand, createMaterial, createColor, createCategoryRoot, createSubcategory, createSubsubcategory }) {
   const fileInputRef = useRef(null);
   if (!open || !draft) return null;
   const previewSrc = resolveMediaUrl(draft.imagePreview || draft.imageUrl || draft.image);
 
   const handleFieldChange = (key) => (event) => {
-    const { type, checked, value } = event.target;
-    onChange(key, type === 'checkbox' ? checked : value);
+    // support being called with synthetic event or direct value
+    if (event && event.target && Object.prototype.hasOwnProperty.call(event.target, 'value')) {
+      const { value, type, checked } = event.target;
+      onChange(key, type === 'checkbox' ? checked : value);
+      return;
+    }
+    // direct value
+    onChange(key, event);
   };
 
   return (
@@ -327,51 +338,98 @@ function ProductModal({ open, draft, onClose, onChange, onSave, onUploadImage, u
         </header>
         <div className="flex-1 overflow-y-auto px-6 py-4 grid gap-6 md:grid-cols-2">
           <section className="space-y-4">
-            <div className="grid gap-3">
-              <label className="text-sm font-medium text-slate-600">
-                Name
-                <input
-                  value={draft.name}
-                  onChange={handleFieldChange('name')}
-                  className="mt-1 w-full rounded border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  required
-                />
-              </label>
-              <div className="grid grid-cols-2 gap-3">
+            {/* Basics */}
+            <details open className="rounded-md border p-4 bg-white">
+              <summary className="cursor-pointer font-semibold text-slate-800">Basics</summary>
+              <div className="mt-3 grid gap-3">
                 <label className="text-sm font-medium text-slate-600">
-                  Price
+                  Name
                   <input
-                    value={draft.price}
-                    onChange={handleFieldChange('price')}
-                    type="number"
-                    step="0.01"
+                    value={draft.name}
+                    onChange={handleFieldChange('name')}
                     className="mt-1 w-full rounded border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                     required
                   />
                 </label>
                 <label className="text-sm font-medium text-slate-600">
-                  Cost
-                  <input
-                    value={draft.cost}
-                    onChange={handleFieldChange('cost')}
-                    type="number"
-                    step="0.01"
-                    className="mt-1 w-full rounded border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
+                  Short description
+                  <input value={draft.shortDescription || ''} onChange={handleFieldChange('shortDescription')} maxLength={180} className="mt-1 w-full rounded border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" />
                 </label>
+                <div className="grid grid-cols-2 gap-3">
+                  <SelectField
+                    label="Brand"
+                    value={draft.brandId || ''}
+                    onChange={(v) => handleFieldChange('brandId')({ target: { value: v } })}
+                    options={(lookups?.brands||[]).map(b=>({id:b.id,name:b.name}))}
+                    placeholder="Select brand"
+                  />
+                  <div className="grid grid-cols-2 gap-3">
+                    <SelectField label="Type" value={draft.type || ''} onChange={(v) => handleFieldChange('type')({ target: { value: v } })} options={[{id:'physical',name:'Physical'},{id:'digital',name:'Digital'}]} placeholder="Select type" />
+                    <label className="text-sm font-medium text-slate-600">
+                      Year
+                      <input
+                        value={draft.year || ''}
+                        onChange={handleFieldChange('year')}
+                        type="number"
+                        className="mt-1 w-full rounded border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                    </label>
+                  </div>
+                </div>
               </div>
-              <div className="grid grid-cols-2 gap-3">
-                <label className="text-sm font-medium text-slate-600">
-                  Stock
-                  <input
-                    value={draft.stock}
-                    onChange={handleFieldChange('stock')}
-                    type="number"
-                    className="mt-1 w-full rounded border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
-                </label>
+            </details>
+
+            {/* Pricing & Inventory */}
+            <details open className="rounded-md border p-4 bg-white">
+              <summary className="cursor-pointer font-semibold text-slate-800">Pricing & Inventory</summary>
+              <div className="mt-3 grid gap-3">
+                <div className="grid grid-cols-2 gap-3">
+                  <label className="text-sm font-medium text-slate-600">
+                    Price
+                    <input
+                      value={draft.price}
+                      onChange={handleFieldChange('price')}
+                      type="number"
+                      step="0.01"
+                      className="mt-1 w-full rounded border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      required
+                    />
+                  </label>
+                  <label className="text-sm font-medium text-slate-600">
+                    Cost
+                    <input
+                      value={draft.cost}
+                      onChange={handleFieldChange('cost')}
+                      type="number"
+                      step="0.01"
+                      className="mt-1 w-full rounded border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </label>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <label className="text-sm font-medium text-slate-600">
+                    Stock
+                    <input
+                      value={draft.stock}
+                      onChange={handleFieldChange('stock')}
+                      type="number"
+                      className="mt-1 w-full rounded border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </label>
+                  <div className="flex items-center gap-6 mt-6">
+                    <label className="inline-flex items-center gap-2 text-sm font-medium text-slate-600">
+                      <input
+                        type="checkbox"
+                        checked={draft.trackInventory}
+                        onChange={handleFieldChange('trackInventory')}
+                        className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                      />
+                      Track inventory
+                    </label>
+                  </div>
+                </div>
                 {stockChanged && (
-                  <div className="col-span-2 mt-2">
+                  <div className="mt-2">
                     <label className="text-sm font-medium text-slate-600">Reason for stock change (required)</label>
                     <input
                       type="text"
@@ -383,74 +441,183 @@ function ProductModal({ open, draft, onClose, onChange, onSave, onUploadImage, u
                     <p className="text-xs text-slate-400 mt-1">A reason will be recorded in the stock audit log.</p>
                   </div>
                 )}
-                <label className="inline-flex items-center gap-2 text-sm font-medium text-slate-600 mt-6">
-                  <input
-                    type="checkbox"
-                    checked={draft.trackInventory}
-                    onChange={handleFieldChange('trackInventory')}
-                    className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
-                  />
-                  Track inventory
-                </label>
-                <label className="inline-flex items-center gap-2 text-sm font-medium text-slate-600">
-                  <input
-                    type="checkbox"
-                    checked={draft.availableForPreorder}
-                    onChange={handleFieldChange('availableForPreorder')}
-                    className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
-                  />
-                  Available for preorder (storefront)
-                </label>
               </div>
-              {draft.availableForPreorder && (
-                <div className="grid gap-3">
-                  <label className="text-sm font-medium text-slate-600">
-                    Release / availability date
+            </details>
+
+            {/* Classification */}
+            <details className="rounded-md border p-4 bg-white">
+              <summary className="cursor-pointer font-semibold text-slate-800 flex justify-between items-center">
+                <span>Classification</span>
+                <Link to="/manage-lookups" target="_blank" className="text-xs font-normal text-blue-600 hover:text-blue-800 flex items-center gap-1">
+                  Manage Lookups <FaExternalLinkAlt />
+                </Link>
+              </summary>
+              <div className="mt-3 grid gap-3">
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+                  <SelectField
+                    label="Category"
+                    value={draft.categoryId || ''}
+                    onChange={(v) => {
+                      handleFieldChange('categoryId')({ target: { value: v } });
+                      handleFieldChange('subcategoryId')({ target: { value: '' } });
+                      handleFieldChange('subsubcategoryId')({ target: { value: '' } });
+                      const found = categoryTree.find((c) => c.id === v);
+                      handleFieldChange('category')({ target: { value: found ? found.name : '' } });
+                    }}
+                    options={categoryTree.map((c) => ({ id: c.id, name: c.name }))}
+                    placeholder="Select category"
+                  />
+                  <SelectField
+                    label="Subcategory"
+                    value={draft.subcategoryId || ''}
+                    onChange={(v) => {
+                      handleFieldChange('subcategoryId')({ target: { value: v } });
+                      handleFieldChange('subsubcategoryId')({ target: { value: '' } });
+                      let name = '';
+                      for (const c of categoryTree) {
+                        const child = (c.children || []).find((ch) => ch.id === v);
+                        if (child) { name = child.name; break; }
+                      }
+                      handleFieldChange('subcategory')({ target: { value: name } });
+                    }}
+                    options={(() => {
+                      const parent = categoryTree.find((c) => c.id === draft.categoryId);
+                      return (parent?.children || []).map((s) => ({ id: s.id, name: s.name }));
+                    })()}
+                    placeholder="Select subcategory"
+                    disabled={!draft.categoryId}
+                  />
+                  <SelectField
+                    label="Sub-subcategory"
+                    value={draft.subsubcategoryId || ''}
+                    onChange={(v) => {
+                      handleFieldChange('subsubcategoryId')({ target: { value: v } });
+                    }}
+                    options={(() => {
+                      let list = [];
+                      for (const c of categoryTree) {
+                        const s = (c.children || []).find((ch) => ch.id === draft.subcategoryId);
+                        if (s) { list = s.children || []; break; }
+                      }
+                      return list.map((ss) => ({ id: ss.id, name: ss.name }));
+                    })()}
+                    placeholder="Select sub-subcategory"
+                    disabled={!draft.subcategoryId}
+                  />
+                </div>
+                {draft.categoryId && (
+                  <div className="text-xs text-slate-500">{
+                    (() => {
+                      const c = categoryTree.find((x) => x.id === draft.categoryId);
+                      const s = c && (c.children || []).find((x) => x.id === draft.subcategoryId);
+                      const ss = s && (s.children || []).find((x) => x.id === draft.subsubcategoryId);
+                      return [c?.name, s?.name, ss?.name].filter(Boolean).join(' / ');
+                    })()
+                  }</div>
+                )}
+                <div className="grid grid-cols-2 gap-3">
+                  <SelectField
+                    label="Color"
+                    value={draft.colorId || ''}
+                    onChange={(v) => handleFieldChange('colorId')({ target: { value: v } })}
+                    options={(lookups?.colors||[]).map(c=>({id:c.id,name:c.name}))}
+                    placeholder="Select color"
+                  />
+                  <SelectField
+                    label="Audience"
+                    value={draft.audience || ''}
+                    onChange={(v) => handleFieldChange('audience')({ target: { value: v } })}
+                    options={[{id:'men',name:'Men'},{id:'women',name:'Women'},{id:'unisex',name:'Unisex'}]}
+                    placeholder="Select"
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <SelectField
+                    label="Material"
+                    value={draft.materialId || ''}
+                    onChange={(v) => handleFieldChange('materialId')({ target: { value: v } })}
+                    options={(lookups?.materials||[]).map(m=>({id:m.id,name:m.name}))}
+                    placeholder="Select material"
+                  />
+                  <SelectField label="Warranty / License" value={draft.warrantyTerm || ''} onChange={(v) => handleFieldChange('warrantyTerm')({ target: { value: v } })} options={[{id:'none',name:'None'},{id:'1_year',name:'1 Year'},{id:'lifetime',name:'Lifetime'}]} placeholder="Select" />
+                </div>
+              </div>
+            </details>
+
+            {/* Fulfillment & Preorders */}
+            <details className="rounded-md border p-4 bg-white">
+              <summary className="cursor-pointer font-semibold text-slate-800">Fulfillment & Preorders</summary>
+              <div className="mt-3 grid gap-3">
+                <div className="grid grid-cols-2 gap-3">
+                  <SelectField label="Delivery" value={draft.deliveryType || ''} onChange={(v) => handleFieldChange('deliveryType')({ target: { value: v } })} options={[{id:'instant_download',name:'Instant Download'},{id:'shipping',name:'Shipping'},{id:'pickup',name:'Pickup'}]} placeholder="Select" />
+                  <label className="inline-flex items-center gap-2 text-sm font-medium text-slate-600 mt-6">
                     <input
-                      type="date"
-                      value={draft.preorderReleaseDate || ''}
-                      onChange={handleFieldChange('preorderReleaseDate')}
-                      className="mt-1 w-full rounded border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      type="checkbox"
+                      checked={draft.availableForPreorder}
+                      onChange={handleFieldChange('availableForPreorder')}
+                      className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
                     />
-                  </label>
-                  <label className="text-sm font-medium text-slate-600">
-                    Preorder notes
-                    <textarea
-                      value={draft.preorderNotes}
-                      onChange={handleFieldChange('preorderNotes')}
-                      rows={3}
-                      className="mt-1 w-full rounded border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      placeholder="e.g. Ships in 4 weeks, limited launch allocation"
-                    />
+                    Available for preorder (storefront)
                   </label>
                 </div>
-              )}
-              <div className="grid grid-cols-2 gap-3">
-                <label className="text-sm font-medium text-slate-600">
-                  Category
-                  <input
-                    value={draft.category}
-                    onChange={handleFieldChange('category')}
-                    className="mt-1 w-full rounded border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
-                </label>
-                <label className="text-sm font-medium text-slate-600">
-                  Subcategory
-                  <input
-                    value={draft.subcategory}
-                    onChange={handleFieldChange('subcategory')}
-                    className="mt-1 w-full rounded border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
-                </label>
+                {(draft.availableForPreorder || draft.deliveryType === 'shipping') && (
+                  <label className="text-sm font-medium text-slate-600">
+                    Preorder ETA
+                    <input
+                      value={draft.preorderEta || ''}
+                      onChange={handleFieldChange('preorderEta')}
+                      placeholder="e.g., 2 weeks"
+                      className="mt-1 w-full rounded border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </label>
+                )}
+                {draft.availableForPreorder && (
+                  <div className="grid gap-3">
+                    <label className="text-sm font-medium text-slate-600">
+                      Release / availability date
+                      <input
+                        type="date"
+                        value={draft.preorderReleaseDate || ''}
+                        onChange={handleFieldChange('preorderReleaseDate')}
+                        className="mt-1 w-full rounded border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                    </label>
+                    <label className="text-sm font-medium text-slate-600">
+                      Preorder notes
+                      <textarea
+                        value={draft.preorderNotes}
+                        onChange={handleFieldChange('preorderNotes')}
+                        rows={3}
+                        className="mt-1 w-full rounded border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        placeholder="e.g. Ships in 4 weeks, limited launch allocation"
+                      />
+                    </label>
+                  </div>
+                )}
               </div>
-              <div className="grid grid-cols-2 gap-3">
+            </details>
+
+            {/* Identifiers */}
+            <details className="rounded-md border p-4 bg-white">
+              <summary className="cursor-pointer font-semibold text-slate-800">Identifiers</summary>
+              <div className="mt-3 grid grid-cols-2 gap-3">
                 <label className="text-sm font-medium text-slate-600">
                   SKU
-                  <input
-                    value={draft.sku}
-                    onChange={handleFieldChange('sku')}
-                    className="mt-1 w-full rounded border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
+                  <div className="mt-1 flex gap-2 items-center">
+                    <input
+                      value={draft.sku}
+                      onChange={handleFieldChange('sku')}
+                      disabled={draft.autoSku}
+                      className="w-full rounded border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                    <label className="inline-flex items-center gap-2 text-sm">
+                      <input type="checkbox" checked={draft.autoSku} onChange={(e) => handleFieldChange('autoSku')(e)} className="rounded border-slate-300" />
+                      Auto
+                    </label>
+                  </div>
+                  {draft.autoSku && (
+                    <div className="text-xs text-slate-500 mt-1">Preview: {makeSku({ brandName: (lookups?.brands?.find(b => b.id === draft.brandId)?.name) || '', productName: draft.name, year: draft.year })}</div>
+                  )}
                 </label>
                 <label className="text-sm font-medium text-slate-600">
                   Barcode
@@ -461,26 +628,42 @@ function ProductModal({ open, draft, onClose, onChange, onSave, onUploadImage, u
                   />
                 </label>
               </div>
-            </div>
-            <label className="text-sm font-medium text-slate-600 block">
-              Description
-              <textarea
-                value={draft.description}
-                onChange={handleFieldChange('description')}
-                rows={3}
-                className="mt-1 w-full rounded border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-            </label>
-            <label className="text-sm font-medium text-slate-600 block">
-              Technical details (JSON or bullet list)
+            </details>
+
+            {/* Marketing */}
+            <details className="rounded-md border p-4 bg-white">
+              <summary className="cursor-pointer font-semibold text-slate-800">Marketing</summary>
+              <div className="mt-3">
+                <label className="text-sm font-medium text-slate-600 block mb-2">Tags</label>
+                <TagChips options={lookups?.tags || []} value={draft.tags || []} onChange={(arr) => handleFieldChange('tags')({ target: { value: arr } })} onTagsChanged={onTagsChanged} />
+              </div>
+            </details>
+
+            {/* Description */}
+            <details className="rounded-md border p-4 bg-white">
+              <summary className="cursor-pointer font-semibold text-slate-800">Description</summary>
+              <label className="text-sm font-medium text-slate-600 block mt-3">
+                <span className="sr-only">Description</span>
+                <textarea
+                  value={draft.description}
+                  onChange={handleFieldChange('description')}
+                  rows={3}
+                  className="w-full rounded border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </label>
+            </details>
+
+            {/* Technical details */}
+            <details className="rounded-md border p-3 bg-slate-50">
+              <summary className="cursor-pointer font-medium text-slate-700">Technical details (JSON or bullet list)</summary>
               <textarea
                 value={draft.technicalDetails}
                 onChange={handleFieldChange('technicalDetails')}
-                rows={4}
-                className="mt-1 w-full rounded border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                rows={6}
+                className="mt-3 w-full rounded border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 placeholder='Example: {"CPU":"i7","RAM":"16GB"}'
               />
-            </label>
+            </details>
           </section>
           <aside className="space-y-4">
             <div className="border rounded-lg p-4 bg-slate-50">
@@ -534,7 +717,10 @@ function ProductModal({ open, draft, onClose, onChange, onSave, onUploadImage, u
             </div>
             <div className="border rounded-lg p-4">
               <h3 className="text-sm font-semibold text-slate-700 mb-2">Technical preview</h3>
-              <TechnicalDetailsPreview value={draft.technicalDetails} />
+              <SpecPreview value={draft.technicalDetails} />
+              {draft.preorderEta && (
+                <div className="mt-3 text-xs text-slate-500">Preorder ETA: {draft.preorderEta}</div>
+              )}
             </div>
           </aside>
         </div>
@@ -581,6 +767,8 @@ export default function Products() {
   const [modalUploading, setModalUploading] = useState(false);
   const [modalOriginalDraft, setModalOriginalDraft] = useState(null);
   const [modalStockReason, setModalStockReason] = useState('');
+  const [lookups, setLookups] = useState(null);
+  const [categoryTree, setCategoryTree] = useState([]);
 
   const [newImageUploading, setNewImageUploading] = useState(false);
   const newImageInputRef = useRef(null);
@@ -598,6 +786,19 @@ export default function Products() {
       setCategories(map || {});
     } catch (err) {
       console.debug('Failed to load categories', err?.message || err);
+    }
+  }, []);
+
+  const fetchLookupsAndTree = useCallback(async () => {
+    try {
+      const [lu, tree] = await Promise.all([
+        api.get('/lookups'),
+        api.get('/categories/tree', { params: { depth: 3 } }),
+      ]);
+      setLookups(lu || {});
+      setCategoryTree(Array.isArray(tree) ? tree : []);
+    } catch (err) {
+      console.debug('Failed to load lookups or category tree', err?.message || err);
     }
   }, []);
 
@@ -625,6 +826,151 @@ export default function Products() {
   useEffect(() => {
     fetchCategories();
   }, [fetchCategories]);
+
+  useEffect(() => {
+    fetchLookupsAndTree();
+  }, [fetchLookupsAndTree]);
+
+  const handleModalFieldChange = (key, value) => {
+    setModalDraft((prev) => (prev ? { ...prev, [key]: value } : null));
+  };
+
+  // create helpers for lookups
+  const extractId = (obj) => obj?.id;
+  
+  const createBrand = async (name) => {
+    try {
+      const created = await api.post('/brands', { name });
+      const newId = extractId(created);
+      if (!newId) throw new Error('API did not return a valid ID for the new brand.');
+      
+      setLookups(prev => ({ ...prev, brands: [...(prev?.brands || []), { id: newId, name }] }));
+      handleModalFieldChange('brandId', newId);
+      toast.push('Brand added', 'info');
+      return true;
+    } catch (e) {
+      toast.push(e?.message || 'Failed to add brand', 'error');
+      fetchLookupsAndTree(); // Fallback to refetch on error
+      return false;
+    }
+  };
+  const createMaterial = async (name) => {
+    try {
+      const created = await api.post('/materials', { name });
+      const newId = extractId(created);
+      if (!newId) throw new Error('API did not return a valid ID for the new material.');
+
+      setLookups(prev => ({ ...prev, materials: [...(prev?.materials || []), { id: newId, name }] }));
+      handleModalFieldChange('materialId', newId);
+      toast.push('Material added', 'info');
+      return true;
+    } catch (e) {
+      toast.push(e?.message || 'Failed to add material', 'error');
+      fetchLookupsAndTree(); // Fallback to refetch on error
+      return false;
+    }
+  };
+  const createColor = async (name) => {
+    try {
+      const created = await api.post('/colors', { name });
+      const newId = extractId(created);
+      if (!newId) throw new Error('API did not return a valid ID for the new color.');
+
+      setLookups(prev => ({ ...prev, colors: [...(prev?.colors || []), { id: newId, name }] }));
+      handleModalFieldChange('colorId', newId);
+      toast.push('Color added', 'info');
+      return true;
+    } catch (e) {
+      toast.push(e?.message || 'Failed to add color', 'error');
+      fetchLookupsAndTree(); // Fallback to refetch on error
+      return false;
+    }
+  };
+
+  // categories
+  const createCategoryRoot = async (name) => {
+    try {
+      const created = await api.post('/categories', { name });
+      const newId = extractId(created);
+      if (!newId) throw new Error('API did not return a valid ID for the new category.');
+
+      setCategoryTree(prev => [...prev, { id: newId, name, children: [] }]);
+      handleModalFieldChange('categoryId', newId);
+      handleModalFieldChange('category', name);
+      // clear descendants when switching root
+      handleModalFieldChange('subcategoryId', '');
+      handleModalFieldChange('subsubcategoryId', '');
+      handleModalFieldChange('subcategory', '');
+      toast.push('Category added', 'info');
+      return true;
+    } catch (e) {
+      toast.push(e?.message || 'Failed to add category', 'error');
+      fetchLookupsAndTree(); // Fallback to refetch on error
+      return false;
+    }
+  };
+  const createSubcategory = async (name) => {
+    if (!modalDraft.categoryId) {
+      toast.push('Select a category first', 'warning');
+      return false;
+    }
+    try {
+      const created = await api.post('/categories', { name, parentId: modalDraft.categoryId });
+      const newId = extractId(created);
+      if (!newId) throw new Error('API did not return a valid ID for the new subcategory.');
+
+      setCategoryTree(prev => prev.map(cat => 
+        cat.id === modalDraft.categoryId 
+          ? { ...cat, children: [...(cat.children || []), { id: newId, name, children: [] }] }
+          : cat
+      ));
+      handleModalFieldChange('subcategoryId', newId);
+      handleModalFieldChange('subsubcategoryId', '');
+      handleModalFieldChange('subcategory', name);
+      toast.push('Subcategory added', 'info');
+      return true;
+    } catch (e) {
+      toast.push(e?.message || 'Failed to add subcategory', 'error');
+      fetchLookupsAndTree(); // Fallback to refetch on error
+      return false;
+    }
+  };
+  const createSubsubcategory = async (name) => {
+    if (!modalDraft.subcategoryId) {
+      toast.push('Select a subcategory first', 'warning');
+      return false;
+    }
+    try {
+      const created = await api.post('/categories', { name, parentId: modalDraft.subcategoryId });
+      const newId = extractId(created);
+      if (!newId) throw new Error('API did not return a valid ID for the new sub-subcategory.');
+      
+      setCategoryTree(prev => prev.map(cat => ({
+        ...cat,
+        children: (cat.children || []).map(sub => 
+          sub.id === modalDraft.subcategoryId
+            ? { ...sub, children: [...(sub.children || []), { id: newId, name }] }
+            : sub
+        )
+      })));
+      handleModalFieldChange('subsubcategoryId', newId);
+      toast.push('Sub-subcategory added', 'info');
+      return true;
+    } catch (e) {
+      toast.push(e?.message || 'Failed to add sub-subcategory', 'error');
+      fetchLookupsAndTree(); // Fallback to refetch on error
+      return false;
+    }
+  };
+
+  // Auto-generate SKU when enabled
+  useEffect(() => {
+    if (!modalDraft) return;
+    if (!modalDraft.autoSku) return;
+    const brandName = (lookups?.brands || []).find((b) => b.id === modalDraft.brandId)?.name || '';
+    const sku = makeSku({ brandName, productName: modalDraft.name, year: modalDraft.year });
+    setModalDraft((prev) => (prev ? { ...prev, sku } : prev));
+  }, [modalDraft?.brandId, modalDraft?.name, modalDraft?.year, modalDraft?.autoSku, lookups]);
 
   useEffect(() => {
     fetchProducts();
@@ -742,10 +1088,15 @@ export default function Products() {
       name: product.name || '',
       price: product.price != null ? product.price.toString() : '',
       stock: product.stock != null ? product.stock.toString() : '',
+      // keep legacy strings for backward compatibility
       category: product.category || '',
       subcategory: product.subcategory || '',
+      // new lookup ids if present
+      categoryId: product.category_id || product.categoryId || '',
+      subcategoryId: product.subcategory_id || product.subcategoryId || '',
+      subsubcategoryId: product.subsubcategory_id || product.subsubcategoryId || '',
       description: product.description || '',
-      technicalDetails: product.technical_details || '',
+      technicalDetails: product.technical_details || product.technicalDetails || '',
       sku: product.sku || '',
       barcode: product.barcode || '',
       cost: product.cost != null ? product.cost.toString() : '',
@@ -754,6 +1105,17 @@ export default function Products() {
       imagePreview: resolveMediaUrl(product.image_source || product.image || ''),
       trackInventory: product.track_inventory !== 0,
       availableForPreorder: product.preorder_enabled === 1 || product.preorder_enabled === true || product.preorder_enabled === '1',
+      shortDescription: product.short_description || product.shortDescription || '',
+      brandId: product.brand_id || product.brandId || '',
+      materialId: product.material_id || product.materialId || '',
+      colorId: product.color_id || product.colorId || '',
+      audience: product.audience || '',
+      deliveryType: product.delivery_type || product.deliveryType || '',
+      warrantyTerm: product.warranty_term || product.warrantyTerm || '',
+      preorderEta: product.preorder_eta || product.preorderEta || '',
+      year: product.year || '',
+      autoSku: product.auto_sku === 0 || product.auto_sku === false ? false : true,
+      tags: Array.isArray(product.tags) ? product.tags.map((t) => t.id || t) : product.tags || [],
       preorderReleaseDate: product.preorder_release_date || '',
       preorderNotes: product.preorder_notes || '',
     });
@@ -775,6 +1137,17 @@ export default function Products() {
       imagePreview: resolveMediaUrl(product.image_source || product.image || ''),
       trackInventory: product.track_inventory !== 0,
       availableForPreorder: product.preorder_enabled === 1 || product.preorder_enabled === true || product.preorder_enabled === '1',
+      shortDescription: product.short_description || product.shortDescription || '',
+      brandId: product.brand_id || product.brandId || '',
+      materialId: product.material_id || product.materialId || '',
+      colorId: product.color_id || product.colorId || '',
+      audience: product.audience || '',
+      deliveryType: product.delivery_type || product.deliveryType || '',
+      warrantyTerm: product.warranty_term || product.warrantyTerm || '',
+      preorderEta: product.preorder_eta || product.preorderEta || '',
+      year: product.year || '',
+      autoSku: product.auto_sku === 0 || product.auto_sku === false ? false : true,
+      tags: Array.isArray(product.tags) ? product.tags.map((t) => t.id || t) : product.tags || [],
       preorderReleaseDate: product.preorder_release_date || '',
       preorderNotes: product.preorder_notes || '',
     });
@@ -824,8 +1197,25 @@ export default function Products() {
         name: modalDraft.name,
         price: parseFloat(modalDraft.price),
         stock: modalDraft.stock ? parseInt(modalDraft.stock, 10) || 0 : 0,
+        // keep legacy strings for backward compatibility
         category: modalDraft.category || null,
         subcategory: modalDraft.subcategory || null,
+        // new lookup ids
+        brandId: modalDraft.brandId || null,
+        categoryId: modalDraft.categoryId || null,
+        subcategoryId: modalDraft.subcategoryId || null,
+        subsubcategoryId: modalDraft.subsubcategoryId || null,
+        materialId: modalDraft.materialId || null,
+        colorId: modalDraft.colorId || null,
+        audience: modalDraft.audience || null,
+        deliveryType: modalDraft.deliveryType || null,
+        warrantyTerm: modalDraft.warrantyTerm || null,
+        type: modalDraft.type || 'physical',
+        shortDescription: modalDraft.shortDescription || null,
+        preorderEta: modalDraft.preorderEta || null,
+        year: modalDraft.year || null,
+        tags: modalDraft.tags || [],
+        autoSku: modalDraft.autoSku === false ? false : true,
         image: modalDraft.image || null,
         imageUrl: modalDraft.imageUrl || null,
         description: modalDraft.description || null,
@@ -940,7 +1330,31 @@ export default function Products() {
     try {
       const formData = new FormData();
       formData.append('file', file);
-      const uploadCategory = buildProductUploadCategory(modalDraft?.category, modalDraft?.subcategory);
+      // prefer category names from selected lookup ids when available
+      const cName = modalDraft?.category || (modalDraft?.categoryId ? (() => {
+        const found = categoryTree.find((c) => c.id === modalDraft.categoryId);
+        return found ? found.name : '';
+      })() : '');
+      const sName = modalDraft?.subcategory || (modalDraft?.subcategoryId ? (() => {
+        let found = null;
+        for (const c of categoryTree) {
+          if (!c.children) continue;
+          const s = (c.children || []).find((s) => s.id === modalDraft.subcategoryId);
+          if (s) { found = s; break; }
+        }
+        return found ? found.name : '';
+      })() : '');
+      const ssName = (modalDraft?.subsubcategoryId ? (() => {
+        for (const c of categoryTree) {
+          const s = (c.children || []).find((x) => x.id === modalDraft.subcategoryId);
+          if (s) {
+            const ss = (s.children || []).find((x) => x.id === modalDraft.subsubcategoryId);
+            return ss ? ss.name : '';
+          }
+        }
+        return '';
+      })() : '');
+      const uploadCategory = buildProductUploadCategory(cName, sName, ssName);
       formData.append('category', uploadCategory);
       const result = await api.upload('/uploads', formData);
       const storedPath = result?.path || result?.url || '';
@@ -1415,7 +1829,16 @@ export default function Products() {
         saving={modalSaving}
         stockChanged={modalOriginalDraft && modalDraft && (parseInt(modalDraft.stock||0,10) !== parseInt(modalOriginalDraft.stock||0,10))}
         stockReason={modalStockReason}
-        onStockReasonChange={(v) => setModalStockReason(v)}
+        onStockReasonChange={setModalStockReason}
+        categoryTree={categoryTree}
+        lookups={lookups}
+        onTagsChanged={fetchLookupsAndTree}
+        createBrand={createBrand}
+        createMaterial={createMaterial}
+        createColor={createColor}
+        createCategoryRoot={createCategoryRoot}
+        createSubcategory={createSubcategory}
+        createSubsubcategory={createSubsubcategory}
       />
     </div>
   );

@@ -93,6 +93,11 @@ export default function Sidebar() {
             <FaUserCog /> {!collapsedLabelsHidden && 'Staff'}
           </NavLink>
         )}
+        {canManageStaff && (
+          <NavLink to="/manage-lookups" className={linkClass} onClick={handleNavClick}>
+            <FaClipboardList /> {!collapsedLabelsHidden && 'Manage Lookups'}
+          </NavLink>
+        )}
         <NavLink to="/help" className={linkClass} onClick={handleNavClick}>
           <FaQuestionCircle /> {!collapsedLabelsHidden && 'Help'}
         </NavLink>
