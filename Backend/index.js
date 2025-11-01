@@ -1846,8 +1846,95 @@ app.get('/api/invoices', async (req, res) => {
     }
 });
 
+app.get('/api/transactions/recent', authMiddleware, requireRole('cashier'), async (req, res) => {
+    try {
+        const limit = Math.min(Math.max(parseInt(req.query.limit || '50', 10) || 50, 1), 200);
+        const invoices = await db.all(`
+            SELECT
+                i.id,
+                i.type,
+                i.status,
+                i.subtotal,
+                i.tax_amount,
+                i.total,
+                i.created_at,
+                i.customer_id,
+                c.name as customer_name
+            FROM invoices i
+            LEFT JOIN customers c ON c.id = i.customer_id
+            ORDER BY datetime(i.created_at) DESC
+            LIMIT ?
+        `, [limit]);
+
+        if (invoices.length === 0) {
+            return res.json([]);
+        }
+
+        const ids = invoices.map((inv) => inv.id);
+        const placeholders = ids.map(() => '?').join(',');
+
+        const lineItems = await db.all(`
+            SELECT
+                ii.invoice_id,
+                ii.product_id,
+                ii.quantity,
+                ii.price,
+                p.name as product_name
+            FROM invoice_items ii
+            LEFT JOIN products p ON p.id = ii.product_id
+            WHERE ii.invoice_id IN (${placeholders})
+            ORDER BY ii.invoice_id, ii.id
+        `, ids);
+
+        const itemsByInvoice = new Map();
+        for (const row of lineItems) {
+            if (!itemsByInvoice.has(row.invoice_id)) {
+                itemsByInvoice.set(row.invoice_id, []);
+            }
+            itemsByInvoice.get(row.invoice_id).push({
+                product_id: row.product_id,
+                product_name: row.product_name,
+                quantity: row.quantity,
+                price: row.price
+            });
+        }
+
+        const paymentRows = await db.all(`
+            SELECT invoice_id, method
+            FROM payments
+            WHERE invoice_id IN (${placeholders})
+        `, ids);
+
+        const paymentMap = new Map();
+        for (const row of paymentRows) {
+            if (!paymentMap.has(row.invoice_id)) {
+                paymentMap.set(row.invoice_id, new Set());
+            }
+            if (row.method) {
+                paymentMap.get(row.invoice_id).add(row.method);
+            }
+        }
+
+        const result = invoices.map((invoice) => {
+            const items = itemsByInvoice.get(invoice.id) || [];
+            const paymentMethodsSet = paymentMap.get(invoice.id) || new Set();
+            return {
+                ...invoice,
+                item_count: items.length,
+                items,
+                payment_methods: Array.from(paymentMethodsSet)
+            };
+        });
+
+        res.json(result);
+    } catch (err) {
+        console.error('Failed to load recent transactions', err?.message || err);
+        res.status(500).json({ error: err.message || String(err) });
+    }
+});
+
 // Get single invoice with line items (for edit/view in UI)
-app.get('/api/invoices/:id', authMiddleware, requireRole('manager'), async (req, res) => {
+app.get('/api/invoices/:id', authMiddleware, requireRole(['accounts','admin']), async (req, res) => {
         const { id } = req.params;
         try {
             const invoice = await db.get(`
@@ -1873,7 +1960,7 @@ app.get('/api/invoices/:id', authMiddleware, requireRole('manager'), async (req,
     });
 
 // Admin: edit invoice/quote and its line items (replace items atomically and recompute totals)
-app.put('/api/invoices/:id', authMiddleware, requireRole('manager'), async (req, res) => {
+app.put('/api/invoices/:id', authMiddleware, requireRole(['accounts','admin']), async (req, res) => {
     const { id } = req.params;
     const { items, status, type } = req.body;
     try {
@@ -1962,7 +2049,7 @@ app.put('/api/invoices/:id', authMiddleware, requireRole('manager'), async (req,
     }
 });
 
-app.put('/api/invoices/:id/status', authMiddleware, requireRole('manager'), async (req, res) => {
+app.put('/api/invoices/:id/status', authMiddleware, requireRole(['accounts','admin']), async (req, res) => {
     const { id } = req.params;
     const { status } = req.body;
 
@@ -2064,7 +2151,7 @@ app.put('/api/invoices/:id/convert', authMiddleware, requireRole('manager'), asy
     }
 });
 
-app.delete('/api/invoices/:id', authMiddleware, requireRole('admin'), async (req, res) => {
+app.delete('/api/invoices/:id', authMiddleware, requireRole(['admin','accounts']), async (req, res) => {
     const { id } = req.params;
     try {
         const invoice = await db.get('SELECT * FROM invoices WHERE id = ?', [id]);

@@ -3,6 +3,7 @@ import api from '../lib/api';
 import { useToast } from '../components/ToastContext';
 import { useSettings } from '../components/SettingsContext';
 import InvoiceEditModal from '../components/InvoiceEditModal';
+import { useAuth } from '../components/AuthContext';
 
 const STATUS_OPTIONS = {
   invoice: [
@@ -39,6 +40,9 @@ const STATUS_LABELS = {
 export default function Invoices() {
   const { push } = useToast();
   const { formatCurrency, settings: globalSettings } = useSettings();
+  const { user } = useAuth();
+  const userRole = user?.role || '';
+  const canManageTransactions = userRole === 'admin' || userRole === 'accounts';
 
   const [invoices, setInvoices] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
@@ -204,7 +208,19 @@ export default function Invoices() {
     }
   };
 
+  const openInvoiceEditor = (invoiceId) => {
+    if (!canManageTransactions) {
+      push('You need Admin or Accounts permissions to modify transactions.', 'error');
+      return;
+    }
+    setEditingInvoiceId(invoiceId);
+  };
+
   const handleDelete = async (invoiceId) => {
+    if (!canManageTransactions) {
+      push('You need Admin or Accounts permissions to delete transactions.', 'error');
+      return;
+    }
     if (!confirm('Delete this record? This cannot be undone.')) return;
     try {
       await api.del(`/invoices/${invoiceId}`);
@@ -319,6 +335,10 @@ export default function Invoices() {
   const formatStatusLabel = (status) => STATUS_LABELS[status] || (status ? status.charAt(0).toUpperCase() + status.slice(1) : '—');
 
   const handleStatusChange = async (invoice, nextStatus) => {
+    if (!canManageTransactions) {
+      push('You need Admin or Accounts permissions to update status.', 'error');
+      return;
+    }
     if (!nextStatus || nextStatus === invoice.status) return;
     setStatusUpdatingId(invoice.id);
     try {
@@ -335,6 +355,10 @@ export default function Invoices() {
 
   const handleConvertQuote = async (invoice) => {
     if (invoice.type !== 'quote') return;
+    if (!canManageTransactions) {
+      push('You need Admin or Accounts permissions to convert documents.', 'error');
+      return;
+    }
     if (!confirm('Convert this quote into an invoice?')) return;
     setConvertingId(invoice.id);
     try {
@@ -787,7 +811,7 @@ export default function Invoices() {
                         value={invoice.status || ''}
                         onChange={(e) => handleStatusChange(invoice, e.target.value)}
                         className="border rounded px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100"
-                        disabled={statusUpdatingId === invoice.id}
+                        disabled={!canManageTransactions || statusUpdatingId === invoice.id}
                       >
                         {(!invoice.status || invoice.status === '') && <option value="">Set status…</option>}
                         {statusOptions.map((option) => (
@@ -804,12 +828,14 @@ export default function Invoices() {
                   <td className="p-4 whitespace-nowrap text-sm text-gray-500">{invoice.outlet_name || '—'}</td>
                   <td className="p-4 whitespace-nowrap text-right">
                     <div className="flex items-center justify-end gap-3">
-                      <button
-                        onClick={() => setEditingInvoiceId(invoice.id)}
-                        className="text-indigo-600 hover:underline"
-                      >
-                        Edit
-                      </button>
+                      {canManageTransactions && (
+                        <button
+                          onClick={() => openInvoiceEditor(invoice.id)}
+                          className="text-indigo-600 hover:underline"
+                        >
+                          Edit
+                        </button>
+                      )}
                       <button
                         onClick={async () => {
                           try {
@@ -823,7 +849,7 @@ export default function Invoices() {
                       >
                         PDF
                       </button>
-                      {invoice.type === 'quote' && (
+                      {canManageTransactions && invoice.type === 'quote' && (
                         <button
                           onClick={() => handleConvertQuote(invoice)}
                           className="text-green-600 hover:underline disabled:text-gray-400"
@@ -832,12 +858,14 @@ export default function Invoices() {
                           {convertingId === invoice.id ? 'Converting…' : 'Convert'}
                         </button>
                       )}
-                      <button
-                        onClick={() => handleDelete(invoice.id)}
-                        className="text-red-600 hover:underline"
-                      >
-                        Delete
-                      </button>
+                      {canManageTransactions && (
+                        <button
+                          onClick={() => handleDelete(invoice.id)}
+                          className="text-red-600 hover:underline"
+                        >
+                          Delete
+                        </button>
+                      )}
                     </div>
                   </td>
                 </tr>

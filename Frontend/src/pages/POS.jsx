@@ -3,6 +3,7 @@ import api from '../lib/api';
 import { useToast } from '../components/ToastContext';
 import { useSettings } from '../components/SettingsContext';
 import { useAuth } from '../components/AuthContext';
+import InvoiceEditModal from '../components/InvoiceEditModal';
 import { useStockUpdates, useOrderUpdates, useWebSocketRoom } from '../hooks/useWebSocket';
 
 export default function POS() {
@@ -26,18 +27,31 @@ export default function POS() {
   const [newCustomer, setNewCustomer] = useState({ name: '', email: '', phone: '' });
   const [quantityInput, setQuantityInput] = useState({});
   const [activeTab, setActiveTab] = useState('products'); // products, history, held
+  const [expandedHistoryId, setExpandedHistoryId] = useState(null);
+  const [historyEditingId, setHistoryEditingId] = useState(null);
 
   const { settings: globalSettings, formatCurrency } = useSettings();
   const toast = useToast();
   const { user } = useAuth();
+  const userRole = user?.role || '';
+  const canManageTransactions = userRole === 'admin' || userRole === 'accounts';
   const searchInputRef = useRef(null);
   const payNowBtnRef = useRef(null);
+
+  const humanizeLabel = (value) => {
+    if (!value) return '—';
+    return String(value)
+      .replace(/_/g, ' ')
+      .replace(/\b\w/g, (char) => char.toUpperCase());
+  };
 
   useEffect(() => {
     loadInitialData();
     loadHeldOrders();
     loadTransactionHistory();
+  }, []);
 
+  useEffect(() => {
     // Keyboard shortcuts
     const handleKeyPress = (e) => {
       if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
@@ -91,6 +105,12 @@ export default function POS() {
     return () => window.removeEventListener('keydown', handleKeyPress);
   }, [showPaymentModal, showCustomerModal, showReceipt]);
 
+  useEffect(() => {
+    if (activeTab === 'history') {
+      loadTransactionHistory();
+    }
+  }, [activeTab]);
+
   // WebSocket real-time updates
   useWebSocketRoom('staff', !!user); // Join staff room when user is logged in
 
@@ -137,9 +157,18 @@ export default function POS() {
     setHeldOrders(held);
   };
 
-  const loadTransactionHistory = () => {
-    const history = JSON.parse(localStorage.getItem('pos_transaction_history') || '[]');
-    setTransactionHistory(history.slice(-50)); // Keep last 50 transactions
+  const loadTransactionHistory = async () => {
+    try {
+      const history = await api.get('/transactions/recent', { params: { limit: 50 } });
+      const normalized = Array.isArray(history) ? history : [];
+      setTransactionHistory(normalized);
+      setExpandedHistoryId((prev) => (prev && normalized.some((entry) => entry.id === prev) ? prev : null));
+    } catch (error) {
+      console.error('Failed to load transaction history', error);
+      toast.push('Failed to load transaction history', 'error');
+      setTransactionHistory([]);
+      setExpandedHistoryId(null);
+    }
   };
 
   const saveHeldOrders = (orders) => {
@@ -147,13 +176,7 @@ export default function POS() {
     setHeldOrders(orders);
   };
 
-  const saveTransactionHistory = (transaction) => {
-    const history = JSON.parse(localStorage.getItem('pos_transaction_history') || '[]');
-    history.unshift(transaction);
-    const limitedHistory = history.slice(0, 50);
-    localStorage.setItem('pos_transaction_history', JSON.stringify(limitedHistory));
-    setTransactionHistory(limitedHistory);
-  };
+  // Held orders still persist locally because they are POS-specific drafts
 
   const addToCart = (product, customQuantity = null) => {
     if (product.stock <= 0) return;
@@ -291,7 +314,7 @@ export default function POS() {
       };
 
       setLastTransaction(transaction);
-      saveTransactionHistory(transaction);
+  await loadTransactionHistory();
 
       // Get signed PDF link and open it
       const linkResp = await api.post(`/invoices/${created.id}/pdf-link`);
@@ -328,6 +351,46 @@ export default function POS() {
       toast.push('Customer created successfully', 'success');
     } catch (error) {
       toast.push('Failed to create customer', 'error');
+    }
+  };
+
+  const toggleHistoryDetails = (invoiceId) => {
+    setExpandedHistoryId((prev) => (prev === invoiceId ? null : invoiceId));
+  };
+
+  const openHistoryPdf = async (invoiceId) => {
+    try {
+      const linkResp = await api.post(`/invoices/${invoiceId}/pdf-link`);
+      if (linkResp?.url) {
+        window.open(linkResp.url, '_blank');
+      }
+    } catch (error) {
+      toast.push('Failed to open receipt', 'error');
+    }
+  };
+
+  const openHistoryEditor = (invoiceId) => {
+    if (!canManageTransactions) {
+      toast.push('You need Admin or Accounts permissions to modify transactions.', 'error');
+      return;
+    }
+    setHistoryEditingId(invoiceId);
+  };
+
+  const handleHistoryDelete = async (invoiceId) => {
+    if (!canManageTransactions) {
+      toast.push('You need Admin or Accounts permissions to delete transactions.', 'error');
+      return;
+    }
+    if (!confirm('Delete this record? This cannot be undone.')) return;
+    try {
+      await api.del(`/invoices/${invoiceId}`);
+      toast.push('Transaction removed', 'info');
+      setExpandedHistoryId((prev) => (prev === invoiceId ? null : prev));
+      await loadTransactionHistory();
+    } catch (error) {
+      console.error(error);
+      toast.push('Unable to delete transaction', 'error');
     }
   };
 
@@ -493,29 +556,90 @@ export default function POS() {
               <div className="bg-white rounded-xl shadow-lg p-6">
                 <h3 className="text-xl font-semibold mb-4">Transaction History</h3>
                 <div className="space-y-4 max-h-96 overflow-y-auto">
-                  {transactionHistory.map((transaction) => (
-                    <div key={transaction.id} className="border rounded-lg p-4">
-                      <div className="flex justify-between items-start mb-2">
-                        <div>
-                          <p className="font-semibold">{transaction.customerName}</p>
-                          <p className="text-sm text-gray-600">
-                            {new Date(transaction.timestamp).toLocaleString()}
-                          </p>
+                  {transactionHistory.map((transaction) => {
+                    const items = Array.isArray(transaction.items) ? transaction.items : [];
+                    const statusLabel = humanizeLabel(transaction.status);
+                    const paymentLabel = Array.isArray(transaction.payment_methods) && transaction.payment_methods.length > 0
+                      ? transaction.payment_methods.map(humanizeLabel).join(', ')
+                      : '';
+                    const isExpanded = expandedHistoryId === transaction.id;
+                    const typeIsQuote = (transaction.type || '').toLowerCase() === 'quote';
+                    return (
+                      <div key={transaction.id} className="border rounded-lg p-4 bg-white/70">
+                        <div className="flex justify-between items-start gap-3">
+                          <div>
+                            <p className="font-semibold text-gray-800">{transaction.customer_name || 'Walk-in customer'}</p>
+                            <p className="text-sm text-gray-600">
+                              {transaction.created_at ? new Date(transaction.created_at).toLocaleString() : '—'}
+                            </p>
+                            <p className="text-xs text-gray-500 mt-1">Status: {statusLabel}</p>
+                          </div>
+                          <div className="text-right">
+                            <p className="font-bold text-lg text-gray-900">{formatCurrency(transaction.total)}</p>
+                            <span
+                              className={`px-2 py-1 rounded text-xs font-semibold uppercase ${
+                                typeIsQuote ? 'bg-blue-100 text-blue-800' : 'bg-green-100 text-green-800'
+                              }`}
+                            >
+                              {humanizeLabel(transaction.type)}
+                            </span>
+                            <button
+                              onClick={() => toggleHistoryDetails(transaction.id)}
+                              className="block text-xs text-blue-600 hover:underline mt-2"
+                            >
+                              {isExpanded ? 'Hide details' : 'View details'}
+                            </button>
+                          </div>
                         </div>
-                        <div className="text-right">
-                          <p className="font-bold text-lg">{formatCurrency(transaction.total)}</p>
-                          <span className={`px-2 py-1 rounded text-xs ${
-                            transaction.type === 'invoice' ? 'bg-green-100 text-green-800' : 'bg-blue-100 text-blue-800'
-                          }`}>
-                            {transaction.type}
-                          </span>
+                        <div className="text-sm text-gray-600 mt-2">
+                          {items.length} items • {statusLabel}
+                          {paymentLabel && (
+                            <span className="ml-1">• Payment: {paymentLabel}</span>
+                          )}
+                        </div>
+                        {isExpanded && (
+                          <div className="mt-3 border-t pt-3 space-y-2 text-sm text-gray-700">
+                            {items.length > 0 ? (
+                              items.map((item, idx) => (
+                                <div key={`${transaction.id}-${idx}`} className="flex justify-between">
+                                  <span>{item.product_name || `#${item.product_id || '-'}`}</span>
+                                  <span className="text-gray-500">
+                                    {item.quantity} × {formatCurrency(item.price)}
+                                  </span>
+                                </div>
+                              ))
+                            ) : (
+                              <p className="text-gray-500">No line items recorded.</p>
+                            )}
+                          </div>
+                        )}
+                        <div className="mt-4 flex justify-end gap-3 text-sm">
+                          <button
+                            onClick={() => openHistoryPdf(transaction.id)}
+                            className="text-blue-600 hover:underline"
+                          >
+                            Receipt
+                          </button>
+                          {canManageTransactions && (
+                            <>
+                              <button
+                                onClick={() => openHistoryEditor(transaction.id)}
+                                className="text-indigo-600 hover:underline"
+                              >
+                                Edit
+                              </button>
+                              <button
+                                onClick={() => handleHistoryDelete(transaction.id)}
+                                className="text-red-600 hover:underline"
+                              >
+                                Delete
+                              </button>
+                            </>
+                          )}
                         </div>
                       </div>
-                      <div className="text-sm text-gray-600">
-                        {transaction.items.length} items • {transaction.paymentMethod}
-                      </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                   {transactionHistory.length === 0 && (
                     <p className="text-gray-500 text-center py-8">No transactions yet</p>
                   )}
@@ -887,6 +1011,18 @@ export default function POS() {
             </div>
           </div>
         </div>
+      )}
+
+      {historyEditingId && (
+        <InvoiceEditModal
+          invoiceId={historyEditingId}
+          onClose={() => setHistoryEditingId(null)}
+          onSaved={() => {
+            setHistoryEditingId(null);
+            loadTransactionHistory();
+            api.get('/products').then(setProducts);
+          }}
+        />
       )}
     </div>
   );
