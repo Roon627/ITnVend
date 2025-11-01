@@ -1,14 +1,20 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { api } from '../lib/api';
 import { useToast } from '../components/ToastContext';
+import CategoryManager from '../components/CategoryManager';
 
 const EditableList = ({ title, items, onUpdate, onDelete, onAdd }) => {
   const [drafts, setDrafts] = useState({});
   const [newItem, setNewItem] = useState('');
 
+  useEffect(() => {
+    // Reset drafts when items change to avoid stale state
+    setDrafts({});
+  }, [items]);
+
   const handleUpdate = (id) => {
     const name = drafts[id]?.trim();
-    if (name) {
+    if (name && name !== items.find(i => i.id === id)?.name) {
       onUpdate(id, name);
       setDrafts(prev => {
         const next = { ...prev };
@@ -28,38 +34,36 @@ const EditableList = ({ title, items, onUpdate, onDelete, onAdd }) => {
   return (
     <div className="bg-white p-4 rounded-lg shadow">
       <h2 className="text-xl font-semibold text-slate-700 mb-4">{title}</h2>
-      <ul className="space-y-2">
-        {items.map(item => (
-          <li key={item.id} className="flex items-center gap-2">
-            <input
-              type="text"
-              value={drafts[item.id] ?? item.name}
-              onChange={(e) => setDrafts(prev => ({ ...prev, [item.id]: e.target.value }))}
-              className="flex-1 rounded-md border-slate-300 shadow-sm px-2 py-1 text-sm"
-            />
-            <button
-              onClick={() => handleUpdate(item.id)}
-              className="px-3 py-1 text-sm rounded-md bg-sky-500 text-white hover:bg-sky-600 disabled:bg-sky-300"
-              disabled={!drafts[item.id] || drafts[item.id].trim() === item.name}
-            >
-              Save
-            </button>
-            <button
-              onClick={() => onDelete(item.id)}
-              className="px-3 py-1 text-sm rounded-md bg-red-500 text-white hover:bg-red-600"
-            >
-              Delete
-            </button>
-          </li>
-        ))}
-      </ul>
-      <div className="mt-4 flex gap-2">
+      <div className="max-h-60 overflow-y-auto pr-2">
+        <ul className="space-y-2">
+          {items.map(item => (
+            <li key={item.id} className="flex items-center gap-2">
+              <input
+                type="text"
+                value={drafts[item.id] ?? item.name}
+                onChange={(e) => setDrafts(prev => ({ ...prev, [item.id]: e.target.value }))}
+                onBlur={() => handleUpdate(item.id)}
+                onKeyDown={(e) => e.key === 'Enter' && handleUpdate(item.id)}
+                className="flex-1 rounded-md border-slate-300 shadow-sm px-2 py-1 text-sm focus:ring-blue-500 focus:border-blue-500"
+              />
+              <button
+                onClick={() => onDelete(item.id)}
+                className="px-3 py-1 text-sm rounded-md bg-red-500 text-white hover:bg-red-600"
+              >
+                Delete
+              </button>
+            </li>
+          ))}
+        </ul>
+      </div>
+      <div className="mt-4 pt-4 border-t flex gap-2">
         <input
           type="text"
           value={newItem}
           onChange={(e) => setNewItem(e.target.value)}
+          onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
           placeholder={`New ${title.slice(0, -1).toLowerCase()}`}
-          className="flex-1 rounded-md border-slate-300 shadow-sm px-2 py-1 text-sm"
+          className="flex-1 rounded-md border-slate-300 shadow-sm px-2 py-1 text-sm focus:ring-blue-500 focus:border-blue-500"
         />
         <button
           onClick={handleAdd}
@@ -82,7 +86,7 @@ export default function ManageLookups() {
     try {
       const [lu, cats] = await Promise.all([
         api.get('/lookups'),
-        api.get('/categories/tree')
+        api.get('/categories/tree?depth=10') // Fetch full tree
       ]);
       setLookups(lu || { brands: [], materials: [], colors: [], tags: [] });
       setCategories(cats || []);
@@ -95,7 +99,7 @@ export default function ManageLookups() {
     fetchLookups();
   }, [fetchLookups]);
 
-  const handleUpdate = async (type, id, name) => {
+  const handleGenericUpdate = async (type, id, name) => {
     try {
       await api.put(`/${type}/${id}`, { name });
       toast.push(`${type.slice(0, -1)} updated`, 'success');
@@ -105,7 +109,7 @@ export default function ManageLookups() {
     }
   };
 
-  const handleDelete = async (type, id) => {
+  const handleGenericDelete = async (type, id) => {
     if (!window.confirm(`Are you sure you want to delete this ${type.slice(0, -1)}? This might affect existing products.`)) return;
     try {
       await api.del(`/${type}/${id}`);
@@ -116,7 +120,7 @@ export default function ManageLookups() {
     }
   };
 
-  const handleAdd = async (type, name) => {
+  const handleGenericAdd = async (type, name) => {
     try {
       await api.post(`/${type}`, { name });
       toast.push(`${type.slice(0, -1)} added`, 'success');
@@ -126,47 +130,44 @@ export default function ManageLookups() {
     }
   };
 
-  // TODO: Add category management with parent selection
   return (
     <div className="p-6 bg-slate-50 min-h-full">
-      <div className="max-w-4xl mx-auto">
+      <div className="max-w-6xl mx-auto">
         <h1 className="text-3xl font-bold text-slate-800 mb-6">Manage Lookups</h1>
+        
+        <div className="mb-8">
+          <CategoryManager categories={categories} onMutate={fetchLookups} />
+        </div>
+
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <EditableList
             title="Brands"
             items={lookups.brands}
-            onUpdate={(id, name) => handleUpdate('brands', id, name)}
-            onDelete={(id) => handleDelete('brands', id)}
-            onAdd={(name) => handleAdd('brands', name)}
+            onUpdate={(id, name) => handleGenericUpdate('brands', id, name)}
+            onDelete={(id) => handleGenericDelete('brands', id)}
+            onAdd={(name) => handleGenericAdd('brands', name)}
           />
           <EditableList
             title="Materials"
             items={lookups.materials}
-            onUpdate={(id, name) => handleUpdate('materials', id, name)}
-            onDelete={(id) => handleDelete('materials', id)}
-            onAdd={(name) => handleAdd('materials', name)}
+            onUpdate={(id, name) => handleGenericUpdate('materials', id, name)}
+            onDelete={(id) => handleGenericDelete('materials', id)}
+            onAdd={(name) => handleGenericAdd('materials', name)}
           />
           <EditableList
             title="Colors"
             items={lookups.colors}
-            onUpdate={(id, name) => handleUpdate('colors', id, name)}
-            onDelete={(id) => handleDelete('colors', id)}
-            onAdd={(name) => handleAdd('colors', name)}
+            onUpdate={(id, name) => handleGenericUpdate('colors', id, name)}
+            onDelete={(id) => handleGenericDelete('colors', id)}
+            onAdd={(name) => handleGenericAdd('colors', name)}
           />
           <EditableList
             title="Tags"
             items={lookups.tags}
-            onUpdate={(id, name) => handleUpdate('tags', id, name)}
-            onDelete={(id) => handleDelete('tags', id)}
-            onAdd={(name) => handleAdd('tags', name)}
+            onUpdate={(id, name) => handleGenericUpdate('tags', id, name)}
+            onDelete={(id) => handleGenericDelete('tags', id)}
+            onAdd={(name) => handleGenericAdd('tags', name)}
           />
-        </div>
-        <div className="mt-6">
-          {/* Category management will be more complex and needs its own component */}
-          <div className="bg-white p-4 rounded-lg shadow">
-            <h2 className="text-xl font-semibold text-slate-700 mb-4">Categories</h2>
-            <p className="text-sm text-slate-500">Category management is not yet implemented here. Please use the Products page for now.</p>
-          </div>
         </div>
       </div>
     </div>

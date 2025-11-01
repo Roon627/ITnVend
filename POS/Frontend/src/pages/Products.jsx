@@ -321,425 +321,229 @@ function ProductModal({ open, draft, onClose, onChange, onSave, onUploadImage, u
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center px-4">
-      <div className="bg-white rounded-lg shadow-xl w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col">
+    <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center px-4">
+      <div className="bg-white rounded-xl shadow-2xl w-full max-w-6xl max-h-[92vh] overflow-hidden flex flex-col">
         <header className="flex items-center justify-between px-6 py-4 border-b">
           <div>
-            <h2 className="text-lg font-semibold text-slate-800">Edit product</h2>
-            <p className="text-sm text-slate-500">Fine-tune pricing, stock tracking, and metadata.</p>
+            <h2 className="text-xl font-semibold text-slate-800">{draft.id ? 'Edit product' : 'Add product'}</h2>
+            <p className="text-sm text-slate-500">Edit product details. Changes are saved to the POS backend.</p>
           </div>
-          <button
-            onClick={onClose}
-            className="p-2 rounded-md hover:bg-slate-100 text-slate-500"
-            aria-label="Close product editor"
-          >
-            <FaTimes />
-          </button>
+          <div className="flex items-center gap-3">
+            <Link to="/manage-lookups" target="_blank" className="text-sm text-blue-600 hover:text-blue-800">Manage lookups</Link>
+            <button
+              onClick={onClose}
+              className="p-2 rounded-md hover:bg-slate-100 text-slate-500"
+              aria-label="Close product editor"
+            >
+              <FaTimes />
+            </button>
+          </div>
         </header>
-        <div className="flex-1 overflow-y-auto px-6 py-4 grid gap-6 md:grid-cols-2">
-          <section className="space-y-4">
-            {/* Basics */}
-            <details open className="rounded-md border p-4 bg-white">
-              <summary className="cursor-pointer font-semibold text-slate-800">Basics</summary>
-              <div className="mt-3 grid gap-3">
-                <label className="text-sm font-medium text-slate-600">
-                  Name
-                  <input
-                    value={draft.name}
-                    onChange={handleFieldChange('name')}
-                    className="mt-1 w-full rounded border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    required
-                  />
-                </label>
-                <label className="text-sm font-medium text-slate-600">
-                  Short description
-                  <input value={draft.shortDescription || ''} onChange={handleFieldChange('shortDescription')} maxLength={180} className="mt-1 w-full rounded border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" />
-                </label>
-                <div className="grid grid-cols-2 gap-3">
-                  <SelectField
-                    label="Brand"
-                    value={draft.brandId || ''}
-                    onChange={(v) => handleFieldChange('brandId')({ target: { value: v } })}
-                    options={(lookups?.brands||[]).map(b=>({id:b.id,name:b.name}))}
-                    placeholder="Select brand"
-                  />
-                  <div className="grid grid-cols-2 gap-3">
-                    <SelectField label="Type" value={draft.type || ''} onChange={(v) => handleFieldChange('type')({ target: { value: v } })} options={[{id:'physical',name:'Physical'},{id:'digital',name:'Digital'}]} placeholder="Select type" />
-                    <label className="text-sm font-medium text-slate-600">
-                      Year
-                      <input
-                        value={draft.year || ''}
-                        onChange={handleFieldChange('year')}
-                        type="number"
-                        className="mt-1 w-full rounded border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      />
-                    </label>
-                  </div>
-                </div>
-              </div>
-            </details>
 
-            {/* Pricing & Inventory */}
-            <details open className="rounded-md border p-4 bg-white">
-              <summary className="cursor-pointer font-semibold text-slate-800">Pricing & Inventory</summary>
-              <div className="mt-3 grid gap-3">
-                <div className="grid grid-cols-2 gap-3">
-                  <label className="text-sm font-medium text-slate-600">
-                    Price
-                    <input
-                      value={draft.price}
-                      onChange={handleFieldChange('price')}
-                      type="number"
-                      step="0.01"
-                      className="mt-1 w-full rounded border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      required
-                    />
-                  </label>
-                  <label className="text-sm font-medium text-slate-600">
-                    Cost
-                    <input
-                      value={draft.cost}
-                      onChange={handleFieldChange('cost')}
-                      type="number"
-                      step="0.01"
-                      className="mt-1 w-full rounded border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    />
-                  </label>
-                </div>
-                <div className="grid grid-cols-2 gap-3">
-                  <label className="text-sm font-medium text-slate-600">
-                    Stock
-                    <input
-                      value={draft.stock}
-                      onChange={handleFieldChange('stock')}
-                      type="number"
-                      className="mt-1 w-full rounded border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    />
-                  </label>
-                  <div className="flex items-center gap-6 mt-6">
-                    <label className="inline-flex items-center gap-2 text-sm font-medium text-slate-600">
-                      <input
-                        type="checkbox"
-                        checked={draft.trackInventory}
-                        onChange={handleFieldChange('trackInventory')}
-                        className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
-                      />
-                      Track inventory
-                    </label>
-                  </div>
-                </div>
-                {stockChanged && (
-                  <div className="mt-2">
-                    <label className="text-sm font-medium text-slate-600">Reason for stock change (required)</label>
-                    <input
-                      type="text"
-                      value={stockReason}
-                      onChange={(e) => onStockReasonChange && onStockReasonChange(e.target.value)}
-                      placeholder="e.g. Received shipment, correction, damaged"
-                      className="mt-1 w-full rounded border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    />
-                    <p className="text-xs text-slate-400 mt-1">A reason will be recorded in the stock audit log.</p>
-                  </div>
-                )}
-              </div>
-            </details>
-
-            {/* Classification */}
-            <details className="rounded-md border p-4 bg-white">
-              <summary className="cursor-pointer font-semibold text-slate-800 flex justify-between items-center">
-                <span>Classification</span>
-                <Link to="/manage-lookups" target="_blank" className="text-xs font-normal text-blue-600 hover:text-blue-800 flex items-center gap-1">
-                  Manage Lookups <FaExternalLinkAlt />
-                </Link>
-              </summary>
-              <div className="mt-3 grid gap-3">
-                <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-                  <SelectField
-                    label="Category"
-                    value={draft.categoryId || ''}
-                    onChange={(v) => {
-                      handleFieldChange('categoryId')({ target: { value: v } });
-                      handleFieldChange('subcategoryId')({ target: { value: '' } });
-                      handleFieldChange('subsubcategoryId')({ target: { value: '' } });
-                      const found = categoryTree.find((c) => c.id === v);
-                      handleFieldChange('category')({ target: { value: found ? found.name : '' } });
-                    }}
-                    options={categoryTree.map((c) => ({ id: c.id, name: c.name }))}
-                    placeholder="Select category"
-                  />
-                  <SelectField
-                    label="Subcategory"
-                    value={draft.subcategoryId || ''}
-                    onChange={(v) => {
-                      handleFieldChange('subcategoryId')({ target: { value: v } });
-                      handleFieldChange('subsubcategoryId')({ target: { value: '' } });
-                      let name = '';
-                      for (const c of categoryTree) {
-                        const child = (c.children || []).find((ch) => ch.id === v);
-                        if (child) { name = child.name; break; }
-                      }
-                      handleFieldChange('subcategory')({ target: { value: name } });
-                    }}
-                    options={(() => {
-                      const parent = categoryTree.find((c) => c.id === draft.categoryId);
-                      return (parent?.children || []).map((s) => ({ id: s.id, name: s.name }));
-                    })()}
-                    placeholder="Select subcategory"
-                    disabled={!draft.categoryId}
-                  />
-                  <SelectField
-                    label="Sub-subcategory"
-                    value={draft.subsubcategoryId || ''}
-                    onChange={(v) => {
-                      handleFieldChange('subsubcategoryId')({ target: { value: v } });
-                    }}
-                    options={(() => {
-                      let list = [];
-                      for (const c of categoryTree) {
-                        const s = (c.children || []).find((ch) => ch.id === draft.subcategoryId);
-                        if (s) { list = s.children || []; break; }
-                      }
-                      return list.map((ss) => ({ id: ss.id, name: ss.name }));
-                    })()}
-                    placeholder="Select sub-subcategory"
-                    disabled={!draft.subcategoryId}
-                  />
-                </div>
-                {draft.categoryId && (
-                  <div className="text-xs text-slate-500">{
-                    (() => {
-                      const c = categoryTree.find((x) => x.id === draft.categoryId);
-                      const s = c && (c.children || []).find((x) => x.id === draft.subcategoryId);
-                      const ss = s && (s.children || []).find((x) => x.id === draft.subsubcategoryId);
-                      return [c?.name, s?.name, ss?.name].filter(Boolean).join(' / ');
-                    })()
-                  }</div>
-                )}
-                <div className="grid grid-cols-2 gap-3">
-                  <SelectField
-                    label="Color"
-                    value={draft.colorId || ''}
-                    onChange={(v) => handleFieldChange('colorId')({ target: { value: v } })}
-                    options={(lookups?.colors||[]).map(c=>({id:c.id,name:c.name}))}
-                    placeholder="Select color"
-                  />
-                  <SelectField
-                    label="Audience"
-                    value={draft.audience || ''}
-                    onChange={(v) => handleFieldChange('audience')({ target: { value: v } })}
-                    options={[{id:'men',name:'Men'},{id:'women',name:'Women'},{id:'unisex',name:'Unisex'}]}
-                    placeholder="Select"
-                  />
-                </div>
-                <div className="grid grid-cols-2 gap-3">
-                  <SelectField
-                    label="Material"
-                    value={draft.materialId || ''}
-                    onChange={(v) => handleFieldChange('materialId')({ target: { value: v } })}
-                    options={(lookups?.materials||[]).map(m=>({id:m.id,name:m.name}))}
-                    placeholder="Select material"
-                  />
-                  <SelectField label="Warranty / License" value={draft.warrantyTerm || ''} onChange={(v) => handleFieldChange('warrantyTerm')({ target: { value: v } })} options={[{id:'none',name:'None'},{id:'1_year',name:'1 Year'},{id:'lifetime',name:'Lifetime'}]} placeholder="Select" />
-                </div>
-              </div>
-            </details>
-
-            {/* Fulfillment & Preorders */}
-            <details className="rounded-md border p-4 bg-white">
-              <summary className="cursor-pointer font-semibold text-slate-800">Fulfillment & Preorders</summary>
-              <div className="mt-3 grid gap-3">
-                <div className="grid grid-cols-2 gap-3">
-                  <SelectField label="Delivery" value={draft.deliveryType || ''} onChange={(v) => handleFieldChange('deliveryType')({ target: { value: v } })} options={[{id:'instant_download',name:'Instant Download'},{id:'shipping',name:'Shipping'},{id:'pickup',name:'Pickup'}]} placeholder="Select" />
-                  <label className="inline-flex items-center gap-2 text-sm font-medium text-slate-600 mt-6">
-                    <input
-                      type="checkbox"
-                      checked={draft.availableForPreorder}
-                      onChange={handleFieldChange('availableForPreorder')}
-                      className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
-                    />
-                    Available for preorder (storefront)
-                  </label>
-                </div>
-                {(draft.availableForPreorder || draft.deliveryType === 'shipping') && (
-                  <label className="text-sm font-medium text-slate-600">
-                    Preorder ETA
-                    <input
-                      value={draft.preorderEta || ''}
-                      onChange={handleFieldChange('preorderEta')}
-                      placeholder="e.g., 2 weeks"
-                      className="mt-1 w-full rounded border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    />
-                  </label>
-                )}
-                {draft.availableForPreorder && (
-                  <div className="grid gap-3">
-                    <label className="text-sm font-medium text-slate-600">
-                      Release / availability date
-                      <input
-                        type="date"
-                        value={draft.preorderReleaseDate || ''}
-                        onChange={handleFieldChange('preorderReleaseDate')}
-                        className="mt-1 w-full rounded border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      />
-                    </label>
-                    <label className="text-sm font-medium text-slate-600">
-                      Preorder notes
-                      <textarea
-                        value={draft.preorderNotes}
-                        onChange={handleFieldChange('preorderNotes')}
-                        rows={3}
-                        className="mt-1 w-full rounded border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                        placeholder="e.g. Ships in 4 weeks, limited launch allocation"
-                      />
-                    </label>
-                  </div>
-                )}
-              </div>
-            </details>
-
-            {/* Identifiers */}
-            <details className="rounded-md border p-4 bg-white">
-              <summary className="cursor-pointer font-semibold text-slate-800">Identifiers</summary>
-              <div className="mt-3 grid grid-cols-2 gap-3">
-                <label className="text-sm font-medium text-slate-600">
-                  SKU
-                  <div className="mt-1 flex gap-2 items-center">
-                    <input
-                      value={draft.sku}
-                      onChange={handleFieldChange('sku')}
-                      disabled={draft.autoSku}
-                      className="w-full rounded border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    />
-                    <label className="inline-flex items-center gap-2 text-sm">
-                      <input type="checkbox" checked={draft.autoSku} onChange={(e) => handleFieldChange('autoSku')(e)} className="rounded border-slate-300" />
-                      Auto
-                    </label>
-                  </div>
-                  {draft.autoSku && (
-                    <div className="text-xs text-slate-500 mt-1">Preview: {makeSku({ brandName: (lookups?.brands?.find(b => b.id === draft.brandId)?.name) || '', productName: draft.name, year: draft.year })}</div>
-                  )}
-                </label>
-                <label className="text-sm font-medium text-slate-600">
-                  Barcode
-                  <input
-                    value={draft.barcode}
-                    onChange={handleFieldChange('barcode')}
-                    className="mt-1 w-full rounded border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
-                </label>
-              </div>
-            </details>
-
-            {/* Marketing */}
-            <details className="rounded-md border p-4 bg-white">
-              <summary className="cursor-pointer font-semibold text-slate-800">Marketing</summary>
-              <div className="mt-3">
-                <label className="text-sm font-medium text-slate-600 block mb-2">Tags</label>
-                <TagChips options={lookups?.tags || []} value={draft.tags || []} onChange={(arr) => handleFieldChange('tags')({ target: { value: arr } })} onTagsChanged={onTagsChanged} />
-              </div>
-            </details>
-
-            {/* Description */}
-            <details className="rounded-md border p-4 bg-white">
-              <summary className="cursor-pointer font-semibold text-slate-800">Description</summary>
-              <label className="text-sm font-medium text-slate-600 block mt-3">
-                <span className="sr-only">Description</span>
-                <textarea
-                  value={draft.description}
-                  onChange={handleFieldChange('description')}
-                  rows={3}
-                  className="w-full rounded border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+        <div className="flex-1 overflow-y-auto px-6 py-5 grid gap-6 md:grid-cols-3">
+          {/* Main form spans two columns on md+ */}
+          <div className="md:col-span-2 space-y-4">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <label className="text-sm font-medium text-slate-600">
+                Name
+                <input
+                  value={draft.name}
+                  onChange={handleFieldChange('name')}
+                  className="mt-1 w-full rounded-md border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
               </label>
-            </details>
+              <label className="text-sm font-medium text-slate-600">
+                Short description
+                <input value={draft.shortDescription || ''} onChange={handleFieldChange('shortDescription')} maxLength={180} className="mt-1 w-full rounded-md border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              </label>
+            </div>
 
-            {/* Technical details */}
-            <details className="rounded-md border p-3 bg-slate-50">
-              <summary className="cursor-pointer font-medium text-slate-700">Technical details (JSON or bullet list)</summary>
-              <textarea
-                value={draft.technicalDetails}
-                onChange={handleFieldChange('technicalDetails')}
-                rows={6}
-                className="mt-3 w-full rounded border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                placeholder='Example: {"CPU":"i7","RAM":"16GB"}'
+            <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+              <SelectField
+                label="Brand"
+                value={draft.brandId || ''}
+                onChange={(v) => handleFieldChange('brandId')({ target: { value: v } })}
+                options={(lookups?.brands||[]).map(b=>({id:b.id,name:b.name}))}
+                placeholder="Select brand"
               />
-            </details>
-          </section>
+              <SelectField label="Type" value={draft.type || ''} onChange={(v) => handleFieldChange('type')({ target: { value: v } })} options={[{id:'physical',name:'Physical'},{id:'digital',name:'Digital'}]} placeholder="Select type" />
+              <label className="text-sm font-medium text-slate-600">
+                Year
+                <input
+                  value={draft.year || ''}
+                  onChange={handleFieldChange('year')}
+                  type="number"
+                  className="mt-1 w-full rounded-md border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </label>
+            </div>
+
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+              <label className="text-sm font-medium text-slate-600">
+                Price
+                <input
+                  value={draft.price}
+                  onChange={handleFieldChange('price')}
+                  type="number"
+                  step="0.01"
+                  className="mt-1 w-full rounded-md border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </label>
+              <label className="text-sm font-medium text-slate-600">
+                Cost
+                <input
+                  value={draft.cost}
+                  onChange={handleFieldChange('cost')}
+                  type="number"
+                  step="0.01"
+                  className="mt-1 w-full rounded-md border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </label>
+              <label className="text-sm font-medium text-slate-600">
+                Stock
+                <input
+                  value={draft.stock}
+                  onChange={handleFieldChange('stock')}
+                  type="number"
+                  className="mt-1 w-full rounded-md border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </label>
+            </div>
+
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <div className="flex items-center gap-3 mt-2">
+                <input type="checkbox" checked={draft.trackInventory} onChange={handleFieldChange('trackInventory')} className="rounded border-slate-300 text-blue-600" />
+                <span className="text-sm font-medium text-slate-600">Track inventory</span>
+              </div>
+              {stockChanged && (
+                <div>
+                  <label className="text-sm font-medium text-slate-600">Reason for stock change (required)</label>
+                  <input type="text" value={stockReason} onChange={(e) => onStockReasonChange && onStockReasonChange(e.target.value)} placeholder="e.g. Received shipment" className="mt-1 w-full rounded-md border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                </div>
+              )}
+            </div>
+
+            <div className="mt-2 grid gap-4 md:grid-cols-3">
+              <SelectField
+                label="Category"
+                value={draft.categoryId || ''}
+                onChange={(v) => {
+                  handleFieldChange('categoryId')({ target: { value: v } });
+                  handleFieldChange('subcategoryId')({ target: { value: '' } });
+                  handleFieldChange('subsubcategoryId')({ target: { value: '' } });
+                  const found = categoryTree.find((c) => c.id === v);
+                  handleFieldChange('category')({ target: { value: found ? found.name : '' } });
+                }}
+                options={categoryTree.map((c) => ({ id: c.id, name: c.name }))}
+                placeholder="Select category"
+              />
+              <SelectField
+                label="Subcategory"
+                value={draft.subcategoryId || ''}
+                onChange={(v) => {
+                  handleFieldChange('subcategoryId')({ target: { value: v } });
+                  handleFieldChange('subsubcategoryId')({ target: { value: '' } });
+                  let name = '';
+                  for (const c of categoryTree) {
+                    const child = (c.children || []).find((ch) => ch.id === v);
+                    if (child) { name = child.name; break; }
+                  }
+                  handleFieldChange('subcategory')({ target: { value: name } });
+                }}
+                options={(() => {
+                  const parent = categoryTree.find((c) => c.id === draft.categoryId);
+                  return (parent?.children || []).map((s) => ({ id: s.id, name: s.name }));
+                })()}
+                placeholder="Select subcategory"
+                disabled={!draft.categoryId}
+              />
+              <SelectField
+                label="Sub-subcategory"
+                value={draft.subsubcategoryId || ''}
+                onChange={(v) => {
+                  handleFieldChange('subsubcategoryId')({ target: { value: v } });
+                }}
+                options={(() => {
+                  let list = [];
+                  for (const c of categoryTree) {
+                    const s = (c.children || []).find((ch) => ch.id === draft.subcategoryId);
+                    if (s) { list = s.children || []; break; }
+                  }
+                  return list.map((ss) => ({ id: ss.id, name: ss.name }));
+                })()}
+                placeholder="Select sub-subcategory"
+                disabled={!draft.subcategoryId}
+              />
+            </div>
+
+            <div className="mt-4">
+              <label className="text-sm font-medium text-slate-600">Description</label>
+              <textarea value={draft.description} onChange={handleFieldChange('description')} rows={3} className="mt-2 w-full rounded-md border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            </div>
+
+            <div className="mt-4 grid gap-4 md:grid-cols-2">
+              <div>
+                <label className="text-sm font-medium text-slate-600">SKU</label>
+                <div className="mt-1 flex gap-3">
+                  <input value={draft.sku} onChange={handleFieldChange('sku')} disabled={draft.autoSku} className="flex-1 rounded-md border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                  <label className="inline-flex items-center gap-2 text-sm">
+                    <input type="checkbox" checked={draft.autoSku} onChange={(e) => handleFieldChange('autoSku')(e)} className="rounded border-slate-300" />
+                    Auto
+                  </label>
+                </div>
+                {draft.autoSku && (<div className="text-xs text-slate-500 mt-1">Preview: {makeSku({ brandName: (lookups?.brands?.find(b => b.id === draft.brandId)?.name) || '', productName: draft.name, year: draft.year })}</div>)}
+              </div>
+
+              <div>
+                <label className="text-sm font-medium text-slate-600">Barcode</label>
+                <input value={draft.barcode} onChange={handleFieldChange('barcode')} className="mt-1 w-full rounded-md border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              </div>
+            </div>
+
+            <div className="mt-4">
+              <label className="text-sm font-medium text-slate-600">Technical details (JSON or list)</label>
+              <textarea value={draft.technicalDetails} onChange={handleFieldChange('technicalDetails')} rows={6} className="mt-2 w-full rounded-md border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder='Example: {"CPU":"i7","RAM":"16GB"}' />
+            </div>
+          </div>
+
+          {/* Right column: image + tags + preview */}
           <aside className="space-y-4">
             <div className="border rounded-lg p-4 bg-slate-50">
               <p className="text-sm font-medium text-slate-600 mb-2">Product image</p>
               {previewSrc ? (
-                <img src={previewSrc} alt={draft.name} className="w-full h-40 object-cover rounded-md border" />
+                <img src={previewSrc} alt={draft.name} className="w-full h-56 object-cover rounded-md border" />
               ) : (
-                <div className="w-full h-40 rounded-md border border-dashed flex items-center justify-center text-slate-400 text-sm">
-                  No image assigned
-                </div>
+                <div className="w-full h-56 rounded-md border border-dashed flex items-center justify-center text-slate-400 text-sm">No image assigned</div>
               )}
-              <div className="mt-3 flex flex-wrap items-center gap-2">
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept="image/*"
-                  className="hidden"
-                  onChange={(event) => {
-                    const file = event.target.files?.[0];
-                    if (file) onUploadImage(file);
-                    if (fileInputRef.current) fileInputRef.current.value = '';
-                  }}
-                />
-                <button
-                  onClick={() => fileInputRef.current?.click()}
-                  type="button"
-                  className="inline-flex items-center gap-2 rounded-md border px-3 py-2 text-sm hover:bg-slate-100"
-                  disabled={uploading}
-                >
-                  <FaUpload /> {uploading ? 'Uploading...' : 'Upload image'}
-                </button>
-                <input
-                  value={draft.imageUrl}
-                  onChange={handleFieldChange('imageUrl')}
-                  placeholder="Or paste image URL"
-                  className="flex-1 rounded border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-                {(draft.image || draft.imageUrl) && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      onChange('image', '');
-                      onChange('imageUrl', '');
-                    }}
-                    className="inline-flex items-center gap-1 rounded-md border border-red-200 px-3 py-2 text-xs text-red-600 hover:bg-red-50"
-                  >
-                    <FaTimes /> Remove
-                  </button>
-                )}
+              <div className="mt-3 flex flex-col gap-2">
+                <div className="flex gap-2">
+                  <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={(event) => { const file = event.target.files?.[0]; if (file) onUploadImage(file); if (fileInputRef.current) fileInputRef.current.value = ''; }} />
+                  <button onClick={() => fileInputRef.current?.click()} type="button" className="inline-flex items-center gap-2 rounded-md border px-3 py-2 text-sm hover:bg-slate-100" disabled={uploading}><FaUpload /> {uploading ? 'Uploading...' : 'Upload'}</button>
+                  <button type="button" onClick={() => { onChange('image', ''); onChange('imageUrl', ''); }} className="inline-flex items-center gap-1 rounded-md border border-red-200 px-3 py-2 text-sm text-red-600 hover:bg-red-50">Remove</button>
+                </div>
+                <input value={draft.imageUrl} onChange={handleFieldChange('imageUrl')} placeholder="Or paste image URL" className="rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
               </div>
             </div>
+
+            <div className="border rounded-lg p-4 bg-white">
+              <h3 className="text-sm font-semibold text-slate-700 mb-2">Tags</h3>
+              <TagChips options={lookups?.tags || []} value={draft.tags || []} onChange={(arr) => handleFieldChange('tags')({ target: { value: arr } })} onTagsChanged={onTagsChanged} />
+            </div>
+
             <div className="border rounded-lg p-4">
               <h3 className="text-sm font-semibold text-slate-700 mb-2">Technical preview</h3>
               <SpecPreview value={draft.technicalDetails} />
-              {draft.preorderEta && (
-                <div className="mt-3 text-xs text-slate-500">Preorder ETA: {draft.preorderEta}</div>
-              )}
+              {draft.preorderEta && (<div className="mt-3 text-xs text-slate-500">Preorder ETA: {draft.preorderEta}</div>)}
             </div>
           </aside>
         </div>
-        <footer className="border-t px-6 py-4 flex justify-end gap-3">
-          <button
-            onClick={onClose}
-            className="px-4 py-2 rounded-md border text-sm hover:bg-slate-100"
-            type="button"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={onSave}
-            disabled={saving}
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-md bg-blue-600 text-white text-sm hover:bg-blue-700 disabled:bg-blue-400"
-            type="button"
-          >
-            {saving ? 'Saving...' : 'Save changes'}
-          </button>
+
+        <footer className="border-t px-6 py-4 flex flex-col gap-3 sm:flex-row sm:justify-end sm:items-center">
+          <div className="flex-1 text-sm text-slate-500">{draft.id ? 'Editing product — changes saved to POS.' : 'Creating a new product.'}</div>
+          <div className="flex gap-3 justify-end">
+            <button onClick={onClose} className="px-4 py-2 rounded-md border text-sm hover:bg-slate-100" type="button">Cancel</button>
+            <button onClick={onSave} disabled={saving} className="inline-flex items-center gap-2 px-4 py-2 rounded-md bg-blue-600 text-white text-sm hover:bg-blue-700 disabled:bg-blue-400" type="button">{saving ? 'Saving...' : 'Save changes'}</button>
+          </div>
         </footer>
       </div>
     </div>
