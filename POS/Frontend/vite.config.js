@@ -4,7 +4,7 @@ import react from '@vitejs/plugin-react';
 const DEV_HOST = process.env.VITE_DEV_HOST || true;
 const DEV_PORT = Number.parseInt(process.env.VITE_DEV_PORT || '5173', 10);
 const ALLOWED_HOSTS = (process.env.VITE_ALLOWED_HOSTS ||
-  'pos.itnvend.com,localhost,127.0.0.1').split(',').map((entry) => entry.trim()).filter(Boolean);
+  'pos.itnvend.com,estore.itnvend.com,localhost,127.0.0.1').split(',').map((entry) => entry.trim()).filter(Boolean);
 const HMR_HOST = process.env.VITE_HMR_HOST || (typeof DEV_HOST === 'string' ? DEV_HOST : undefined);
 
 export default defineConfig({

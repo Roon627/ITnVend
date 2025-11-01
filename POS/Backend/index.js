@@ -85,6 +85,120 @@ app.get('/health', async (req, res) => {
 let db;
 let JWT_SECRET = null;
 
+const AUDIENCE_OPTIONS = ['men', 'women', 'unisex'];
+const DELIVERY_TYPES = ['instant_download', 'shipping', 'pickup'];
+const WARRANTY_TERMS = ['none', '1_year', 'lifetime'];
+
+const slugify = (value = '') =>
+  value
+    .toString()
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/(^-|-$)+/g, '');
+
+function normalizeEnum(value, allowed, fallback = null) {
+  if (!value) return fallback;
+  const normalized = value.toString().toLowerCase();
+  return allowed.includes(normalized) ? normalized : fallback;
+}
+
+async function fetchCategoryPath(categoryId, subcategoryId, subsubcategoryId) {
+  const ids = [categoryId, subcategoryId, subsubcategoryId].filter(Boolean);
+  if (!ids.length) {
+    return {
+      categoryName: null,
+      subcategoryName: null,
+      subsubcategoryName: null,
+    };
+  }
+
+  const placeholders = ids.map(() => '?').join(',');
+  const rows = await db.all(
+    `SELECT id, name, parent_id FROM product_categories WHERE id IN (${placeholders})`,
+    ids
+  );
+  const map = new Map(rows.map((row) => [row.id, row]));
+  return {
+    categoryName: categoryId && map.has(Number(categoryId)) ? map.get(Number(categoryId)).name : null,
+    subcategoryName: subcategoryId && map.has(Number(subcategoryId)) ? map.get(Number(subcategoryId)).name : null,
+    subsubcategoryName:
+      subsubcategoryId && map.has(Number(subsubcategoryId)) ? map.get(Number(subsubcategoryId)).name : null,
+  };
+}
+
+async function fetchBrandName(brandId) {
+  if (!brandId) return null;
+  const brand = await db.get('SELECT name FROM brands WHERE id = ?', [brandId]);
+  return brand ? brand.name : null;
+}
+
+function computeAutoSku({ brandName, productName, year }) {
+  const brandSegment = brandName
+    ? brandName
+        .split(/\s+/)
+        .map((part) => part[0])
+        .join('')
+        .slice(0, 3)
+        .toUpperCase()
+    : 'GN';
+  const productSegment = productName
+    ? productName
+        .split(/\s+/)
+        .map((part) => part[0])
+        .join('')
+        .slice(0, 4)
+        .toUpperCase()
+    : 'PRD';
+  const yearSegment = year && Number.isFinite(Number(year))
+    ? Number(year).toString().slice(-2).padStart(2, '0')
+    : new Date().getFullYear().toString().slice(-2);
+  return `${brandSegment}${productSegment}-${yearSegment}`;
+}
+
+async function ensureUniqueSku(baseSku, ignoreId = null) {
+  if (!baseSku) return null;
+  let candidate = baseSku.trim().toUpperCase();
+  let counter = 1;
+  while (true) {
+    const existing = ignoreId
+      ? await db.get('SELECT id FROM products WHERE sku = ? AND id != ?', [candidate, ignoreId])
+      : await db.get('SELECT id FROM products WHERE sku = ?', [candidate]);
+    if (!existing) return candidate;
+    candidate = `${baseSku}-${++counter}`;
+  }
+}
+
+async function syncProductTags(productId, tags = []) {
+  const numericIds = Array.from(
+    new Set(
+      (tags || [])
+        .map((tag) => (typeof tag === 'object' ? tag.id : tag))
+        .map((value) => parseInt(value, 10))
+        .filter((value) => Number.isInteger(value) && value > 0)
+    )
+  );
+
+  await db.run('DELETE FROM product_tags WHERE product_id = ?', [productId]);
+
+  if (!numericIds.length) {
+    await db.run('UPDATE products SET tags_cache = NULL WHERE id = ?', [productId]);
+    return [];
+  }
+
+  for (const tagId of numericIds) {
+    await db.run('INSERT OR IGNORE INTO product_tags (product_id, tag_id) VALUES (?, ?)', [productId, tagId]);
+  }
+
+  const placeholders = numericIds.map(() => '?').join(',');
+  const tagRows = await db.all(
+    `SELECT id, name, slug FROM tags WHERE id IN (${placeholders}) ORDER BY name`,
+    numericIds
+  );
+  await db.run('UPDATE products SET tags_cache = ? WHERE id = ?', [JSON.stringify(tagRows.map((tag) => tag.name)), productId]);
+  return tagRows;
+}
+
 async function sendNotificationEmail(subject, html, toOverride, throwOnError = false) {
     try {
         const emailCfg = await db.get('SELECT * FROM settings_email ORDER BY id DESC LIMIT 1');
@@ -605,43 +719,175 @@ app.post('/api/password-reset/confirm', async (req, res) => {
 
 // Product Routes
 app.get('/api/products', async (req, res) => {
-    const { category, subcategory, search, preorderOnly } = req.query;
+    const {
+        category,
+        subcategory,
+        search,
+        preorderOnly,
+        categoryId,
+        subcategoryId,
+        subsubcategoryId,
+        tagId,
+        tag,
+        brandId,
+        type,
+    } = req.query;
 
-    // Create cache key based on query parameters
-    const cacheKey = `products:${JSON.stringify({ category, subcategory, search, preorderOnly: preorderOnly === 'true' })}`;
+    const cacheKey = `products:${JSON.stringify({
+        category,
+        subcategory,
+        search,
+        preorderOnly: preorderOnly === 'true',
+        categoryId,
+        subcategoryId,
+        subsubcategoryId,
+        tagId,
+        tag,
+        brandId,
+        type,
+    })}`;
 
     try {
-        // Try to get from cache first
         const cachedProducts = await cacheService.get(cacheKey);
         if (cachedProducts) {
             console.log('Serving products from cache');
             return res.json(cachedProducts);
         }
 
-        // Cache miss - fetch from database
-        let query = 'SELECT * FROM products WHERE 1=1';
+        let query = `
+            SELECT
+                p.*,
+                b.name AS brand_name,
+                mat.name AS material_name,
+                col.name AS color_name,
+                cat.name AS category_name_resolved,
+                sub.name AS subcategory_name_resolved,
+                subsub.name AS subsubcategory_name_resolved
+            FROM products p
+            LEFT JOIN brands b ON p.brand_id = b.id
+            LEFT JOIN materials mat ON p.material_id = mat.id
+            LEFT JOIN colors col ON p.color_id = col.id
+            LEFT JOIN product_categories cat ON p.category_id = cat.id
+            LEFT JOIN product_categories sub ON p.subcategory_id = sub.id
+            LEFT JOIN product_categories subsub ON p.subsubcategory_id = subsub.id
+            WHERE 1=1
+        `;
         const params = [];
 
         if (category) {
-            query += ' AND category = ?';
-            params.push(category);
+            query += ' AND (p.category = ? OR (cat.name = ?))';
+            params.push(category, category);
         }
         if (subcategory) {
-            query += ' AND subcategory = ?';
-            params.push(subcategory);
+            query += ' AND (p.subcategory = ? OR (sub.name = ?))';
+            params.push(subcategory, subcategory);
+        }
+        if (categoryId) {
+            query += ' AND p.category_id = ?';
+            params.push(categoryId);
+        }
+        if (subcategoryId) {
+            query += ' AND p.subcategory_id = ?';
+            params.push(subcategoryId);
+        }
+        if (subsubcategoryId) {
+            query += ' AND p.subsubcategory_id = ?';
+            params.push(subsubcategoryId);
+        }
+        if (brandId) {
+            query += ' AND p.brand_id = ?';
+            params.push(brandId);
+        }
+        if (type) {
+            query += ' AND p.type = ?';
+            params.push(type);
         }
         if (search) {
-            query += ' AND name LIKE ?';
-            params.push(`%${search}%`);
+            query += ' AND (p.name LIKE ? OR p.description LIKE ? OR p.short_description LIKE ? OR p.sku LIKE ?)';
+            params.push(`%${search}%`, `%${search}%`, `%${search}%`, `%${search}%`);
         }
         if (preorderOnly === 'true') {
-            query += ' AND preorder_enabled = 1';
+            query += ' AND p.preorder_enabled = 1';
+        }
+        if (tagId) {
+            query += ' AND EXISTS (SELECT 1 FROM product_tags pt WHERE pt.product_id = p.id AND pt.tag_id = ?)';
+            params.push(tagId);
+        } else if (tag) {
+            query += `
+                AND EXISTS (
+                    SELECT 1 FROM product_tags pt
+                    INNER JOIN tags t ON t.id = pt.tag_id
+                    WHERE pt.product_id = p.id AND (t.slug = ? OR t.name = ?)
+                )
+            `;
+            params.push(slugify(tag), tag);
         }
 
-        const products = await db.all(query, params);
+        query += ' ORDER BY p.name COLLATE NOCASE';
 
-        // Cache the result for 5 minutes
-        await cacheService.set(cacheKey, products, 300);
+        const productRows = await db.all(query, params);
+
+        const productIds = productRows.map((row) => row.id);
+        let tagsByProduct = {};
+        if (productIds.length) {
+            const placeholders = productIds.map(() => '?').join(',');
+            const tagRows = await db.all(
+                `SELECT pt.product_id, t.id, t.name, t.slug
+                 FROM product_tags pt
+                 INNER JOIN tags t ON t.id = pt.tag_id
+                 WHERE pt.product_id IN (${placeholders})
+                 ORDER BY t.name`,
+                productIds
+            );
+            tagsByProduct = tagRows.reduce((acc, row) => {
+                if (!acc[row.product_id]) acc[row.product_id] = [];
+                acc[row.product_id].push({ id: row.id, name: row.name, slug: row.slug });
+                return acc;
+            }, {});
+        }
+
+        const products = productRows.map((row) => ({
+            id: row.id,
+            name: row.name,
+            price: row.price,
+            stock: row.stock,
+            category: row.category,
+            subcategory: row.subcategory,
+            image: row.image,
+            image_source: row.image_source,
+            description: row.description,
+            technical_details: row.technical_details,
+            sku: row.sku,
+            barcode: row.barcode,
+            cost: row.cost,
+            track_inventory: row.track_inventory,
+            preorder_enabled: row.preorder_enabled,
+            preorder_release_date: row.preorder_release_date,
+            preorder_notes: row.preorder_notes,
+            short_description: row.short_description,
+            type: row.type,
+            brand_id: row.brand_id,
+            brand_name: row.brand_name,
+            category_id: row.category_id,
+            category_name: row.category_name_resolved || row.category,
+            subcategory_id: row.subcategory_id,
+            subcategory_name: row.subcategory_name_resolved || row.subcategory,
+            subsubcategory_id: row.subsubcategory_id,
+            subsubcategory_name: row.subsubcategory_name_resolved || null,
+            material_id: row.material_id,
+            material_name: row.material_name,
+            color_id: row.color_id,
+            color_name: row.color_name,
+            audience: row.audience,
+            delivery_type: row.delivery_type,
+            warranty_term: row.warranty_term,
+            preorder_eta: row.preorder_eta,
+            year: row.year,
+            auto_sku: row.auto_sku,
+            tags: tagsByProduct[row.id] || [],
+        }));
+
+        await cacheService.set(cacheKey, products, 180);
 
         res.json(products);
     } catch (err) {
@@ -651,29 +897,99 @@ app.get('/api/products', async (req, res) => {
 
 app.get('/api/products/categories', async (req, res) => {
     try {
-        // Try to get from cache first
         const cachedCategories = await cacheService.getCategories();
         if (cachedCategories) {
             console.log('Serving product categories from cache');
             return res.json(cachedCategories);
         }
 
-        // Cache miss - fetch from database
-        const categories = await db.all('SELECT DISTINCT category, subcategory FROM products ORDER BY category, subcategory');
-        const categoryMap = categories.reduce((acc, { category, subcategory }) => {
-            if (!acc[category]) {
-                acc[category] = [];
-            }
-            if (subcategory) {
-                acc[category].push(subcategory);
-            }
-            return acc;
-        }, {});
+        const rows = await db.all(
+            'SELECT id, name, parent_id FROM product_categories WHERE is_active = 1 ORDER BY parent_id IS NULL DESC, name'
+        );
 
-        // Cache the result for 10 minutes (categories change less frequently)
+        const roots = rows.filter((row) => row.parent_id == null);
+        const categoryMap = {};
+        for (const root of roots) {
+            categoryMap[root.name] = rows
+                .filter((row) => row.parent_id === root.id)
+                .map((row) => row.name)
+                .sort((a, b) => a.localeCompare(b));
+        }
+
         await cacheService.setCategories(categoryMap, 600);
 
         res.json(categoryMap);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.get('/api/categories/tree', authMiddleware, async (req, res) => {
+    try {
+        const cachedTree = await cacheService.getCategoriesTree();
+        if (cachedTree) {
+            console.log('Serving category tree from cache');
+            return res.json(cachedTree);
+        }
+
+        const rows = await db.all(
+            'SELECT id, name, slug, parent_id FROM product_categories WHERE is_active = 1 ORDER BY name'
+        );
+        const nodeMap = new Map(
+            rows.map((row) => [row.id, { id: row.id, name: row.name, slug: row.slug, parent_id: row.parent_id, children: [] }])
+        );
+
+        const roots = [];
+        nodeMap.forEach((node) => {
+            if (node.parent_id && nodeMap.has(node.parent_id)) {
+                nodeMap.get(node.parent_id).children.push(node);
+            } else {
+                roots.push(node);
+            }
+        });
+
+        const sortNodes = (nodes) => {
+            nodes.sort((a, b) => a.name.localeCompare(b.name));
+            nodes.forEach((child) => sortNodes(child.children));
+        };
+        sortNodes(roots);
+
+        await cacheService.setCategoriesTree(roots, 600);
+
+        res.json(roots);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.get('/api/lookups', authMiddleware, async (req, res) => {
+    try {
+        const cached = await cacheService.getLookups();
+        if (cached) {
+            console.log('Serving product lookups from cache');
+            return res.json(cached);
+        }
+
+        const [brands, materials, colors, tags] = await Promise.all([
+            db.all('SELECT id, name FROM brands ORDER BY name'),
+            db.all('SELECT id, name FROM materials ORDER BY name'),
+            db.all('SELECT id, name, hex FROM colors ORDER BY name'),
+            db.all('SELECT id, name, slug FROM tags ORDER BY name'),
+        ]);
+
+        const payload = {
+            brands,
+            materials,
+            colors,
+            tags,
+            audiences: AUDIENCE_OPTIONS,
+            deliveryTypes: DELIVERY_TYPES,
+            warrantyTerms: WARRANTY_TERMS,
+        };
+
+        await cacheService.setLookups(payload, 600);
+
+        res.json(payload);
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
@@ -718,86 +1034,191 @@ app.post('/api/products', authMiddleware, requireRole('cashier'), async (req, re
         name,
         price,
         stock,
-        category,
-        subcategory,
-        image,
-        imageUrl,
+        categoryId,
+        subcategoryId,
+        subsubcategoryId,
+        brandId,
+        shortDescription,
         description,
         technicalDetails,
+        type,
+        image,
+        imageUrl,
         sku,
+        autoSku = true,
         barcode,
         cost,
         trackInventory = true,
         availableForPreorder = false,
         preorderReleaseDate,
-        preorderNotes
+        preorderNotes,
+        preorderEta,
+        tags = [],
+        materialId,
+        colorId,
+        audience,
+        deliveryType,
+        warrantyTerm,
+        year,
+        category,
+        subcategory,
     } = req.body;
+
     if (!name || price == null) return res.status(400).json({ error: 'Missing fields' });
-    const normalizedStock = Number.isFinite(stock) ? stock : parseInt(stock || '0', 10) || 0;
+
     const normalizedPrice = parseFloat(price);
-    const normalizedCost = cost != null ? parseFloat(cost) : 0;
+    if (!Number.isFinite(normalizedPrice)) return res.status(400).json({ error: 'Invalid price value' });
+    const normalizedStock = Number.isFinite(stock) ? stock : parseInt(stock || '0', 10) || 0;
+    const normalizedCost = cost != null ? parseFloat(cost) || 0 : 0;
     const normalizedTrack = trackInventory === false || trackInventory === 0 ? 0 : 1;
-    const trimmedSku = sku?.trim() || null;
-    const trimmedBarcode = barcode?.trim() || null;
     const storedImage = image?.trim() || null;
     const storedImageSource = imageUrl?.trim() || null;
     const technical = technicalDetails || null;
+    const normalizedType = type === 'digital' ? 'digital' : 'physical';
+    const normalizedAudience = normalizeEnum(audience, AUDIENCE_OPTIONS);
+    const normalizedDelivery = normalizeEnum(deliveryType, DELIVERY_TYPES);
+    const normalizedWarranty = normalizeEnum(warrantyTerm, WARRANTY_TERMS);
+    const normalizedEta = preorderEta && preorderEta.toString().trim() ? preorderEta.toString().trim() : null;
+    const normalizedYear = year != null && year !== '' ? parseInt(year, 10) : null;
+    const normalizedAutoSku = autoSku === false || autoSku === 0 ? 0 : 1;
     const preorderEnabled = availableForPreorder ? 1 : 0;
     const preorderDate = typeof preorderReleaseDate === 'string' && preorderReleaseDate.trim() ? preorderReleaseDate.trim() : null;
     const preorderMessage = typeof preorderNotes === 'string' && preorderNotes.trim() ? preorderNotes.trim() : null;
-    // server-side SKU uniqueness and barcode validation
-    try {
-        if (trimmedSku) {
-            const ex = await db.get('SELECT id FROM products WHERE sku = ?', [trimmedSku]);
-            if (ex) return res.status(409).json({ error: 'SKU already in use' });
-        }
-        if (trimmedBarcode) {
-            if (!/^[0-9]{8,13}$/.test(String(trimmedBarcode))) return res.status(400).json({ error: 'Invalid barcode format (8-13 digits expected)' });
-        }
-    } catch (e) {
-        // continue; validation non-blocking if DB read fails
+    const brandIdInt = brandId ? parseInt(brandId, 10) : null;
+    const materialIdInt = materialId ? parseInt(materialId, 10) : null;
+    const colorIdInt = colorId ? parseInt(colorId, 10) : null;
+
+    let resolvedCategoryId = categoryId ? parseInt(categoryId, 10) : null;
+    let resolvedSubcategoryId = subcategoryId ? parseInt(subcategoryId, 10) : null;
+    let resolvedSubsubcategoryId = subsubcategoryId ? parseInt(subsubcategoryId, 10) : null;
+
+    if (!resolvedCategoryId && category) {
+        const existingCategory = await db.get('SELECT id FROM product_categories WHERE name = ?', [category]);
+        if (existingCategory) resolvedCategoryId = existingCategory.id;
     }
+    if (!resolvedSubcategoryId && subcategory) {
+        const existingSubcategory = await db.get('SELECT id, parent_id FROM product_categories WHERE name = ?', [subcategory]);
+        if (existingSubcategory) {
+            resolvedSubcategoryId = existingSubcategory.id;
+            if (!resolvedCategoryId) resolvedCategoryId = existingSubcategory.parent_id;
+        }
+    }
+
+    const { categoryName, subcategoryName, subsubcategoryName } = await fetchCategoryPath(
+        resolvedCategoryId,
+        resolvedSubcategoryId,
+        resolvedSubsubcategoryId
+    );
+
+    const trimmedBarcode = barcode?.trim() || null;
+    if (trimmedBarcode && !/^[0-9]{8,13}$/.test(trimmedBarcode)) {
+        return res.status(400).json({ error: 'Invalid barcode format (8-13 digits expected)' });
+    }
+
+    const brandName = await fetchBrandName(brandIdInt);
+    let finalSku = sku?.trim() || null;
+    if ((!finalSku || normalizedAutoSku) && name) {
+        const computedSku = computeAutoSku({
+            brandName: brandName || name,
+            productName: name,
+            year: normalizedYear || new Date().getFullYear(),
+        });
+        finalSku = await ensureUniqueSku(computedSku);
+    } else if (finalSku) {
+        const existingSku = await db.get('SELECT id FROM products WHERE sku = ?', [finalSku]);
+        if (existingSku) return res.status(409).json({ error: 'SKU already in use' });
+    }
+
     try {
-        const result = await db.run(
-            `INSERT INTO products (name, price, stock, category, subcategory, image, image_source, description, technical_details, sku, barcode, cost, track_inventory, preorder_enabled, preorder_release_date, preorder_notes)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        const { lastID } = await db.run(
+            `INSERT INTO products (
+                name, price, stock, category, subcategory,
+                image, image_source, description, technical_details,
+                sku, barcode, cost, track_inventory, preorder_enabled,
+                preorder_release_date, preorder_notes, short_description, type,
+                brand_id, category_id, subcategory_id, subsubcategory_id,
+                material_id, color_id, audience, delivery_type, warranty_term,
+                preorder_eta, year, auto_sku
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             [
                 name,
                 normalizedPrice,
                 normalizedStock,
-                category || null,
-                subcategory || null,
+                categoryName || category || null,
+                subcategoryName || subcategory || null,
                 storedImage,
                 storedImageSource,
                 description || null,
                 technical,
-                trimmedSku,
+                finalSku || null,
                 trimmedBarcode,
                 normalizedCost,
                 normalizedTrack,
                 preorderEnabled,
                 preorderDate,
-                preorderMessage
+                preorderMessage,
+                shortDescription ? shortDescription.trim() : null,
+                normalizedType,
+                brandIdInt,
+                resolvedCategoryId,
+                resolvedSubcategoryId,
+                resolvedSubsubcategoryId,
+                materialIdInt,
+                colorIdInt,
+                normalizedAudience,
+                normalizedDelivery,
+                normalizedWarranty,
+                normalizedEta,
+                normalizedYear,
+                normalizedAutoSku,
             ]
         );
-        const product = await db.get('SELECT * FROM products WHERE id = ?', [result.lastID]);
-        await logActivity('product', result.lastID, 'create', req.user?.username, JSON.stringify(product));
-        await queueNotification({
-            staffId: null,
-            username: null,
-            title: 'New product added',
-            message: preorderEnabled
-                ? `${name} is now available for preorder${normalizedStock <= 5 ? ` (current stock: ${normalizedStock})` : ''}`
-                : `${name} is now available${normalizedStock <= 5 ? ` (low stock: ${normalizedStock})` : ''}`,
-            type: preorderEnabled ? 'info' : (normalizedStock <= 5 ? 'warning' : 'info'),
-            metadata: { productId: result.lastID }
-        });
 
-        // Invalidate product caches
+        const tagRows = await syncProductTags(lastID, tags);
+
         await cacheService.invalidateProducts();
+        await cacheService.invalidateProduct(lastID);
         await cacheService.invalidateCategories();
+        await cacheService.invalidateCategoriesTree();
+        await cacheService.invalidateLookups();
 
-        res.status(201).json(product);
+        res.status(201).json({
+            id: lastID,
+            name,
+            price: normalizedPrice,
+            stock: normalizedStock,
+            category: categoryName || category || null,
+            subcategory: subcategoryName || subcategory || null,
+            subsubcategory_name: subsubcategoryName,
+            category_id: resolvedCategoryId,
+            subcategory_id: resolvedSubcategoryId,
+            subsubcategory_id: resolvedSubsubcategoryId,
+            image: storedImage,
+            image_source: storedImageSource,
+            description: description || null,
+            technical_details: technical,
+            sku: finalSku || null,
+            barcode: trimmedBarcode,
+            cost: normalizedCost,
+            track_inventory: normalizedTrack,
+            preorder_enabled: preorderEnabled,
+            preorder_release_date: preorderDate,
+            preorder_notes: preorderMessage,
+            short_description: shortDescription ? shortDescription.trim() : null,
+            type: normalizedType,
+            brand_id: brandIdInt,
+            brand_name: brandName,
+            material_id: materialIdInt,
+            color_id: colorIdInt,
+            audience: normalizedAudience,
+            delivery_type: normalizedDelivery,
+            warranty_term: normalizedWarranty,
+            preorder_eta: normalizedEta,
+            year: normalizedYear,
+            auto_sku: normalizedAutoSku,
+            tags: tagRows,
+        });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
@@ -809,129 +1230,245 @@ app.put('/api/products/:id', authMiddleware, requireRole('cashier'), async (req,
         name,
         price,
         stock,
-        category,
-        subcategory,
-        image,
-        imageUrl,
+        categoryId,
+        subcategoryId,
+        subsubcategoryId,
+        brandId,
+        shortDescription,
         description,
         technicalDetails,
+        type,
+        image,
+        imageUrl,
         sku,
+        autoSku,
         barcode,
         cost,
-        trackInventory = true,
+        trackInventory,
         availableForPreorder,
         preorderReleaseDate,
-        preorderNotes
+        preorderNotes,
+        preorderEta,
+        tags,
+        materialId,
+        colorId,
+        audience,
+        deliveryType,
+        warrantyTerm,
+        year,
+        category,
+        subcategory,
     } = req.body;
+
     try {
-        const product = await db.get('SELECT * FROM products WHERE id = ?', [id]);
-        if (!product) return res.status(404).json({ error: 'Product not found' });
+        const existing = await db.get('SELECT * FROM products WHERE id = ?', [id]);
+        if (!existing) return res.status(404).json({ error: 'Product not found' });
 
-        const normalizedStock = Number.isFinite(stock) ? stock : parseInt(stock ?? product.stock ?? 0, 10) || 0;
-        const normalizedPrice = price != null ? parseFloat(price) : product.price;
-        const normalizedCost = cost != null ? parseFloat(cost) : product.cost ?? 0;
-        const normalizedTrack = trackInventory === false || trackInventory === 0 ? 0 : 1;
-        const trimmedSku = sku?.trim() || null;
-        const trimmedBarcode = barcode?.trim() || null;
-        const storedImage = image != null ? (image.trim() || null) : (product.image ?? null);
-        const storedImageSource = imageUrl != null ? (imageUrl.trim() || null) : (product.image_source ?? null);
-        const technical = technicalDetails != null ? technicalDetails : product.technical_details;
-        const preorderEnabled = typeof availableForPreorder === 'boolean'
-            ? (availableForPreorder ? 1 : 0)
-            : (product.preorder_enabled ?? 0);
-        const preorderDate = preorderReleaseDate !== undefined
-            ? (typeof preorderReleaseDate === 'string' && preorderReleaseDate.trim() ? preorderReleaseDate.trim() : null)
-            : (product.preorder_release_date ?? null);
-        const preorderMessage = preorderNotes !== undefined
-            ? (typeof preorderNotes === 'string' && preorderNotes.trim() ? preorderNotes.trim() : null)
-            : (product.preorder_notes ?? null);
+        const updatedName = name != null ? name : existing.name;
+        const normalizedPrice = price != null ? parseFloat(price) : existing.price;
+        if (!Number.isFinite(normalizedPrice)) return res.status(400).json({ error: 'Invalid price value' });
+        const normalizedStock = stock != null ? (Number.isFinite(stock) ? stock : parseInt(stock || '0', 10) || 0) : (existing.stock ?? 0);
+        const normalizedCost = cost != null ? parseFloat(cost) || 0 : (existing.cost ?? 0);
+        const normalizedTrack = trackInventory != null ? (trackInventory === false || trackInventory === 0 ? 0 : 1) : (existing.track_inventory ?? 1);
+        const normalizedType = type != null ? (type === 'digital' ? 'digital' : 'physical') : (existing.type || 'physical');
+        const normalizedAudience = audience !== undefined ? normalizeEnum(audience, AUDIENCE_OPTIONS) : existing.audience;
+        const normalizedDelivery = deliveryType !== undefined ? normalizeEnum(deliveryType, DELIVERY_TYPES) : existing.delivery_type;
+        const normalizedWarranty = warrantyTerm !== undefined ? normalizeEnum(warrantyTerm, WARRANTY_TERMS) : existing.warranty_term;
+        const normalizedEta = preorderEta !== undefined ? (preorderEta && preorderEta.toString().trim() ? preorderEta.toString().trim() : null) : existing.preorder_eta;
+        let normalizedYear = existing.year ?? null;
+        if (year !== undefined) {
+            if (year === null || year === '') {
+                normalizedYear = null;
+            } else {
+                const parsedYear = parseInt(year, 10);
+                normalizedYear = Number.isFinite(parsedYear) ? parsedYear : null;
+            }
+        }
 
-        // server-side SKU uniqueness & barcode validation for updates
-        if (trimmedSku) {
-            const ex = await db.get('SELECT id FROM products WHERE sku = ? AND id != ?', [trimmedSku, id]);
-            if (ex) return res.status(409).json({ error: 'SKU already in use by another product' });
+        const brandIdInt = brandId !== undefined ? (brandId ? parseInt(brandId, 10) : null) : (existing.brand_id ?? null);
+        const materialIdInt = materialId !== undefined ? (materialId ? parseInt(materialId, 10) : null) : (existing.material_id ?? null);
+        const colorIdInt = colorId !== undefined ? (colorId ? parseInt(colorId, 10) : null) : (existing.color_id ?? null);
+
+        let resolvedCategoryId = categoryId !== undefined ? (categoryId ? parseInt(categoryId, 10) : null) : (existing.category_id ?? null);
+        let resolvedSubcategoryId = subcategoryId !== undefined ? (subcategoryId ? parseInt(subcategoryId, 10) : null) : (existing.subcategory_id ?? null);
+        let resolvedSubsubcategoryId = subsubcategoryId !== undefined ? (subsubcategoryId ? parseInt(subsubcategoryId, 10) : null) : (existing.subsubcategory_id ?? null);
+
+        if (!resolvedCategoryId && category) {
+            const existingCategory = await db.get('SELECT id FROM product_categories WHERE name = ?', [category]);
+            if (existingCategory) resolvedCategoryId = existingCategory.id;
         }
-        if (trimmedBarcode) {
-            if (!/^[0-9]{8,13}$/.test(String(trimmedBarcode))) return res.status(400).json({ error: 'Invalid barcode format (8-13 digits expected)' });
+        if (!resolvedSubcategoryId && subcategory) {
+            const existingSubcategory = await db.get('SELECT id, parent_id FROM product_categories WHERE name = ?', [subcategory]);
+            if (existingSubcategory) {
+                resolvedSubcategoryId = existingSubcategory.id;
+                if (!resolvedCategoryId) resolvedCategoryId = existingSubcategory.parent_id;
+            }
         }
+
+        const { categoryName, subcategoryName, subsubcategoryName } = await fetchCategoryPath(
+            resolvedCategoryId,
+            resolvedSubcategoryId,
+            resolvedSubsubcategoryId
+        );
+
+        const storedImage = image !== undefined ? (image ? image.trim() : null) : existing.image;
+        const storedImageSource = imageUrl !== undefined ? (imageUrl ? imageUrl.trim() : null) : existing.image_source;
+        const descriptionValue = description !== undefined ? description : existing.description;
+        const technicalValue = technicalDetails !== undefined ? technicalDetails : existing.technical_details;
+        const shortDescriptionValue = shortDescription !== undefined ? (shortDescription ? shortDescription.trim() : null) : existing.short_description;
+
+        const trimmedBarcode = barcode !== undefined ? (barcode ? barcode.trim() : null) : (existing.barcode || null);
+        if (trimmedBarcode && !/^[0-9]{8,13}$/.test(trimmedBarcode)) {
+            return res.status(400).json({ error: 'Invalid barcode format (8-13 digits expected)' });
+        }
+
+        const preorderEnabledValue = availableForPreorder !== undefined ? (availableForPreorder ? 1 : 0) : (existing.preorder_enabled ?? 0);
+        const preorderDateValue = preorderReleaseDate !== undefined ? (preorderReleaseDate && preorderReleaseDate.trim() ? preorderReleaseDate.trim() : null) : (existing.preorder_release_date ?? null);
+        const preorderMessageValue = preorderNotes !== undefined ? (preorderNotes && preorderNotes.trim() ? preorderNotes.trim() : null) : (existing.preorder_notes ?? null);
+
+        const autoFlag = autoSku !== undefined ? (autoSku ? 1 : 0) : (existing.auto_sku ?? 1);
+        const brandName = await fetchBrandName(brandIdInt);
+        let finalSku = sku !== undefined ? (sku ? sku.trim() : null) : (existing.sku ?? null);
+        if (autoFlag) {
+            const computedSku = computeAutoSku({
+                brandName: brandName || updatedName,
+                productName: updatedName,
+                year: normalizedYear || new Date().getFullYear(),
+            });
+            finalSku = await ensureUniqueSku(computedSku, id);
+        } else if (finalSku && finalSku !== existing.sku) {
+            const existingSku = await db.get('SELECT id FROM products WHERE sku = ? AND id != ?', [finalSku, id]);
+            if (existingSku) return res.status(409).json({ error: 'SKU already in use' });
+        }
+
         await db.run(
-            `UPDATE products
-             SET name = ?, price = ?, stock = ?, category = ?, subcategory = ?, image = ?, image_source = ?, description = ?, technical_details = ?, sku = ?, barcode = ?, cost = ?, track_inventory = ?, preorder_enabled = ?, preorder_release_date = ?, preorder_notes = ?
+            `UPDATE products SET
+                name = ?,
+                price = ?,
+                stock = ?,
+                category = ?,
+                subcategory = ?,
+                image = ?,
+                image_source = ?,
+                description = ?,
+                technical_details = ?,
+                sku = ?,
+                barcode = ?,
+                cost = ?,
+                track_inventory = ?,
+                preorder_enabled = ?,
+                preorder_release_date = ?,
+                preorder_notes = ?,
+                short_description = ?,
+                type = ?,
+                brand_id = ?,
+                category_id = ?,
+                subcategory_id = ?,
+                subsubcategory_id = ?,
+                material_id = ?,
+                color_id = ?,
+                audience = ?,
+                delivery_type = ?,
+                warranty_term = ?,
+                preorder_eta = ?,
+                year = ?,
+                auto_sku = ?
              WHERE id = ?`,
             [
-                name ?? product.name,
+                updatedName,
                 normalizedPrice,
                 normalizedStock,
-                category ?? product.category,
-                subcategory ?? product.subcategory,
+                categoryName || category || existing.category || null,
+                subcategoryName || subcategory || existing.subcategory || null,
                 storedImage,
                 storedImageSource,
-                description ?? product.description,
-                technical,
-                trimmedSku,
+                descriptionValue,
+                technicalValue,
+                finalSku,
                 trimmedBarcode,
                 normalizedCost,
                 normalizedTrack,
-                preorderEnabled,
-                preorderDate,
-                preorderMessage,
-                id
+                preorderEnabledValue,
+                preorderDateValue,
+                preorderMessageValue,
+                shortDescriptionValue,
+                normalizedType,
+                brandIdInt,
+                resolvedCategoryId,
+                resolvedSubcategoryId,
+                resolvedSubsubcategoryId,
+                materialIdInt,
+                colorIdInt,
+                normalizedAudience,
+                normalizedDelivery,
+                normalizedWarranty,
+                normalizedEta,
+                normalizedYear,
+                autoFlag,
+                id,
             ]
         );
-        // If stock changed as part of this update, record a stock_adjustments audit entry
-        try {
-            const prevStock = Number(product.stock || 0);
-            if (Number(normalizedStock) !== prevStock) {
-                const delta = Number(normalizedStock) - prevStock;
-                await db.run(
-                    'INSERT INTO stock_adjustments (product_id, staff_id, username, delta, new_stock, reason) VALUES (?, ?, ?, ?, ?, ?)',
-                    [id, req.user?.staffId || null, req.user?.username || null, delta, Number(normalizedStock), 'updated via product edit']
-                );
-                await logActivity('product', id, 'adjust_stock', req.user?.username, JSON.stringify({ prev: prevStock, next: normalizedStock, delta }));
-            }
-        } catch (e) {
-            console.warn('Failed to record stock adjustment during product update', e?.message || e);
-        }
-        const updated = await db.get('SELECT * FROM products WHERE id = ?', [id]);
-        await logActivity('product', id, 'update', req.user?.username, JSON.stringify(updated));
-        if (normalizedStock <= 5) {
-            await queueNotification({
-                staffId: null,
-                username: null,
-                title: 'Low stock warning',
-                message: `${updated.name} is running low (${normalizedStock} left)`,
-                type: 'warning',
-                metadata: { productId: Number(id) }
-            });
-        }
-        res.json(updated);
 
-        // Invalidate product caches
+        let tagRows;
+        if (Array.isArray(tags)) {
+            tagRows = await syncProductTags(id, tags);
+        } else {
+            tagRows = await db.all(
+                `SELECT t.id, t.name, t.slug
+                 FROM product_tags pt
+                 INNER JOIN tags t ON t.id = pt.tag_id
+                 WHERE pt.product_id = ?
+                 ORDER BY t.name`,
+                [id]
+            );
+        }
+
+        await cacheService.invalidateProduct(id);
         await cacheService.invalidateProducts();
         await cacheService.invalidateCategories();
+        await cacheService.invalidateCategoriesTree();
+        await cacheService.invalidateLookups();
 
-        // WebSocket broadcast for real-time updates
-        try {
-            const wsService = getWebSocketService();
-            if (normalizedStock !== Number(product.stock || 0)) {
-                wsService.notifyStockChange(id, {
-                    productId: id,
-                    productName: updated.name,
-                    previousStock: Number(product.stock || 0),
-                    newStock: normalizedStock,
-                    delta: normalizedStock - Number(product.stock || 0),
-                    updatedBy: req.user?.username || 'system'
-                });
-            }
-            wsService.notifyCustomerUpdate({ type: 'product_updated', product: updated });
-        } catch (wsErr) {
-            console.warn('WebSocket broadcast failed:', wsErr.message);
-        }
+        res.json({
+            id: Number(id),
+            name: updatedName,
+            price: normalizedPrice,
+            stock: normalizedStock,
+            category: categoryName || category || existing.category || null,
+            subcategory: subcategoryName || subcategory || existing.subcategory || null,
+            subsubcategory_name: subsubcategoryName || null,
+            category_id: resolvedCategoryId,
+            subcategory_id: resolvedSubcategoryId,
+            subsubcategory_id: resolvedSubsubcategoryId,
+            image: storedImage,
+            image_source: storedImageSource,
+            description: descriptionValue,
+            technical_details: technicalValue,
+            sku: finalSku,
+            barcode: trimmedBarcode,
+            cost: normalizedCost,
+            track_inventory: normalizedTrack,
+            preorder_enabled: preorderEnabledValue,
+            preorder_release_date: preorderDateValue,
+            preorder_notes: preorderMessageValue,
+            short_description: shortDescriptionValue,
+            type: normalizedType,
+            brand_id: brandIdInt,
+            brand_name: brandName,
+            material_id: materialIdInt,
+            color_id: colorIdInt,
+            audience: normalizedAudience,
+            delivery_type: normalizedDelivery,
+            warranty_term: normalizedWarranty,
+            preorder_eta: normalizedEta,
+            year: normalizedYear,
+            auto_sku: autoFlag,
+            tags: tagRows,
+        });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
 });
-
 app.post('/api/products/bulk-import', authMiddleware, requireRole('manager'), async (req, res) => {
     const { products: incomingProducts } = req.body || {};
     if (!Array.isArray(incomingProducts) || incomingProducts.length === 0) {

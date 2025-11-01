@@ -12,7 +12,19 @@ const EMPTY_FORM = {
   stock: '',
   category: '',
   subcategory: '',
+  categoryId: '',
+  subcategoryId: '',
+  subsubcategoryId: '',
+  type: 'physical',
+  brandId: '',
+  materialId: '',
+  colorId: '',
+  audience: '',
+  deliveryType: '',
+  warrantyTerm: '',
+  shortDescription: '',
   sku: '',
+  autoSku: true,
   barcode: '',
   cost: '',
   image: '',
@@ -23,6 +35,9 @@ const EMPTY_FORM = {
   availableForPreorder: false,
   preorderReleaseDate: '',
   preorderNotes: '',
+  preorderEta: '',
+  tags: [],
+  year: '',
 };
 
 function normalizeKey(key) {
@@ -130,6 +145,25 @@ function mapCsvRowToProduct(row) {
   if (!product.name) issues.push('Missing name');
   if (!Number.isFinite(product.price)) issues.push('Missing price');
   return { product, valid, issues, source: row };
+}
+
+function computeAutoSkuPreview(brandName = '', productName = '', year) {
+  const brandSegment = (brandName || 'GN')
+    .split(/\s+/)
+    .map((part) => part.charAt(0))
+    .join('')
+    .slice(0, 3)
+    .toUpperCase() || 'GN';
+  const nameSegment = (productName || 'Product')
+    .split(/\s+/)
+    .map((part) => part.charAt(0))
+    .join('')
+    .slice(0, 4)
+    .toUpperCase() || 'PRD';
+  const yearSegment = year && Number.isFinite(Number(year))
+    ? Number(year).toString().slice(-2).padStart(2, '0')
+    : new Date().getFullYear().toString().slice(-2);
+  return `${brandSegment}${nameSegment}-${yearSegment}`;
 }
 
 function TechnicalDetailsPreview({ value }) {

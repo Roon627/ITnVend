@@ -22,6 +22,9 @@ export async function setupDatabase() {
         driver: sqlite3.Database
     });
 
+    // Ensure foreign keys are enforced (SQLite requires pragma)
+    await db.exec('PRAGMA foreign_keys = ON;');
+
     await db.exec(`
         -- Products
         CREATE TABLE IF NOT EXISTS products (
@@ -120,6 +123,49 @@ export async function setupDatabase() {
             smtp_port INTEGER,
             smtp_user TEXT,
             smtp_pass TEXT
+        );
+
+        CREATE TABLE IF NOT EXISTS product_categories (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            slug TEXT NOT NULL UNIQUE,
+            parent_id INTEGER REFERENCES product_categories(id) ON DELETE CASCADE,
+            level INTEGER DEFAULT 0,
+            is_active INTEGER DEFAULT 1
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_product_categories_parent ON product_categories(parent_id);
+        CREATE INDEX IF NOT EXISTS idx_product_categories_slug ON product_categories(slug);
+
+        CREATE TABLE IF NOT EXISTS brands (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL UNIQUE,
+            description TEXT
+        );
+
+        CREATE TABLE IF NOT EXISTS materials (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL UNIQUE
+        );
+
+        CREATE TABLE IF NOT EXISTS colors (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL UNIQUE,
+            hex TEXT
+        );
+
+        CREATE TABLE IF NOT EXISTS tags (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL UNIQUE,
+            slug TEXT NOT NULL UNIQUE
+        );
+
+        CREATE TABLE IF NOT EXISTS product_tags (
+            product_id INTEGER NOT NULL,
+            tag_id INTEGER NOT NULL,
+            PRIMARY KEY (product_id, tag_id),
+            FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE,
+            FOREIGN KEY (tag_id) REFERENCES tags(id) ON DELETE CASCADE
         );
 
 
@@ -509,7 +555,97 @@ export async function setupDatabase() {
     await ensureColumn(db, 'products', 'preorder_enabled', 'INTEGER DEFAULT 0');
     await ensureColumn(db, 'products', 'preorder_release_date', 'TEXT');
     await ensureColumn(db, 'products', 'preorder_notes', 'TEXT');
+    await ensureColumn(db, 'products', 'short_description', 'TEXT');
+    await ensureColumn(db, 'products', 'type', 'TEXT');
+    await ensureColumn(db, 'products', 'brand_id', 'INTEGER');
+    await ensureColumn(db, 'products', 'category_id', 'INTEGER');
+    await ensureColumn(db, 'products', 'subcategory_id', 'INTEGER');
+    await ensureColumn(db, 'products', 'subsubcategory_id', 'INTEGER');
+    await ensureColumn(db, 'products', 'material_id', 'INTEGER');
+    await ensureColumn(db, 'products', 'color_id', 'INTEGER');
+    await ensureColumn(db, 'products', 'audience', 'TEXT');
+    await ensureColumn(db, 'products', 'delivery_type', 'TEXT');
+    await ensureColumn(db, 'products', 'warranty_term', 'TEXT');
+    await ensureColumn(db, 'products', 'preorder_eta', 'TEXT');
+    await ensureColumn(db, 'products', 'year', 'INTEGER');
+    await ensureColumn(db, 'products', 'auto_sku', 'INTEGER DEFAULT 1');
+    await ensureColumn(db, 'products', 'tags_cache', 'TEXT');
     await db.run('CREATE UNIQUE INDEX IF NOT EXISTS idx_products_sku ON products(sku)');
+    await db.run('CREATE INDEX IF NOT EXISTS idx_products_brand ON products(brand_id)');
+    await db.run('CREATE INDEX IF NOT EXISTS idx_products_category ON products(category_id)');
+    await db.run('CREATE INDEX IF NOT EXISTS idx_products_subcategory ON products(subcategory_id)');
+    await db.run('CREATE INDEX IF NOT EXISTS idx_products_subsubcategory ON products(subsubcategory_id)');
+
+    const slugify = (value) => value.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-');
+
+    // Seed lookup tables with baseline data if empty
+    const brandCount = await db.get('SELECT COUNT(*) as c FROM brands');
+    if (!brandCount || brandCount.c === 0) {
+        const defaultBrands = ['Microsoft', 'Apple', 'HP', 'Dell', 'Lenovo', 'Generic'];
+        for (const name of defaultBrands) {
+            await db.run('INSERT OR IGNORE INTO brands (name, description) VALUES (?, ?)', [name, null]);
+        }
+    }
+
+    const materialCount = await db.get('SELECT COUNT(*) as c FROM materials');
+    if (!materialCount || materialCount.c === 0) {
+        const defaultMaterials = ['Cotton', 'Polyester', 'Leather', 'Metal', 'Digital'];
+        for (const name of defaultMaterials) {
+            await db.run('INSERT OR IGNORE INTO materials (name) VALUES (?)', [name]);
+        }
+    }
+
+    const colorCount = await db.get('SELECT COUNT(*) as c FROM colors');
+    if (!colorCount || colorCount.c === 0) {
+        const defaultColors = [
+            { name: 'Classic Black', hex: '#111111' },
+            { name: 'Snow White', hex: '#FFFFFF' },
+            { name: 'Azure Blue', hex: '#0078D4' },
+            { name: 'Sunrise Orange', hex: '#FF8A3D' }
+        ];
+        for (const color of defaultColors) {
+            await db.run('INSERT OR IGNORE INTO colors (name, hex) VALUES (?, ?)', [color.name, color.hex]);
+        }
+    }
+
+    const categoryCount = await db.get('SELECT COUNT(*) as c FROM product_categories');
+    if (!categoryCount || categoryCount.c === 0) {
+        // Seed example hierarchy for digital licences and apparel
+        const categories = [
+            { name: 'Digital License', parent: null },
+            { name: 'Microsoft', parent: 'Digital License' },
+            { name: 'Office Professional Plus 2021', parent: 'Microsoft' },
+            { name: 'Men', parent: null },
+            { name: 'Fashion', parent: 'Men' },
+            { name: 'Garments', parent: 'Fashion' },
+            { name: 'Shirts', parent: 'Garments' }
+        ];
+
+        const inserted = new Map();
+        for (const entry of categories) {
+            let parentId = null;
+            let level = 0;
+            if (entry.parent && inserted.has(entry.parent)) {
+                const parent = inserted.get(entry.parent);
+                parentId = parent.id;
+                level = parent.level + 1;
+            }
+            const slug = slugify(`${entry.parent ? `${entry.parent}-` : ''}${entry.name}`);
+            const { lastID } = await db.run(
+                'INSERT INTO product_categories (name, slug, parent_id, level) VALUES (?, ?, ?, ?)',
+                [entry.name, slug, parentId, level]
+            );
+            inserted.set(entry.name, { id: lastID, level });
+        }
+    }
+
+    const tagCount = await db.get('SELECT COUNT(*) as c FROM tags');
+    if (!tagCount || tagCount.c === 0) {
+        const defaultTags = ['Digital Download', 'Instant Delivery', 'Men', 'Women', 'Preorder', 'Best Seller'];
+        for (const name of defaultTags) {
+            await db.run('INSERT OR IGNORE INTO tags (name, slug) VALUES (?, ?)', [name, slugify(name)]);
+        }
+    }
 
     // staff avatar column for profile images
     await ensureColumn(db, 'staff', 'avatar', 'TEXT');

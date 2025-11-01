@@ -123,7 +123,7 @@ export default function OrderConfirmation() {
         )}
 
         <div className="mt-6 flex justify-center gap-4">
-          <Link to="/store" className="inline-flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-400">
+          <Link to="/market" className="inline-flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-400">
             <FaShoppingBag aria-hidden /> Continue shopping
           </Link>
           <Link to="/" className="inline-flex items-center gap-2 border px-4 py-2 rounded-md hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-gray-300">

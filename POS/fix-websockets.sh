@@ -13,12 +13,12 @@ server {
     listen 80;
     server_name estore.itnvend.com;
 
-    root /var/www/estore.itnvend.com/html;
+    root /var/www/itnvend/estore/dist;
     index index.html;
 
     # Serve uploaded images
     location /uploads/ {
-        alias /var/www/ITnVend/Backend/public/images/;
+        alias /var/www/itnvend/POS/Backend/public/images/;
         access_log off;
         add_header Cache-Control "public, max-age=31536000, immutable";
     }
@@ -60,12 +60,12 @@ server {
     listen 80;
     server_name pos.itnvend.com;
 
-    root /var/www/pos.itnvend.com/html;
+    root /var/www/itnvend/POS/Frontend/dist;
     index index.html;
 
     # Serve uploaded images
     location /uploads/ {
-        alias /var/www/ITnVend/Backend/public/images/;
+        alias /var/www/itnvend/POS/Backend/public/images/;
         access_log off;
         add_header Cache-Control "public, max-age=31536000, immutable";
     }

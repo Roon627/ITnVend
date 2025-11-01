@@ -3,14 +3,28 @@ import React from 'react';
 export default function Footer() {
   const year = new Date().getFullYear();
   return (
-    <footer className="mt-12 bg-white border-t py-6">
-      <div className="container mx-auto px-6 flex flex-col md:flex-row items-center justify-between">
-        <div className="text-sm text-slate-600">© {year} ITnVend — Serving customers in the Maldives and worldwide.</div>
-        <nav className="mt-3 md:mt-0">
-          <ul className="flex gap-4 text-sm">
-            <li><a href="/vendor-onboarding" className="text-slate-600 hover:underline">Become a Vendor</a></li>
-            <li><a href="/privacy" className="text-slate-600 hover:underline">Privacy Policy</a></li>
-            <li><a href="/use" className="text-slate-600 hover:underline">Use Policy</a></li>
+    <footer className="border-t border-rose-100 bg-white/80 py-6 backdrop-blur">
+      <div className="container mx-auto flex flex-col items-center justify-between gap-4 px-6 text-sm text-rose-400 md:flex-row">
+        <div className="text-center md:text-left">
+          <span className="font-semibold">© {year} ITnVend.</span> Serving customers in the Maldives and worldwide with a smile.
+        </div>
+        <nav aria-label="Footer navigation">
+          <ul className="flex gap-4">
+            <li>
+              <a href="/vendor-onboarding" className="font-semibold text-rose-500 hover:text-rose-400">
+                Become a Vendor
+              </a>
+            </li>
+            <li>
+              <a href="/privacy" className="font-semibold text-rose-500 hover:text-rose-400">
+                Privacy
+              </a>
+            </li>
+            <li>
+              <a href="/use" className="font-semibold text-rose-500 hover:text-rose-400">
+                Use Policy
+              </a>
+            </li>
           </ul>
         </nav>
       </div>

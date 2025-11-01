@@ -129,6 +129,8 @@ class CacheService {
     customers: () => 'customers:list',
     customer: (id) => `customer:${id}`,
     categories: () => 'products:categories',
+    categoriesTree: () => 'products:categories-tree',
+    lookups: () => 'products:lookups',
     settings: () => 'settings',
     invoices: (page = 1, limit = 50) => `invoices:page${page}:limit${limit}`,
     invoice: (id) => `invoice:${id}`,
@@ -208,6 +210,30 @@ class CacheService {
 
   async invalidateCategories() {
     return this.del(CacheService.key.categories());
+  }
+
+  async getCategoriesTree() {
+    return this.get(CacheService.key.categoriesTree());
+  }
+
+  async setCategoriesTree(tree, ttl = 600) {
+    return this.set(CacheService.key.categoriesTree(), tree, ttl);
+  }
+
+  async invalidateCategoriesTree() {
+    return this.del(CacheService.key.categoriesTree());
+  }
+
+  async getLookups() {
+    return this.get(CacheService.key.lookups());
+  }
+
+  async setLookups(lookups, ttl = 600) {
+    return this.set(CacheService.key.lookups(), lookups, ttl);
+  }
+
+  async invalidateLookups() {
+    return this.del(CacheService.key.lookups());
   }
 
   async getSettings() {

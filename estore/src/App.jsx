@@ -16,23 +16,23 @@ import Footer from "./components/Footer";
 
 function PublicLayout({ children }) {
   return (
-    <div className="min-h-screen bg-slate-950 text-white flex flex-col">
-      <header className="bg-slate-900/80 border-b border-slate-800 backdrop-blur supports-[backdrop-filter]:bg-slate-900/60">
+    <div className="min-h-screen bg-gradient-to-br from-rose-50 via-white to-sky-50 text-slate-800 flex flex-col">
+      <header className="border-b border-rose-100 bg-white/70 backdrop-blur supports-[backdrop-filter]:bg-white/60">
         <div className="mx-auto flex max-w-6xl items-center justify-between gap-6 px-6 py-4">
-          <Link to="/" className="text-lg font-semibold text-white transition hover:text-blue-300">
-            ITnVend Estore
+          <Link to="/" className="text-lg font-semibold text-rose-500 transition hover:text-rose-400">
+            ITnVend Market Hub
           </Link>
-          <nav className="flex items-center gap-4 text-sm text-slate-300">
-            <Link to="/store" className="hover:text-white">
-              Catalogue
+          <nav className="flex items-center gap-4 text-sm text-rose-400">
+            <Link to="/market" className="font-semibold hover:text-rose-500">
+              Market Hub
             </Link>
-            <Link to="/cart" className="hover:text-white">
+            <Link to="/cart" className="font-semibold hover:text-rose-500">
               Cart
             </Link>
-            <Link to="/checkout" className="hover:text-white">
+            <Link to="/checkout" className="font-semibold hover:text-rose-500">
               Request Proposal
             </Link>
-            <Link to="/vendor-onboarding" className="hover:text-white">
+            <Link to="/vendor-onboarding" className="font-semibold hover:text-rose-500">
               Onboarding
             </Link>
           </nav>
@@ -52,7 +52,8 @@ function App() {
       <Routes>
         <Route path="/" element={<PublicLayout><Home /></PublicLayout>} />
         <Route path="/home" element={<PublicLayout><Home /></PublicLayout>} />
-        <Route path="/store" element={<PublicLayout><PublicProducts /></PublicLayout>} />
+        <Route path="/market" element={<PublicLayout><PublicProducts /></PublicLayout>} />
+        <Route path="/store" element={<Navigate to="/market" replace />} />
         <Route path="/product/:id" element={<PublicLayout><ProductDetail /></PublicLayout>} />
         <Route path="/cart" element={<PublicLayout><Cart /></PublicLayout>} />
         <Route path="/checkout" element={<PublicLayout><Checkout /></PublicLayout>} />

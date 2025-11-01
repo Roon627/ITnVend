@@ -1,143 +1,136 @@
-# ITnVend Fresh Deployment Checklist
+# ITnVend Deployment Checklist
 
-## Pre-Deployment Setup
+This note keeps the quick punch list for deploying the reorganized repository (POS + estore) onto a fresh Ubuntu host.
 
-### 1. Server Preparation
-- [ ] Ubuntu 22.04+ server with sudo access
-- [ ] Git installed: `sudo apt update && sudo apt install git`
-- [ ] Node.js 22+ installed
-- [ ] Nginx installed: `sudo apt install nginx`
-- [ ] PM2 installed: `sudo npm install -g pm2`
-- [ ] Redis installed: `sudo apt install redis-server`
+---
 
-### 2. Domain Configuration
-- [ ] DNS A records pointing to server IP:
-  - `estore.itnvend.com` → your-server-ip
-  - `pos.itnvend.com` → your-server-ip
-- [ ] SSL certificates (Let's Encrypt recommended)
+## 1. Server Prep
 
-### 3. Directory Structure
+- Ubuntu 22.04+ server with sudo access  
+- Packages: `git`, `build-essential`, `nginx`, `certbot`, `python3-certbot-nginx`  
+- Node.js 22.x + npm (via NodeSource or nvm)  
+- PM2 or systemd for process management  
+- Optional: Redis if websocket fan-out/caching is required
+
+Create the base directory layout used by the latest docs:
+
 ```bash
-sudo mkdir -p /var/www/ITnVend/Backend/public/images
-sudo mkdir -p /var/www/estore.itnvend.com/html
-sudo mkdir -p /var/www/pos.itnvend.com/html
-sudo chown -R $USER:$USER /var/www
-sudo chown -R www-data:www-data /var/www/ITnVend/Backend/public
-sudo chmod -R 755 /var/www/ITnVend/Backend/public
+sudo mkdir -p /var/www/itnvend
+sudo mkdir -p /var/www/itnvend/POS/Backend/public/images
+sudo mkdir -p /var/www/itnvend/POS/Frontend/dist
+sudo mkdir -p /var/www/itnvend/estore/dist
+sudo chown -R $USER:$USER /var/www/itnvend
+sudo chown -R www-data:www-data /var/www/itnvend/POS/Backend/public
+sudo chmod -R 755 /var/www/itnvend/POS/Backend/public
 ```
 
-## Deployment Steps
+Hosts file (local dev) or DNS (production) must point both `pos.itnvend.com` and `estore.itnvend.com` to the server IP.
 
-### 1. Clone Repository
-```bash
-cd /var/www
-git clone https://github.com/Roon627/ITnVend.git
-cd ITnVend
-```
+---
 
-### 2. Backend Setup
+## 2. Clone & Install
+
 ```bash
-cd Backend
+cd /var/www/itnvend
+git clone https://github.com/Roon627/ITnVend.git .
+
+# Backend
+cd POS/Backend
+npm install
+cp .env.example .env   # create and edit with production values
+
+# POS frontend
+cd ../Frontend
 npm install
 
-# Copy environment file
-cp ../.env .env
-# Edit .env with your actual values:
-# - FRONTEND_URL=https://estore.itnvend.com (for password reset links)
-# - REDIS_URL=redis://localhost:6379
-# - PORT=4000
-# - NODE_ENV=production
+# Estore frontend
+cd ../../estore
+npm install
+```
 
-# Start backend with PM2
-pm2 start index.js --name "itnvend-backend"
+Sample backend `.env` values:
+
+```
+PORT=4000
+HOST=0.0.0.0
+DATABASE_URL=postgres://user:pass@localhost:5432/itnvend   # leave blank for SQLite
+JWT_SECRET=change-me
+STOREFRONT_API_KEY=shared-key-for-estore
+FRONTEND_URL=https://pos.itnvend.com
+```
+
+---
+
+## 3. Build Frontends
+
+```bash
+# POS build
+cd /var/www/itnvend/POS/Frontend
+VITE_API_BASE="https://pos.itnvend.com/api" \
+VITE_UPLOAD_BASE="https://pos.itnvend.com/uploads" \
+npm run build
+
+# Estore build
+cd /var/www/itnvend/estore
+VITE_API_BASE="https://pos.itnvend.com/api" \
+VITE_UPLOAD_BASE="https://pos.itnvend.com/uploads" \
+VITE_STOREFRONT_KEY="shared-key-for-estore" \
+npm run build
+```
+
+Copy the `dist` outputs (if the builds emit elsewhere) into `/var/www/itnvend/POS/Frontend/dist` and `/var/www/itnvend/estore/dist`.
+
+---
+
+## 4. Run Backend with PM2
+
+```bash
+cd /var/www/itnvend/POS/Backend
+pm2 start index.js --name pos-backend
 pm2 save
 pm2 startup
 ```
 
-### 3. Deploy E-Store (estore.itnvend.com)
-```bash
-chmod +x deploy-estore.sh
-./deploy-estore.sh
-```
+If you enable the estore Node backend (optional), register it with PM2 under a different process name.
 
-### 4. Deploy POS (pos.itnvend.com)
-```bash
-chmod +x deploy-pos.sh
-./deploy-pos.sh
-```
+---
 
-### 5. Nginx Configuration
-Create `/etc/nginx/sites-available/estore.itnvend.com`:
-```nginx
-server {
-    listen 80;
-    server_name estore.itnvend.com;
-
-    root /var/www/estore.itnvend.com/html;
-    index index.html;
-
-    # Serve uploaded images
-    location /uploads/ {
-        alias /var/www/ITnVend/Backend/public/images/;
-        access_log off;
-        add_header Cache-Control "public, max-age=31536000, immutable";
-    }
-
-    # Handle WebSocket connections
-    location /socket.io/ {
-        proxy_pass http://localhost:4000;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection "upgrade";
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_cache_bypass $http_upgrade;
-    }
-
-    location / {
-        try_files $uri $uri/ /index.html;
-    }
-
-    location /api {
-        proxy_pass http://localhost:4000;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection 'upgrade';
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_cache_bypass $http_upgrade;
-    }
-}
-```
+## 5. Nginx Configuration
 
 Create `/etc/nginx/sites-available/pos.itnvend.com`:
+
 ```nginx
 server {
     listen 80;
     server_name pos.itnvend.com;
 
-    root /var/www/pos.itnvend.com/html;
+    root /var/www/itnvend/POS/Frontend/dist;
     index index.html;
 
-    # Serve uploaded images
     location /uploads/ {
-        alias /var/www/ITnVend/Backend/public/images/;
+        alias /var/www/itnvend/POS/Backend/public/images/;
         access_log off;
         add_header Cache-Control "public, max-age=31536000, immutable";
     }
 
-    # Redirect root to /admin for POS
     location = / {
         return 302 /admin;
     }
 
-    # Handle WebSocket connections
     location /socket.io/ {
-        proxy_pass http://localhost:4000;
+        proxy_pass http://127.0.0.1:4000;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_cache_bypass $http_upgrade;
+    }
+
+    location /api/ {
+        proxy_pass http://127.0.0.1:4000/api/;
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection "upgrade";
@@ -151,88 +144,78 @@ server {
     location / {
         try_files $uri $uri/ /index.html;
     }
+}
+```
 
-    location /api {
-        proxy_pass http://localhost:4000;
+Create `/etc/nginx/sites-available/estore.itnvend.com`:
+
+```nginx
+server {
+    listen 80;
+    server_name estore.itnvend.com;
+
+    root /var/www/itnvend/estore/dist;
+    index index.html;
+
+    location /uploads/ {
+        alias /var/www/itnvend/POS/Backend/public/images/;
+        access_log off;
+        add_header Cache-Control "public, max-age=31536000, immutable";
+    }
+
+    location /socket.io/ {
+        proxy_pass http://127.0.0.1:4000;
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection 'upgrade';
+        proxy_set_header Connection "upgrade";
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
         proxy_cache_bypass $http_upgrade;
     }
+
+    location /api/ {
+        proxy_pass http://127.0.0.1:4000/api/;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_cache_bypass $http_upgrade;
+    }
+
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
 }
 ```
 
-Enable sites and restart nginx:
+Enable the sites, test, and acquire TLS:
+
 ```bash
-sudo ln -s /etc/nginx/sites-available/estore.itnvend.com /etc/nginx/sites-enabled/
 sudo ln -s /etc/nginx/sites-available/pos.itnvend.com /etc/nginx/sites-enabled/
+sudo ln -s /etc/nginx/sites-available/estore.itnvend.com /etc/nginx/sites-enabled/
 sudo nginx -t
-sudo systemctl restart nginx
+sudo systemctl reload nginx
+sudo certbot --nginx -d pos.itnvend.com -d estore.itnvend.com
 ```
 
-## Post-Deployment
+---
 
-### 1. SSL Setup (Let's Encrypt)
-```bash
-sudo apt install certbot python3-certbot-nginx
-sudo certbot --nginx -d estore.itnvend.com -d pos.itnvend.com
-```
+## 6. Verification
 
-### 2. Initial Configuration
-- [ ] Visit https://pos.itnvend.com
-- [ ] Create admin account
-- [ ] Configure email settings in Settings
-- [ ] Set up products and categories
+- Visit `https://pos.itnvend.com/admin` and confirm login, orders, and websocket notifications.  
+- Upload a product image or payment slip; confirm the file appears under `/var/www/itnvend/POS/Backend/public/images`.  
+- Run a storefront order from `https://estore.itnvend.com` and verify it reaches the POS backend with the `X-Storefront-Key` header.  
+- Check PM2 status: `pm2 status` should list `pos-backend` (and any other processes) as online.
 
-### 3. Testing
-- [ ] E-Store: https://estore.itnvend.com (public website)
-- [ ] POS System: https://pos.itnvend.com (admin login required)
-- [ ] Password reset functionality
-- [ ] Email notifications
+---
 
-## Environment Variables Reference
+## 7. Maintenance Notes
 
-### Backend (.env)
-```
-FRONTEND_URL=https://estore.itnvend.com
-JWT_SECRET=your-secure-jwt-secret
-REDIS_URL=redis://localhost:6379
-DATABASE_PATH=./database.db
-```
-
-### Frontend Build (environment variables)
-- `VITE_API_BASE`: API endpoint (set in nginx proxy)
-- `VITE_ONLY_ADMIN`: Set to '1' for POS-only build
-
-## Troubleshooting
-
-### Common Issues:
-1. **Build fails**: Ensure Node.js 22+ and npm are installed
-2. **API not working**: Check backend is running on port 4000
-3. **WebSocket issues**: Verify Redis is running and Nginx is proxying `/socket.io/`
-4. **Email not sending**: Configure SMTP in Settings UI
-
-### WebSocket Connection Issues:
-If you see "realtime disconnected":
-1. **Check Nginx configuration**: Ensure `/socket.io/` location block is present
-2. **Verify backend logs**: Look for "WebSocket server ready" and connection messages
-3. **Check Redis**: WebSocket service requires Redis for pub/sub
-4. **Browser console**: Check for WebSocket connection errors
-5. **Firewall**: Ensure port 4000 is accessible internally
-
-### Logs:
-```bash
-# Backend logs
-pm2 logs itnvend-backend
-
-# Nginx logs
-sudo tail -f /var/log/nginx/error.log
-sudo tail -f /var/log/nginx/access.log
-
-# Check WebSocket connections
-curl -I http://localhost:4000/socket.io/
-```
+- Pull updates: `git pull` in `/var/www/itnvend`, reinstall if lockfiles changed, rebuild both frontends, then `pm2 restart pos-backend`.  
+- Backup strategy: schedule backups for `POS/Backend/database.db` (if using SQLite) and `POS/Backend/public/images`.  
+- Logs: view backend logs with `pm2 logs pos-backend`, Nginx access/error logs under `/var/log/nginx`.
