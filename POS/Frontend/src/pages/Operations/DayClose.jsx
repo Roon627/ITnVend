@@ -127,8 +127,27 @@ const DayClose = () => {
   };
 
   const closeShift = async () => {
+    const expectedCash = shiftData?.expectedCash ?? 0;
+    const countsProvided = Object.values(cashCounts).some((value) => Number(value) > 0);
+
+    if (expectedCash > 0.01 && !countsProvided) {
+      toast.push('Enter the cash counts before closing the shift.', 'error');
+      return;
+    }
+
+    if (expectedCash > 0.01 && actualCash <= 0) {
+      toast.push('Enter the actual cash total before closing the shift.', 'error');
+      return;
+    }
+
+    if (Math.abs(actualCash - expectedCash) > 1 && !notes.trim()) {
+      toast.push('Add a short note explaining the discrepancy before closing the shift.', 'error');
+      return;
+    }
+
     if (Math.abs(discrepancy) > 1) { // Allow small discrepancies
-      if (!window.confirm(`There is a cash discrepancy of ${formatCurrency(discrepancy)}. Are you sure you want to close the shift?`)) {
+      const confirmClose = window.confirm(`There is a cash discrepancy of ${formatCurrency(discrepancy)}. Are you sure you want to close the shift?`);
+      if (!confirmClose) {
         return;
       }
     }
@@ -153,7 +172,7 @@ const DayClose = () => {
       setNotes('');
     } catch (error) {
       console.error('Failed to close shift:', error);
-      toast.push('Failed to close shift', 'error');
+      toast.push(error?.message || 'Failed to close shift', 'error');
     } finally {
       setProcessing(false);
     }

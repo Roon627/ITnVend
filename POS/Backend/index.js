@@ -4937,7 +4937,8 @@ app.get('/api/operations/shift/current', authMiddleware, requireRole(['cashier',
             SELECT
                 COALESCE(SUM(i.total), 0) as totalSales,
                 COALESCE(SUM(CASE WHEN p.method = 'cash' THEN i.total ELSE 0 END), 0) as cashSales,
-                COALESCE(SUM(CASE WHEN p.method != 'cash' THEN i.total ELSE 0 END), 0) as cardSales
+                COALESCE(SUM(CASE WHEN p.method != 'cash' THEN i.total ELSE 0 END), 0) as cardSales,
+                COUNT(DISTINCT i.id) as transactionCount
             FROM invoices i
             LEFT JOIN payments p ON p.invoice_id = i.id
             WHERE DATE(i.created_at) >= DATE(?) AND i.status = 'paid'
@@ -4995,10 +4996,48 @@ app.post('/api/operations/shift/close', authMiddleware, requireRole(['cashier', 
     const { actualCash, cashCounts, discrepancy, notes } = req.body;
 
     try {
+        const openShift = await db.get(`
+            SELECT * FROM shifts
+            WHERE closed_at IS NULL
+            ORDER BY opened_at DESC
+            LIMIT 1
+        `);
+        if (!openShift) {
+            return res.status(400).json({ error: 'No open shift found' });
+        }
+
+        const totals = await db.get(`
+            SELECT
+                COALESCE(SUM(i.total), 0) as totalSales,
+                COALESCE(SUM(CASE WHEN p.method = 'cash' THEN i.total ELSE 0 END), 0) as cashSales
+            FROM invoices i
+            LEFT JOIN payments p ON p.invoice_id = i.id
+            WHERE DATE(i.created_at) >= DATE(?) AND i.status = 'paid'
+        `, [openShift.opened_at]);
+
+        const expectedCash = (openShift.starting_cash || 0) + (totals?.cashSales || 0);
+
         const normalizedActualCash = Number.isFinite(Number(actualCash)) ? Number(actualCash) : 0;
         const normalizedDiscrepancy = Number.isFinite(Number(discrepancy)) ? Number(discrepancy) : 0;
-        const cashCountsPayload = JSON.stringify(cashCounts || {});
+        const safeCounts = cashCounts && typeof cashCounts === 'object' ? cashCounts : {};
+        const cashCountsPayload = JSON.stringify(safeCounts);
         const discrepanciesPayload = JSON.stringify({ cash: normalizedDiscrepancy });
+
+        const countsProvided = Object.values(safeCounts)
+            .map((value) => Number(value) || 0)
+            .some((value) => value > 0);
+
+        if (expectedCash > 0.01 && !countsProvided) {
+            return res.status(400).json({ error: 'Enter the physical cash counts before closing the shift.' });
+        }
+
+        if (expectedCash > 0.01 && normalizedActualCash <= 0) {
+            return res.status(400).json({ error: 'Actual cash amount is required before closing the shift.' });
+        }
+
+        if (Math.abs(normalizedActualCash - expectedCash) > 1 && (!notes || !notes.trim())) {
+            return res.status(400).json({ error: 'Please add a note explaining the cash discrepancy before closing the shift.' });
+        }
 
         const result = await db.run(`
             UPDATE shifts
@@ -5263,95 +5302,225 @@ app.post('/api/purchases/:id/reverse', authMiddleware, requireRole(['manager', '
     }
 });
 
-// Shift Management
-app.get('/api/operations/shift/current', authMiddleware, requireRole(['cashier', 'manager']), async (req, res) => {
+app.get('/api/operations/monthly', authMiddleware, requireRole(['manager', 'accounts']), async (req, res) => {
+    const { month } = req.query;
+    if (!month) {
+        return res.status(400).json({ error: 'Month parameter is required (YYYY-MM)' });
+    }
+
+    const startDate = `${month}-01`;
+    const endDate = new Date(new Date(startDate).getFullYear(), new Date(startDate).getMonth() + 1, 0).toISOString().split('T')[0];
+
     try {
-        // Get current open shift or last closed shift
-        const shift = await db.get(`
-            SELECT * FROM shifts
-            WHERE closed_at IS NULL OR DATE(opened_at) = DATE('now')
-            ORDER BY opened_at DESC LIMIT 1
-        `);
+        // Check if month is closed
+        const monthClose = await db.get(`
+            SELECT * FROM monthly_closes
+            WHERE month = ? AND year = ?
+        `, [new Date(startDate).getMonth() + 1, new Date(startDate).getFullYear()]);
 
-        if (!shift) {
-            return res.json({ isOpen: false });
-        }
-
-        // Calculate shift totals
-        const totals = await db.get(`
+        // Financial summary - calculate revenue and expenses from general ledger
+        const financial = await db.get(`
             SELECT
-                COALESCE(SUM(i.total), 0) as totalSales,
-                COALESCE(SUM(CASE WHEN p.method = 'cash' THEN i.total ELSE 0 END), 0) as cashSales,
-                COALESCE(SUM(CASE WHEN p.method != 'cash' THEN i.total ELSE 0 END), 0) as cardSales
+                COALESCE(SUM(CASE WHEN coa.account_type = 'revenue' THEN (gl.debit - gl.credit) ELSE 0 END), 0) as totalRevenue,
+                COALESCE(SUM(CASE WHEN coa.account_type = 'expense' THEN (gl.credit - gl.debit) ELSE 0 END), 0) as totalExpenses,
+                COALESCE(SUM(CASE WHEN coa.account_type = 'revenue' THEN (gl.debit - gl.credit) ELSE 0 END), 0) -
+                COALESCE(SUM(CASE WHEN coa.account_type = 'expense' THEN (gl.credit - gl.debit) ELSE 0 END), 0) as netIncome
+            FROM general_ledger gl
+            JOIN chart_of_accounts coa ON gl.account_id = coa.id
+            WHERE DATE(gl.transaction_date) BETWEEN ? AND ?
+        `, [startDate, endDate]);
+
+        // Opening and closing balance - calculate net balance
+        const openingBalance = await db.get(`
+            SELECT COALESCE(SUM(gl.debit - gl.credit), 0) as balance
+            FROM general_ledger gl
+            WHERE DATE(gl.transaction_date) < ?
+        `, [startDate]);
+
+        const closingBalance = await db.get(`
+            SELECT COALESCE(SUM(gl.debit - gl.credit), 0) as balance
+            FROM general_ledger gl
+            WHERE DATE(gl.transaction_date) <= ?
+        `, [endDate]);
+
+        // Inventory summary - calculate from inventory transactions
+        const inventory = await db.get(`
+            SELECT
+                COALESCE(SUM(CASE WHEN type = 'purchase' THEN quantity * unit_cost ELSE 0 END), 0) as purchases,
+                COALESCE(SUM(CASE WHEN type = 'sale' THEN quantity * unit_cost ELSE 0 END), 0) as sales,
+                COALESCE(AVG(quantity), 0) as avgInventory
+            FROM inventory_transactions
+            WHERE DATE(created_at) BETWEEN ? AND ?
+        `, [startDate, endDate]);
+
+        // Key metrics
+        const metrics = await db.get(`
+            SELECT
+                COUNT(DISTINCT i.id) as totalTransactions,
+                AVG(i.total) as avgTransactionValue,
+                COUNT(DISTINCT i.customer_id) as totalCustomers
             FROM invoices i
-            LEFT JOIN payments p ON p.invoice_id = i.id
-            WHERE DATE(i.created_at) >= DATE(?) AND i.status = 'paid'
-        `, [shift.opened_at]);
+            WHERE DATE(i.created_at) BETWEEN ? AND ?
+        `, [startDate, endDate]);
 
         res.json({
-            shiftId: shift.id,
-            isOpen: !shift.closed_at,
-            openedAt: shift.opened_at,
-            openedBy: shift.opened_by,
-            startingCash: shift.starting_cash,
-            totalSales: totals?.totalSales || 0,
-            cashSales: totals?.cashSales || 0,
-            cardSales: totals?.cardSales || 0,
-            transactionCount: totals?.transactionCount || 0,
-            expectedCash: (shift.starting_cash || 0) + (totals?.cashSales || 0)
+            month,
+            closed: !!monthClose,
+            closedAt: monthClose?.closed_at,
+            financial: {
+                totalRevenue: financial?.totalRevenue || 0,
+                totalExpenses: financial?.totalExpenses || 0,
+                netIncome: financial?.netIncome || 0,
+                openingBalance: openingBalance?.balance || 0,
+                closingBalance: closingBalance?.balance || 0
+            },
+            inventory: {
+                purchases: inventory?.purchases || 0,
+                sales: inventory?.sales || 0,
+                openingValue: 0, // Would need more complex calculation
+                closingValue: 0, // Would need more complex calculation
+                turnoverRatio: inventory?.sales && inventory?.avgInventory ?
+                    inventory.sales / inventory.avgInventory : 0
+            },
+            metrics: {
+                totalTransactions: metrics?.totalTransactions || 0,
+                avgTransactionValue: metrics?.avgTransactionValue || 0,
+                newCustomers: 0, // Would need customer creation date tracking
+                returningCustomers: metrics?.totalCustomers || 0
+            }
         });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
 });
 
-app.post('/api/operations/shift/start', authMiddleware, requireRole(['cashier', 'manager']), async (req, res) => {
-    const { startingCash = 0 } = req.body;
+app.post('/api/operations/monthly/process', authMiddleware, requireRole(['manager', 'accounts']), async (req, res) => {
+    const { month } = req.body;
+    if (!month) {
+        return res.status(400).json({ error: 'Month parameter is required' });
+    }
 
     try {
-        // Close any open shifts first
-        await db.run(`
-            UPDATE shifts
-            SET closed_at = datetime('now'), closed_by = ?
-            WHERE closed_at IS NULL
-        `, [req.user.username]);
+        const monthNum = new Date(month + '-01').getMonth() + 1;
+        const year = new Date(month + '-01').getFullYear();
 
-        // Start new shift
+        // Record monthly close
         const result = await db.run(`
-            INSERT INTO shifts (opened_by, starting_cash)
-            VALUES (?, ?)
-        `, [req.user.username, startingCash]);
+            INSERT INTO monthly_closes (month, year, closed_by)
+            VALUES (?, ?, ?)
+        `, [monthNum, year, req.user.username]);
 
-        await logActivity('shifts', result.lastID, 'opened', req.user.username, `Shift opened with $${startingCash} starting cash`);
+        await logActivity('monthly_closes', result.lastID, 'created', req.user.username, `Monthly close for ${month}`);
 
-        res.json({ message: 'Shift started successfully', shiftId: result.lastID });
+        res.json({ message: 'Monthly close processed successfully' });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
 });
 
-app.post('/api/operations/shift/close', authMiddleware, requireRole(['cashier', 'manager']), async (req, res) => {
-    const { actualCash, cashCounts, discrepancy, notes } = req.body;
+app.post('/api/operations/monthly/depreciation', authMiddleware, requireRole(['manager', 'accounts']), async (req, res) => {
+    const { month } = req.body;
 
     try {
-        const result = await db.run(`
-            UPDATE shifts
-            SET closed_at = datetime('now'),
-                closed_by = ?,
-                actual_cash = ?,
-                cash_counts = ?,
-                discrepancy = ?,
-                notes = ?
-            WHERE closed_at IS NULL
-        `, [req.user.username, actualCash, JSON.stringify(cashCounts), discrepancy, notes]);
+        // This would calculate and post depreciation entries
+        // For now, just log the activity
+        await logActivity('depreciation', null, 'calculated', req.user.username, `Depreciation calculated for ${month}`);
 
-        if (result.changes === 0) {
-            return res.status(400).json({ error: 'No open shift found' });
+        res.json({ message: 'Depreciation calculated successfully' });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Purchase Reversals
+app.get('/api/purchases', authMiddleware, requireRole(['manager', 'accounts']), async (req, res) => {
+    const { search, limit = 50, includeReversed = true } = req.query;
+
+    try {
+        let query = `
+            SELECT p.*, s.name as supplierName,
+                   COUNT(pi.id) as itemCount
+            FROM purchases p
+            LEFT JOIN suppliers s ON p.supplier_id = s.id
+            LEFT JOIN purchase_items pi ON p.id = pi.purchase_id
+            WHERE 1=1
+        `;
+        const params = [];
+
+        if (search) {
+            query += ` AND (p.id LIKE ? OR s.name LIKE ? OR p.reference_number LIKE ?)`;
+            params.push(`%${search}%`, `%${search}%`, `%${search}%`);
         }
 
-        await logActivity('shifts', null, 'closed', req.user.username, `Shift closed with $${actualCash} actual cash`);
+        if (includeReversed !== 'true') {
+            query += ` AND p.reversed = 0`;
+        }
 
-        res.json({ message: 'Shift closed successfully' });
+        query += ` GROUP BY p.id ORDER BY p.created_at DESC LIMIT ?`;
+        params.push(parseInt(limit));
+
+        const purchases = await db.all(query, params);
+
+        // Get items for each purchase
+        for (const purchase of purchases) {
+            purchase.items = await db.all(`
+                SELECT pi.*, pr.name as productName
+                FROM purchase_items pi
+                LEFT JOIN products pr ON pi.product_id = pr.id
+                WHERE pi.purchase_id = ?
+            `, [purchase.id]);
+        }
+
+        res.json({ purchases });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.post('/api/purchases/:id/reverse', authMiddleware, requireRole(['manager', 'accounts']), async (req, res) => {
+    const { id } = req.params;
+    const { reason } = req.body;
+
+    try {
+        // Check if purchase exists and is not already reversed
+        const purchase = await db.get(`
+            SELECT * FROM purchases WHERE id = ? AND reversed = 0
+        `, [id]);
+
+        if (!purchase) {
+            return res.status(404).json({ error: 'Purchase not found or already reversed' });
+        }
+
+        // Start transaction
+        await db.run('BEGIN TRANSACTION');
+
+        try {
+            // Mark purchase as reversed
+            await db.run(`
+                UPDATE purchases
+                SET reversed = 1, reversed_at = datetime('now'), reversed_by = ?, reversal_reason = ?
+                WHERE id = ?
+            `, [req.user.username, reason, id]);
+
+            // Reverse inventory transactions
+            await db.run(`
+                INSERT INTO inventory_transactions (product_id, type, quantity, unit_cost, reference, created_by)
+                SELECT product_id, 'adjustment', -quantity, unit_cost, 'Purchase reversal #' || ?, ?
+                FROM purchase_items WHERE purchase_id = ?
+            `, [id, req.user.username, id]);
+
+            // Reverse accounting entries (if any)
+            // This would depend on how purchases are accounted for
+
+            await db.run('COMMIT');
+
+            await logActivity('purchases', id, 'reversed', req.user.username, `Purchase reversed: ${reason}`);
+
+            res.json({ message: 'Purchase reversed successfully' });
+        } catch (err) {
+            await db.run('ROLLBACK');
+            throw err;
+        }
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
@@ -5582,95 +5751,226 @@ app.post('/api/purchases/:id/reverse', authMiddleware, requireRole(['manager', '
     }
 });
 
-// Shift Management
-app.get('/api/operations/shift/current', authMiddleware, requireRole(['cashier', 'manager']), async (req, res) => {
+// Monthly Operations
+app.get('/api/operations/monthly', authMiddleware, requireRole(['manager', 'accounts']), async (req, res) => {
+    const { month } = req.query;
+    if (!month) {
+        return res.status(400).json({ error: 'Month parameter is required (YYYY-MM)' });
+    }
+
+    const startDate = `${month}-01`;
+    const endDate = new Date(new Date(startDate).getFullYear(), new Date(startDate).getMonth() + 1, 0).toISOString().split('T')[0];
+
     try {
-        // Get current open shift or last closed shift
-        const shift = await db.get(`
-            SELECT * FROM shifts
-            WHERE closed_at IS NULL OR DATE(opened_at) = DATE('now')
-            ORDER BY opened_at DESC LIMIT 1
-        `);
+        // Check if month is closed
+        const monthClose = await db.get(`
+            SELECT * FROM monthly_closes
+            WHERE month = ? AND year = ?
+        `, [new Date(startDate).getMonth() + 1, new Date(startDate).getFullYear()]);
 
-        if (!shift) {
-            return res.json({ isOpen: false });
-        }
-
-        // Calculate shift totals
-        const totals = await db.get(`
+        // Financial summary - calculate revenue and expenses from general ledger
+        const financial = await db.get(`
             SELECT
-                COALESCE(SUM(i.total), 0) as totalSales,
-                COALESCE(SUM(CASE WHEN p.method = 'cash' THEN i.total ELSE 0 END), 0) as cashSales,
-                COALESCE(SUM(CASE WHEN p.method != 'cash' THEN i.total ELSE 0 END), 0) as cardSales
+                COALESCE(SUM(CASE WHEN coa.account_type = 'revenue' THEN (gl.debit - gl.credit) ELSE 0 END), 0) as totalRevenue,
+                COALESCE(SUM(CASE WHEN coa.account_type = 'expense' THEN (gl.credit - gl.debit) ELSE 0 END), 0) as totalExpenses,
+                COALESCE(SUM(CASE WHEN coa.account_type = 'revenue' THEN (gl.debit - gl.credit) ELSE 0 END), 0) -
+                COALESCE(SUM(CASE WHEN coa.account_type = 'expense' THEN (gl.credit - gl.debit) ELSE 0 END), 0) as netIncome
+            FROM general_ledger gl
+            JOIN chart_of_accounts coa ON gl.account_id = coa.id
+            WHERE DATE(gl.transaction_date) BETWEEN ? AND ?
+        `, [startDate, endDate]);
+
+        // Opening and closing balance - calculate net balance
+        const openingBalance = await db.get(`
+            SELECT COALESCE(SUM(gl.debit - gl.credit), 0) as balance
+            FROM general_ledger gl
+            WHERE DATE(gl.transaction_date) < ?
+        `, [startDate]);
+
+        const closingBalance = await db.get(`
+            SELECT COALESCE(SUM(gl.debit - gl.credit), 0) as balance
+            FROM general_ledger gl
+            WHERE DATE(gl.transaction_date) <= ?
+        `, [endDate]);
+
+        // Inventory summary - calculate from inventory transactions
+        const inventory = await db.get(`
+            SELECT
+                COALESCE(SUM(CASE WHEN type = 'purchase' THEN quantity * unit_cost ELSE 0 END), 0) as purchases,
+                COALESCE(SUM(CASE WHEN type = 'sale' THEN quantity * unit_cost ELSE 0 END), 0) as sales,
+                COALESCE(AVG(quantity), 0) as avgInventory
+            FROM inventory_transactions
+            WHERE DATE(created_at) BETWEEN ? AND ?
+        `, [startDate, endDate]);
+
+        // Key metrics
+        const metrics = await db.get(`
+            SELECT
+                COUNT(DISTINCT i.id) as totalTransactions,
+                AVG(i.total) as avgTransactionValue,
+                COUNT(DISTINCT i.customer_id) as totalCustomers
             FROM invoices i
-            LEFT JOIN payments p ON p.invoice_id = i.id
-            WHERE DATE(i.created_at) >= DATE(?) AND i.status = 'paid'
-        `, [shift.opened_at]);
+            WHERE DATE(i.created_at) BETWEEN ? AND ?
+        `, [startDate, endDate]);
 
         res.json({
-            shiftId: shift.id,
-            isOpen: !shift.closed_at,
-            openedAt: shift.opened_at,
-            openedBy: shift.opened_by,
-            startingCash: shift.starting_cash,
-            totalSales: totals?.totalSales || 0,
-            cashSales: totals?.cashSales || 0,
-            cardSales: totals?.cardSales || 0,
-            transactionCount: totals?.transactionCount || 0,
-            expectedCash: (shift.starting_cash || 0) + (totals?.cashSales || 0)
+            month,
+            closed: !!monthClose,
+            closedAt: monthClose?.closed_at,
+            financial: {
+                totalRevenue: financial?.totalRevenue || 0,
+                totalExpenses: financial?.totalExpenses || 0,
+                netIncome: financial?.netIncome || 0,
+                openingBalance: openingBalance?.balance || 0,
+                closingBalance: closingBalance?.balance || 0
+            },
+            inventory: {
+                purchases: inventory?.purchases || 0,
+                sales: inventory?.sales || 0,
+                openingValue: 0, // Would need more complex calculation
+                closingValue: 0, // Would need more complex calculation
+                turnoverRatio: inventory?.sales && inventory?.avgInventory ?
+                    inventory.sales / inventory.avgInventory : 0
+            },
+            metrics: {
+                totalTransactions: metrics?.totalTransactions || 0,
+                avgTransactionValue: metrics?.avgTransactionValue || 0,
+                newCustomers: 0, // Would need customer creation date tracking
+                returningCustomers: metrics?.totalCustomers || 0
+            }
         });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
 });
 
-app.post('/api/operations/shift/start', authMiddleware, requireRole(['cashier', 'manager']), async (req, res) => {
-    const { startingCash = 0 } = req.body;
+app.post('/api/operations/monthly/process', authMiddleware, requireRole(['manager', 'accounts']), async (req, res) => {
+    const { month } = req.body;
+    if (!month) {
+        return res.status(400).json({ error: 'Month parameter is required' });
+    }
 
     try {
-        // Close any open shifts first
-        await db.run(`
-            UPDATE shifts
-            SET closed_at = datetime('now'), closed_by = ?
-            WHERE closed_at IS NULL
-        `, [req.user.username]);
+        const monthNum = new Date(month + '-01').getMonth() + 1;
+        const year = new Date(month + '-01').getFullYear();
 
-        // Start new shift
+        // Record monthly close
         const result = await db.run(`
-            INSERT INTO shifts (opened_by, starting_cash)
-            VALUES (?, ?)
-        `, [req.user.username, startingCash]);
+            INSERT INTO monthly_closes (month, year, closed_by)
+            VALUES (?, ?, ?)
+        `, [monthNum, year, req.user.username]);
 
-        await logActivity('shifts', result.lastID, 'opened', req.user.username, `Shift opened with $${startingCash} starting cash`);
+        await logActivity('monthly_closes', result.lastID, 'created', req.user.username, `Monthly close for ${month}`);
 
-        res.json({ message: 'Shift started successfully', shiftId: result.lastID });
+        res.json({ message: 'Monthly close processed successfully' });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
 });
 
-app.post('/api/operations/shift/close', authMiddleware, requireRole(['cashier', 'manager']), async (req, res) => {
-    const { actualCash, cashCounts, discrepancy, notes } = req.body;
+app.post('/api/operations/monthly/depreciation', authMiddleware, requireRole(['manager', 'accounts']), async (req, res) => {
+    const { month } = req.body;
 
     try {
-        const result = await db.run(`
-            UPDATE shifts
-            SET closed_at = datetime('now'),
-                closed_by = ?,
-                actual_cash = ?,
-                cash_counts = ?,
-                discrepancy = ?,
-                notes = ?
-            WHERE closed_at IS NULL
-        `, [req.user.username, actualCash, JSON.stringify(cashCounts), discrepancy, notes]);
+        // This would calculate and post depreciation entries
+        // For now, just log the activity
+        await logActivity('depreciation', null, 'calculated', req.user.username, `Depreciation calculated for ${month}`);
 
-        if (result.changes === 0) {
-            return res.status(400).json({ error: 'No open shift found' });
+        res.json({ message: 'Depreciation calculated successfully' });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Purchase Reversals
+app.get('/api/purchases', authMiddleware, requireRole(['manager', 'accounts']), async (req, res) => {
+    const { search, limit = 50, includeReversed = true } = req.query;
+
+    try {
+        let query = `
+            SELECT p.*, s.name as supplierName,
+                   COUNT(pi.id) as itemCount
+            FROM purchases p
+            LEFT JOIN suppliers s ON p.supplier_id = s.id
+            LEFT JOIN purchase_items pi ON p.id = pi.purchase_id
+            WHERE 1=1
+        `;
+        const params = [];
+
+        if (search) {
+            query += ` AND (p.id LIKE ? OR s.name LIKE ? OR p.reference_number LIKE ?)`;
+            params.push(`%${search}%`, `%${search}%`, `%${search}%`);
         }
 
-        await logActivity('shifts', null, 'closed', req.user.username, `Shift closed with $${actualCash} actual cash`);
+        if (includeReversed !== 'true') {
+            query += ` AND p.reversed = 0`;
+        }
 
-        res.json({ message: 'Shift closed successfully' });
+        query += ` GROUP BY p.id ORDER BY p.created_at DESC LIMIT ?`;
+        params.push(parseInt(limit));
+
+        const purchases = await db.all(query, params);
+
+        // Get items for each purchase
+        for (const purchase of purchases) {
+            purchase.items = await db.all(`
+                SELECT pi.*, pr.name as productName
+                FROM purchase_items pi
+                LEFT JOIN products pr ON pi.product_id = pr.id
+                WHERE pi.purchase_id = ?
+            `, [purchase.id]);
+        }
+
+        res.json({ purchases });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.post('/api/purchases/:id/reverse', authMiddleware, requireRole(['manager', 'accounts']), async (req, res) => {
+    const { id } = req.params;
+    const { reason } = req.body;
+
+    try {
+        // Check if purchase exists and is not already reversed
+        const purchase = await db.get(`
+            SELECT * FROM purchases WHERE id = ? AND reversed = 0
+        `, [id]);
+
+        if (!purchase) {
+            return res.status(404).json({ error: 'Purchase not found or already reversed' });
+        }
+
+        // Start transaction
+        await db.run('BEGIN TRANSACTION');
+
+        try {
+            // Mark purchase as reversed
+            await db.run(`
+                UPDATE purchases
+                SET reversed = 1, reversed_at = datetime('now'), reversed_by = ?, reversal_reason = ?
+                WHERE id = ?
+            `, [req.user.username, reason, id]);
+
+            // Reverse inventory transactions
+            await db.run(`
+                INSERT INTO inventory_transactions (product_id, type, quantity, unit_cost, reference, created_by)
+                SELECT product_id, 'adjustment', -quantity, unit_cost, 'Purchase reversal #' || ?, ?
+                FROM purchase_items WHERE purchase_id = ?
+            `, [id, req.user.username, id]);
+
+            // Reverse accounting entries (if any)
+            // This would depend on how purchases are accounted for
+
+            await db.run('COMMIT');
+
+            await logActivity('purchases', id, 'reversed', req.user.username, `Purchase reversed: ${reason}`);
+
+            res.json({ message: 'Purchase reversed successfully' });
+        } catch (err) {
+            await db.run('ROLLBACK');
+            throw err;
+        }
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
@@ -5901,100 +6201,6 @@ app.post('/api/purchases/:id/reverse', authMiddleware, requireRole(['manager', '
     }
 });
 
-// Shift Management
-app.get('/api/operations/shift/current', authMiddleware, requireRole(['cashier', 'manager']), async (req, res) => {
-    try {
-        // Get current open shift or last closed shift
-        const shift = await db.get(`
-            SELECT * FROM shifts
-            WHERE closed_at IS NULL OR DATE(opened_at) = DATE('now')
-            ORDER BY opened_at DESC LIMIT 1
-        `);
-
-        if (!shift) {
-            return res.json({ isOpen: false });
-        }
-
-        // Calculate shift totals
-        const totals = await db.get(`
-            SELECT
-                COALESCE(SUM(i.total), 0) as totalSales,
-                COALESCE(SUM(CASE WHEN p.method = 'cash' THEN i.total ELSE 0 END), 0) as cashSales,
-                COALESCE(SUM(CASE WHEN p.method != 'cash' THEN i.total ELSE 0 END), 0) as cardSales
-            FROM invoices i
-            LEFT JOIN payments p ON p.invoice_id = i.id
-            WHERE DATE(i.created_at) >= DATE(?) AND i.status = 'paid'
-        `, [shift.opened_at]);
-
-        res.json({
-            shiftId: shift.id,
-            isOpen: !shift.closed_at,
-            openedAt: shift.opened_at,
-            openedBy: shift.opened_by,
-            startingCash: shift.starting_cash,
-            totalSales: totals?.totalSales || 0,
-            cashSales: totals?.cashSales || 0,
-            cardSales: totals?.cardSales || 0,
-            transactionCount: totals?.transactionCount || 0,
-            expectedCash: (shift.starting_cash || 0) + (totals?.cashSales || 0)
-        });
-    } catch (err) {
-        res.status(500).json({ error: err.message });
-    }
-});
-
-app.post('/api/operations/shift/start', authMiddleware, requireRole(['cashier', 'manager']), async (req, res) => {
-    const { startingCash = 0 } = req.body;
-
-    try {
-        // Close any open shifts first
-        await db.run(`
-            UPDATE shifts
-            SET closed_at = datetime('now'), closed_by = ?
-            WHERE closed_at IS NULL
-        `, [req.user.username]);
-
-        // Start new shift
-        const result = await db.run(`
-            INSERT INTO shifts (opened_by, starting_cash)
-            VALUES (?, ?)
-        `, [req.user.username, startingCash]);
-
-        await logActivity('shifts', result.lastID, 'opened', req.user.username, `Shift opened with $${startingCash} starting cash`);
-
-        res.json({ message: 'Shift started successfully', shiftId: result.lastID });
-    } catch (err) {
-        res.status(500).json({ error: err.message });
-    }
-});
-
-app.post('/api/operations/shift/close', authMiddleware, requireRole(['cashier', 'manager']), async (req, res) => {
-    const { actualCash, cashCounts, discrepancy, notes } = req.body;
-
-    try {
-        const result = await db.run(`
-            UPDATE shifts
-            SET closed_at = datetime('now'),
-                closed_by = ?,
-                actual_cash = ?,
-                cash_counts = ?,
-                discrepancy = ?,
-                notes = ?
-            WHERE closed_at IS NULL
-        `, [req.user.username, actualCash, JSON.stringify(cashCounts), discrepancy, notes]);
-
-        if (result.changes === 0) {
-            return res.status(400).json({ error: 'No open shift found' });
-        }
-
-        await logActivity('shifts', null, 'closed', req.user.username, `Shift closed with $${actualCash} actual cash`);
-
-        res.json({ message: 'Shift closed successfully' });
-    } catch (err) {
-        res.status(500).json({ error: err.message });
-    }
-});
-
 // Monthly Operations
 app.get('/api/operations/monthly', authMiddleware, requireRole(['manager', 'accounts']), async (req, res) => {
     const { month } = req.query;
@@ -6215,738 +6421,6 @@ app.post('/api/purchases/:id/reverse', authMiddleware, requireRole(['manager', '
             await db.run('ROLLBACK');
             throw err;
         }
-    } catch (err) {
-        res.status(500).json({ error: err.message });
-    }
-});
-
-// Shift Management
-app.get('/api/operations/shift/current', authMiddleware, requireRole(['cashier', 'manager']), async (req, res) => {
-    try {
-        // Get current open shift or last closed shift
-        const shift = await db.get(`
-            SELECT * FROM shifts
-            WHERE closed_at IS NULL OR DATE(opened_at) = DATE('now')
-            ORDER BY opened_at DESC LIMIT 1
-        `);
-
-        if (!shift) {
-            return res.json({ isOpen: false });
-        }
-
-        // Calculate shift totals
-        const totals = await db.get(`
-            SELECT
-                COALESCE(SUM(i.total), 0) as totalSales,
-                COALESCE(SUM(CASE WHEN p.method = 'cash' THEN i.total ELSE 0 END), 0) as cashSales,
-                COALESCE(SUM(CASE WHEN p.method != 'cash' THEN i.total ELSE 0 END), 0) as cardSales
-            FROM invoices i
-            LEFT JOIN payments p ON p.invoice_id = i.id
-            WHERE DATE(i.created_at) >= DATE(?) AND i.status = 'paid'
-        `, [shift.opened_at]);
-
-        res.json({
-            shiftId: shift.id,
-            isOpen: !shift.closed_at,
-            openedAt: shift.opened_at,
-            openedBy: shift.opened_by,
-            startingCash: shift.starting_cash,
-            totalSales: totals?.totalSales || 0,
-            cashSales: totals?.cashSales || 0,
-            cardSales: totals?.cardSales || 0,
-            transactionCount: totals?.transactionCount || 0,
-            expectedCash: (shift.starting_cash || 0) + (totals?.cashSales || 0)
-        });
-    } catch (err) {
-        res.status(500).json({ error: err.message });
-    }
-});
-
-app.post('/api/operations/shift/start', authMiddleware, requireRole(['cashier', 'manager']), async (req, res) => {
-    const { startingCash = 0 } = req.body;
-
-    try {
-        // Close any open shifts first
-        await db.run(`
-            UPDATE shifts
-            SET closed_at = datetime('now'), closed_by = ?
-            WHERE closed_at IS NULL
-        `, [req.user.username]);
-
-        // Start new shift
-        const result = await db.run(`
-            INSERT INTO shifts (opened_by, starting_cash)
-            VALUES (?, ?)
-        `, [req.user.username, startingCash]);
-
-        await logActivity('shifts', result.lastID, 'opened', req.user.username, `Shift opened with $${startingCash} starting cash`);
-
-        res.json({ message: 'Shift started successfully', shiftId: result.lastID });
-    } catch (err) {
-        res.status(500).json({ error: err.message });
-    }
-});
-
-app.post('/api/operations/shift/close', authMiddleware, requireRole(['cashier', 'manager']), async (req, res) => {
-    const { actualCash, cashCounts, discrepancy, notes } = req.body;
-
-    try {
-        const result = await db.run(`
-            UPDATE shifts
-            SET closed_at = datetime('now'),
-                closed_by = ?,
-                actual_cash = ?,
-                cash_counts = ?,
-                discrepancy = ?,
-                notes = ?
-            WHERE closed_at IS NULL
-        `, [req.user.username, actualCash, JSON.stringify(cashCounts), discrepancy, notes]);
-
-        if (result.changes === 0) {
-            return res.status(400).json({ error: 'No open shift found' });
-        }
-
-        await logActivity('shifts', null, 'closed', req.user.username, `Shift closed with $${actualCash} actual cash`);
-
-        res.json({ message: 'Shift closed successfully' });
-    } catch (err) {
-        res.status(500).json({ error: err.message });
-    }
-});
-
-// Monthly Operations
-app.get('/api/operations/monthly', authMiddleware, requireRole(['manager', 'accounts']), async (req, res) => {
-    const { month } = req.query;
-    if (!month) {
-        return res.status(400).json({ error: 'Month parameter is required (YYYY-MM)' });
-    }
-
-    const startDate = `${month}-01`;
-    const endDate = new Date(new Date(startDate).getFullYear(), new Date(startDate).getMonth() + 1, 0).toISOString().split('T')[0];
-
-    try {
-        // Check if month is closed
-        const monthClose = await db.get(`
-            SELECT * FROM monthly_closes
-            WHERE month = ? AND year = ?
-        `, [new Date(startDate).getMonth() + 1, new Date(startDate).getFullYear()]);
-
-        // Financial summary - calculate revenue and expenses from general ledger
-        const financial = await db.get(`
-            SELECT
-                COALESCE(SUM(CASE WHEN coa.account_type = 'revenue' THEN (gl.debit - gl.credit) ELSE 0 END), 0) as totalRevenue,
-                COALESCE(SUM(CASE WHEN coa.account_type = 'expense' THEN (gl.credit - gl.debit) ELSE 0 END), 0) as totalExpenses,
-                COALESCE(SUM(CASE WHEN coa.account_type = 'revenue' THEN (gl.debit - gl.credit) ELSE 0 END), 0) -
-                COALESCE(SUM(CASE WHEN coa.account_type = 'expense' THEN (gl.credit - gl.debit) ELSE 0 END), 0) as netIncome
-            FROM general_ledger gl
-            JOIN chart_of_accounts coa ON gl.account_id = coa.id
-            WHERE DATE(gl.transaction_date) BETWEEN ? AND ?
-        `, [startDate, endDate]);
-
-        // Opening and closing balance - calculate net balance
-        const openingBalance = await db.get(`
-            SELECT COALESCE(SUM(gl.debit - gl.credit), 0) as balance
-            FROM general_ledger gl
-            WHERE DATE(gl.transaction_date) < ?
-        `, [startDate]);
-
-        const closingBalance = await db.get(`
-            SELECT COALESCE(SUM(gl.debit - gl.credit), 0) as balance
-            FROM general_ledger gl
-            WHERE DATE(gl.transaction_date) <= ?
-        `, [endDate]);
-
-        // Inventory summary - calculate from inventory transactions
-        const inventory = await db.get(`
-            SELECT
-                COALESCE(SUM(CASE WHEN type = 'purchase' THEN quantity * unit_cost ELSE 0 END), 0) as purchases,
-                COALESCE(SUM(CASE WHEN type = 'sale' THEN quantity * unit_cost ELSE 0 END), 0) as sales,
-                COALESCE(AVG(quantity), 0) as avgInventory
-            FROM inventory_transactions
-            WHERE DATE(created_at) BETWEEN ? AND ?
-        `, [startDate, endDate]);
-
-        // Key metrics
-        const metrics = await db.get(`
-            SELECT
-                COUNT(DISTINCT i.id) as totalTransactions,
-                AVG(i.total) as avgTransactionValue,
-                COUNT(DISTINCT i.customer_id) as totalCustomers
-            FROM invoices i
-            WHERE DATE(i.created_at) BETWEEN ? AND ?
-        `, [startDate, endDate]);
-
-        res.json({
-            month,
-            closed: !!monthClose,
-            closedAt: monthClose?.closed_at,
-            financial: {
-                totalRevenue: financial?.totalRevenue || 0,
-                totalExpenses: financial?.totalExpenses || 0,
-                netIncome: financial?.netIncome || 0,
-                openingBalance: openingBalance?.balance || 0,
-                closingBalance: closingBalance?.balance || 0
-            },
-            inventory: {
-                purchases: inventory?.purchases || 0,
-                sales: inventory?.sales || 0,
-                openingValue: 0, // Would need more complex calculation
-                closingValue: 0, // Would need more complex calculation
-                turnoverRatio: inventory?.sales && inventory?.avgInventory ?
-                    inventory.sales / inventory.avgInventory : 0
-            },
-            metrics: {
-                totalTransactions: metrics?.totalTransactions || 0,
-                avgTransactionValue: metrics?.avgTransactionValue || 0,
-                newCustomers: 0, // Would need customer creation date tracking
-                returningCustomers: metrics?.totalCustomers || 0
-            }
-        });
-    } catch (err) {
-        res.status(500).json({ error: err.message });
-    }
-});
-
-app.post('/api/operations/monthly/process', authMiddleware, requireRole(['manager', 'accounts']), async (req, res) => {
-    const { month } = req.body;
-    if (!month) {
-        return res.status(400).json({ error: 'Month parameter is required' });
-    }
-
-    try {
-        const monthNum = new Date(month + '-01').getMonth() + 1;
-        const year = new Date(month + '-01').getFullYear();
-
-        // Record monthly close
-        const result = await db.run(`
-            INSERT INTO monthly_closes (month, year, closed_by)
-            VALUES (?, ?, ?)
-        `, [monthNum, year, req.user.username]);
-
-        await logActivity('monthly_closes', result.lastID, 'created', req.user.username, `Monthly close for ${month}`);
-
-        res.json({ message: 'Monthly close processed successfully' });
-    } catch (err) {
-        res.status(500).json({ error: err.message });
-    }
-});
-
-app.post('/api/operations/monthly/depreciation', authMiddleware, requireRole(['manager', 'accounts']), async (req, res) => {
-    const { month } = req.body;
-
-    try {
-        // This would calculate and post depreciation entries
-        // For now, just log the activity
-        await logActivity('depreciation', null, 'calculated', req.user.username, `Depreciation calculated for ${month}`);
-
-        res.json({ message: 'Depreciation calculated successfully' });
-    } catch (err) {
-        res.status(500).json({ error: err.message });
-    }
-});
-
-// Purchase Reversals
-app.get('/api/purchases', authMiddleware, requireRole(['manager', 'accounts']), async (req, res) => {
-    const { search, limit = 50, includeReversed = true } = req.query;
-
-    try {
-        let query = `
-            SELECT p.*, s.name as supplierName,
-                   COUNT(pi.id) as itemCount
-            FROM purchases p
-            LEFT JOIN suppliers s ON p.supplier_id = s.id
-            LEFT JOIN purchase_items pi ON p.id = pi.purchase_id
-            WHERE 1=1
-        `;
-        const params = [];
-
-        if (search) {
-            query += ` AND (p.id LIKE ? OR s.name LIKE ? OR p.reference_number LIKE ?)`;
-            params.push(`%${search}%`, `%${search}%`, `%${search}%`);
-        }
-
-        if (includeReversed !== 'true') {
-            query += ` AND p.reversed = 0`;
-        }
-
-        query += ` GROUP BY p.id ORDER BY p.created_at DESC LIMIT ?`;
-        params.push(parseInt(limit));
-
-        const purchases = await db.all(query, params);
-
-        // Get items for each purchase
-        for (const purchase of purchases) {
-            purchase.items = await db.all(`
-                SELECT pi.*, pr.name as productName
-                FROM purchase_items pi
-                LEFT JOIN products pr ON pi.product_id = pr.id
-                WHERE pi.purchase_id = ?
-            `, [purchase.id]);
-        }
-
-        res.json({ purchases });
-    } catch (err) {
-        res.status(500).json({ error: err.message });
-    }
-});
-
-app.post('/api/purchases/:id/reverse', authMiddleware, requireRole(['manager', 'accounts']), async (req, res) => {
-    const { id } = req.params;
-    const { reason } = req.body;
-
-    try {
-        // Check if purchase exists and is not already reversed
-        const purchase = await db.get(`
-            SELECT * FROM purchases WHERE id = ? AND reversed = 0
-        `, [id]);
-
-        if (!purchase) {
-            return res.status(404).json({ error: 'Purchase not found or already reversed' });
-        }
-
-        // Start transaction
-        await db.run('BEGIN TRANSACTION');
-
-        try {
-            // Mark purchase as reversed
-            await db.run(`
-                UPDATE purchases
-                SET reversed = 1, reversed_at = datetime('now'), reversed_by = ?, reversal_reason = ?
-                WHERE id = ?
-            `, [req.user.username, reason, id]);
-
-            // Reverse inventory transactions
-            await db.run(`
-                INSERT INTO inventory_transactions (product_id, type, quantity, unit_cost, reference, created_by)
-                SELECT product_id, 'adjustment', -quantity, unit_cost, 'Purchase reversal #' || ?, ?
-                FROM purchase_items WHERE purchase_id = ?
-            `, [id, req.user.username, id]);
-
-            // Reverse accounting entries (if any)
-            // This would depend on how purchases are accounted for
-
-            await db.run('COMMIT');
-
-            await logActivity('purchases', id, 'reversed', req.user.username, `Purchase reversed: ${reason}`);
-
-            res.json({ message: 'Purchase reversed successfully' });
-        } catch (err) {
-            await db.run('ROLLBACK');
-            throw err;
-        }
-    } catch (err) {
-        res.status(500).json({ error: err.message });
-    }
-});
-
-// Shift Management
-app.get('/api/operations/shift/current', authMiddleware, requireRole(['cashier', 'manager']), async (req, res) => {
-    try {
-        // Get current open shift or last closed shift
-        const shift = await db.get(`
-            SELECT * FROM shifts
-            WHERE closed_at IS NULL OR DATE(opened_at) = DATE('now')
-            ORDER BY opened_at DESC LIMIT 1
-        `);
-
-        if (!shift) {
-            return res.json({ isOpen: false });
-        }
-
-        // Calculate shift totals
-        const totals = await db.get(`
-            SELECT
-                COALESCE(SUM(i.total), 0) as totalSales,
-                COALESCE(SUM(CASE WHEN p.method = 'cash' THEN i.total ELSE 0 END), 0) as cashSales,
-                COALESCE(SUM(CASE WHEN p.method != 'cash' THEN i.total ELSE 0 END), 0) as cardSales
-            FROM invoices i
-            LEFT JOIN payments p ON p.invoice_id = i.id
-            WHERE DATE(i.created_at) >= DATE(?) AND i.status = 'paid'
-        `, [shift.opened_at]);
-
-        res.json({
-            shiftId: shift.id,
-            isOpen: !shift.closed_at,
-            openedAt: shift.opened_at,
-            openedBy: shift.opened_by,
-            startingCash: shift.starting_cash,
-            totalSales: totals?.totalSales || 0,
-            cashSales: totals?.cashSales || 0,
-            cardSales: totals?.cardSales || 0,
-            transactionCount: totals?.transactionCount || 0,
-            expectedCash: (shift.starting_cash || 0) + (totals?.cashSales || 0)
-        });
-    } catch (err) {
-        res.status(500).json({ error: err.message });
-    }
-});
-
-app.post('/api/operations/shift/start', authMiddleware, requireRole(['cashier', 'manager']), async (req, res) => {
-    const { startingCash = 0 } = req.body;
-
-    try {
-        // Close any open shifts first
-        await db.run(`
-            UPDATE shifts
-            SET closed_at = datetime('now'), closed_by = ?
-            WHERE closed_at IS NULL
-        `, [req.user.username]);
-
-        // Start new shift
-        const result = await db.run(`
-            INSERT INTO shifts (opened_by, starting_cash)
-            VALUES (?, ?)
-        `, [req.user.username, startingCash]);
-
-        await logActivity('shifts', result.lastID, 'opened', req.user.username, `Shift opened with $${startingCash} starting cash`);
-
-        res.json({ message: 'Shift started successfully', shiftId: result.lastID });
-    } catch (err) {
-        res.status(500).json({ error: err.message });
-    }
-});
-
-app.post('/api/operations/shift/close', authMiddleware, requireRole(['cashier', 'manager']), async (req, res) => {
-    const { actualCash, cashCounts, discrepancy, notes } = req.body;
-
-    try {
-        const result = await db.run(`
-            UPDATE shifts
-            SET closed_at = datetime('now'),
-                closed_by = ?,
-                actual_cash = ?,
-                cash_counts = ?,
-                discrepancy = ?,
-                notes = ?
-            WHERE closed_at IS NULL
-        `, [req.user.username, actualCash, JSON.stringify(cashCounts), discrepancy, notes]);
-
-        if (result.changes === 0) {
-            return res.status(400).json({ error: 'No open shift found' });
-        }
-
-        await logActivity('shifts', null, 'closed', req.user.username, `Shift closed with $${actualCash} actual cash`);
-
-        res.json({ message: 'Shift closed successfully' });
-    } catch (err) {
-        res.status(500).json({ error: err.message });
-    }
-});
-
-// Monthly Operations
-app.get('/api/operations/monthly', authMiddleware, requireRole(['manager', 'accounts']), async (req, res) => {
-    const { month } = req.query;
-    if (!month) {
-        return res.status(400).json({ error: 'Month parameter is required (YYYY-MM)' });
-    }
-
-    const startDate = `${month}-01`;
-    const endDate = new Date(new Date(startDate).getFullYear(), new Date(startDate).getMonth() + 1, 0).toISOString().split('T')[0];
-
-    try {
-        // Check if month is closed
-        const monthClose = await db.get(`
-            SELECT * FROM monthly_closes
-            WHERE month = ? AND year = ?
-        `, [new Date(startDate).getMonth() + 1, new Date(startDate).getFullYear()]);
-
-        // Financial summary - calculate revenue and expenses from general ledger
-        const financial = await db.get(`
-            SELECT
-                COALESCE(SUM(CASE WHEN coa.account_type = 'revenue' THEN (gl.debit - gl.credit) ELSE 0 END), 0) as totalRevenue,
-                COALESCE(SUM(CASE WHEN coa.account_type = 'expense' THEN (gl.credit - gl.debit) ELSE 0 END), 0) as totalExpenses,
-                COALESCE(SUM(CASE WHEN coa.account_type = 'revenue' THEN (gl.debit - gl.credit) ELSE 0 END), 0) -
-                COALESCE(SUM(CASE WHEN coa.account_type = 'expense' THEN (gl.credit - gl.debit) ELSE 0 END), 0) as netIncome
-            FROM general_ledger gl
-            JOIN chart_of_accounts coa ON gl.account_id = coa.id
-            WHERE DATE(gl.transaction_date) BETWEEN ? AND ?
-        `, [startDate, endDate]);
-
-        // Opening and closing balance - calculate net balance
-        const openingBalance = await db.get(`
-            SELECT COALESCE(SUM(gl.debit - gl.credit), 0) as balance
-            FROM general_ledger gl
-            WHERE DATE(gl.transaction_date) < ?
-        `, [startDate]);
-
-        const closingBalance = await db.get(`
-            SELECT COALESCE(SUM(gl.debit - gl.credit), 0) as balance
-            FROM general_ledger gl
-            WHERE DATE(gl.transaction_date) <= ?
-        `, [endDate]);
-
-        // Inventory summary - calculate from inventory transactions
-        const inventory = await db.get(`
-            SELECT
-                COALESCE(SUM(CASE WHEN type = 'purchase' THEN quantity * unit_cost ELSE 0 END), 0) as purchases,
-                COALESCE(SUM(CASE WHEN type = 'sale' THEN quantity * unit_cost ELSE 0 END), 0) as sales,
-                COALESCE(AVG(quantity), 0) as avgInventory
-            FROM inventory_transactions
-            WHERE DATE(created_at) BETWEEN ? AND ?
-        `, [startDate, endDate]);
-
-        // Key metrics
-        const metrics = await db.get(`
-            SELECT
-                COUNT(DISTINCT i.id) as totalTransactions,
-                AVG(i.total) as avgTransactionValue,
-                COUNT(DISTINCT i.customer_id) as totalCustomers
-            FROM invoices i
-            WHERE DATE(i.created_at) BETWEEN ? AND ?
-        `, [startDate, endDate]);
-
-        res.json({
-            month,
-            closed: !!monthClose,
-            closedAt: monthClose?.closed_at,
-            financial: {
-                totalRevenue: financial?.totalRevenue || 0,
-                totalExpenses: financial?.totalExpenses || 0,
-                netIncome: financial?.netIncome || 0,
-                openingBalance: openingBalance?.balance || 0,
-                closingBalance: closingBalance?.balance || 0
-            },
-            inventory: {
-                purchases: inventory?.purchases || 0,
-                sales: inventory?.sales || 0,
-                openingValue: 0, // Would need more complex calculation
-                closingValue: 0, // Would need more complex calculation
-                turnoverRatio: inventory?.sales && inventory?.avgInventory ?
-                    inventory.sales / inventory.avgInventory : 0
-            },
-            metrics: {
-                totalTransactions: metrics?.totalTransactions || 0,
-                avgTransactionValue: metrics?.avgTransactionValue || 0,
-                newCustomers: 0, // Would need customer creation date tracking
-                returningCustomers: metrics?.totalCustomers || 0
-            }
-        });
-    } catch (err) {
-        res.status(500).json({ error: err.message });
-    }
-});
-
-app.post('/api/operations/monthly/process', authMiddleware, requireRole(['manager', 'accounts']), async (req, res) => {
-    const { month } = req.body;
-    if (!month) {
-        return res.status(400).json({ error: 'Month parameter is required' });
-    }
-
-    try {
-        const monthNum = new Date(month + '-01').getMonth() + 1;
-        const year = new Date(month + '-01').getFullYear();
-
-        // Record monthly close
-        const result = await db.run(`
-            INSERT INTO monthly_closes (month, year, closed_by)
-            VALUES (?, ?, ?)
-        `, [monthNum, year, req.user.username]);
-
-        await logActivity('monthly_closes', result.lastID, 'created', req.user.username, `Monthly close for ${month}`);
-
-        res.json({ message: 'Monthly close processed successfully' });
-    } catch (err) {
-        res.status(500).json({ error: err.message });
-    }
-});
-
-app.post('/api/operations/monthly/depreciation', authMiddleware, requireRole(['manager', 'accounts']), async (req, res) => {
-    const { month } = req.body;
-
-    try {
-        // This would calculate and post depreciation entries
-        // For now, just log the activity
-        await logActivity('depreciation', null, 'calculated', req.user.username, `Depreciation calculated for ${month}`);
-
-        res.json({ message: 'Depreciation calculated successfully' });
-    } catch (err) {
-        res.status(500).json({ error: err.message });
-    }
-});
-
-// Purchase Reversals
-app.get('/api/purchases', authMiddleware, requireRole(['manager', 'accounts']), async (req, res) => {
-    const { search, limit = 50, includeReversed = true } = req.query;
-
-    try {
-        let query = `
-            SELECT p.*, s.name as supplierName,
-                   COUNT(pi.id) as itemCount
-            FROM purchases p
-            LEFT JOIN suppliers s ON p.supplier_id = s.id
-            LEFT JOIN purchase_items pi ON p.id = pi.purchase_id
-            WHERE 1=1
-        `;
-        const params = [];
-
-        if (search) {
-            query += ` AND (p.id LIKE ? OR s.name LIKE ? OR p.reference_number LIKE ?)`;
-            params.push(`%${search}%`, `%${search}%`, `%${search}%`);
-        }
-
-        if (includeReversed !== 'true') {
-            query += ` AND p.reversed = 0`;
-        }
-
-        query += ` GROUP BY p.id ORDER BY p.created_at DESC LIMIT ?`;
-        params.push(parseInt(limit));
-
-        const purchases = await db.all(query, params);
-
-        // Get items for each purchase
-        for (const purchase of purchases) {
-            purchase.items = await db.all(`
-                SELECT pi.*, pr.name as productName
-                FROM purchase_items pi
-                LEFT JOIN products pr ON pi.product_id = pr.id
-                WHERE pi.purchase_id = ?
-            `, [purchase.id]);
-        }
-
-        res.json({ purchases });
-    } catch (err) {
-        res.status(500).json({ error: err.message });
-    }
-});
-
-app.post('/api/purchases/:id/reverse', authMiddleware, requireRole(['manager', 'accounts']), async (req, res) => {
-    const { id } = req.params;
-    const { reason } = req.body;
-
-    try {
-        // Check if purchase exists and is not already reversed
-        const purchase = await db.get(`
-            SELECT * FROM purchases WHERE id = ? AND reversed = 0
-        `, [id]);
-
-        if (!purchase) {
-            return res.status(404).json({ error: 'Purchase not found or already reversed' });
-        }
-
-        // Start transaction
-        await db.run('BEGIN TRANSACTION');
-
-        try {
-            // Mark purchase as reversed
-            await db.run(`
-                UPDATE purchases
-                SET reversed = 1, reversed_at = datetime('now'), reversed_by = ?, reversal_reason = ?
-                WHERE id = ?
-            `, [req.user.username, reason, id]);
-
-            // Reverse inventory transactions
-            await db.run(`
-                INSERT INTO inventory_transactions (product_id, type, quantity, unit_cost, reference, created_by)
-                SELECT product_id, 'adjustment', -quantity, unit_cost, 'Purchase reversal #' || ?, ?
-                FROM purchase_items WHERE purchase_id = ?
-            `, [id, req.user.username, id]);
-
-            // Reverse accounting entries (if any)
-            // This would depend on how purchases are accounted for
-
-            await db.run('COMMIT');
-
-            await logActivity('purchases', id, 'reversed', req.user.username, `Purchase reversed: ${reason}`);
-
-            res.json({ message: 'Purchase reversed successfully' });
-        } catch (err) {
-            await db.run('ROLLBACK');
-            throw err;
-        }
-    } catch (err) {
-        res.status(500).json({ error: err.message });
-    }
-});
-
-// Shift Management
-app.get('/api/operations/shift/current', authMiddleware, requireRole(['cashier', 'manager']), async (req, res) => {
-    try {
-        // Get current open shift or last closed shift
-        const shift = await db.get(`
-            SELECT * FROM shifts
-            WHERE closed_at IS NULL OR DATE(opened_at) = DATE('now')
-            ORDER BY opened_at DESC LIMIT 1
-        `);
-
-        if (!shift) {
-            return res.json({ isOpen: false });
-        }
-
-        // Calculate shift totals
-        const totals = await db.get(`
-            SELECT
-                COALESCE(SUM(i.total), 0) as totalSales,
-                COALESCE(SUM(CASE WHEN p.method = 'cash' THEN i.total ELSE 0 END), 0) as cashSales,
-                COALESCE(SUM(CASE WHEN p.method != 'cash' THEN i.total ELSE 0 END), 0) as cardSales
-            FROM invoices i
-            LEFT JOIN payments p ON p.invoice_id = i.id
-            WHERE DATE(i.created_at) >= DATE(?) AND i.status = 'paid'
-        `, [shift.opened_at]);
-
-        res.json({
-            shiftId: shift.id,
-            isOpen: !shift.closed_at,
-            openedAt: shift.opened_at,
-            openedBy: shift.opened_by,
-            startingCash: shift.starting_cash,
-            totalSales: totals?.totalSales || 0,
-            cashSales: totals?.cashSales || 0,
-            cardSales: totals?.cardSales || 0,
-            transactionCount: totals?.transactionCount || 0,
-            expectedCash: (shift.starting_cash || 0) + (totals?.cashSales || 0)
-        });
-    } catch (err) {
-        res.status(500).json({ error: err.message });
-    }
-});
-
-app.post('/api/operations/shift/start', authMiddleware, requireRole(['cashier', 'manager']), async (req, res) => {
-    const { startingCash = 0 } = req.body;
-
-    try {
-        // Close any open shifts first
-        await db.run(`
-            UPDATE shifts
-            SET closed_at = datetime('now'), closed_by = ?
-            WHERE closed_at IS NULL
-        `, [req.user.username]);
-
-        // Start new shift
-        const result = await db.run(`
-            INSERT INTO shifts (opened_by, starting_cash)
-            VALUES (?, ?)
-        `, [req.user.username, startingCash]);
-
-        await logActivity('shifts', result.lastID, 'opened', req.user.username, `Shift opened with $${startingCash} starting cash`);
-
-        res.json({ message: 'Shift started successfully', shiftId: result.lastID });
-    } catch (err) {
-        res.status(500).json({ error: err.message });
-    }
-});
-
-app.post('/api/operations/shift/close', authMiddleware, requireRole(['cashier', 'manager']), async (req, res) => {
-    const { actualCash, cashCounts, discrepancy, notes } = req.body;
-
-    try {
-        const result = await db.run(`
-            UPDATE shifts
-            SET closed_at = datetime('now'),
-                closed_by = ?,
-                actual_cash = ?,
-                cash_counts = ?,
-                discrepancy = ?,
-                notes = ?
-            WHERE closed_at IS NULL
-        `, [req.user.username, actualCash, JSON.stringify(cashCounts), discrepancy, notes]);
-
-        if (result.changes === 0) {
-            return res.status(400).json({ error: 'No open shift found' });
-        }
-
-        await logActivity('shifts', null, 'closed', req.user.username, `Shift closed with $${actualCash} actual cash`);
-
-        res.json({ message: 'Shift closed successfully' });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }

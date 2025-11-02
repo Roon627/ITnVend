@@ -69,11 +69,25 @@ async function fetchWithRetry(path, options = {}, retries = 2, backoff = 200) {
 
       const res = await fetch(url, options);
       if (!res.ok) {
-        const text = await res.text();
-        const err = new Error(text || res.statusText);
-        // attach status for callers to inspect
+        const raw = await res.text();
+        let parsed = null;
+        if (raw) {
+          try {
+            parsed = JSON.parse(raw);
+          } catch {
+            // not JSON, fall back to raw text
+          }
+        }
+        const message =
+          (parsed && (parsed.error || parsed.message)) ||
+          raw ||
+          res.statusText ||
+          `Request failed with status ${res.status}`;
+        const err = new Error(message);
+        // attach status and parsed payload for callers to inspect
         err.status = res.status;
         err.response = res;
+        if (parsed) err.data = parsed;
         throw err;
       }
       const contentType = res.headers.get('content-type') || '';
