@@ -5038,7 +5038,6 @@ app.post('/api/operations/shift/close', authMiddleware, requireRole(['cashier', 
         if (Math.abs(normalizedActualCash - expectedCash) > 1 && (!notes || !notes.trim())) {
             return res.status(400).json({ error: 'Please add a note explaining the cash discrepancy before closing the shift.' });
         }
-
         const result = await db.run(`
             UPDATE shifts
             SET closed_at = datetime('now'),
