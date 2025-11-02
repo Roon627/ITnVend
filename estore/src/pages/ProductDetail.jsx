@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, Link, useNavigate } from 'react-router-dom';
 import api from '../lib/api';
 import { useCart } from '../components/CartContext';
 import { useSettings } from '../components/SettingsContext';
@@ -10,6 +10,7 @@ export default function ProductDetail() {
   const [product, setProduct] = useState(null);
   const { addToCart } = useCart();
   const { formatCurrency } = useSettings();
+  const navigate = useNavigate();
 
   useEffect(() => {
     let mounted = true;
@@ -35,6 +36,14 @@ export default function ProductDetail() {
   }
 
   const imageSrc = resolveMediaUrl(product.image || product.image_source || product.imageUrl);
+
+  const handlePreorder = () => {
+    const params = new URLSearchParams();
+    if (product?.category) params.set('store', product.category);
+    if (product?.name) params.set('name', product.name);
+    params.set('link', window.location.href);
+    navigate(`/shop-and-ship?${params.toString()}`);
+  };
 
   return (
     <div className="bg-gradient-to-br from-rose-50 via-white to-sky-50 py-16">
@@ -69,11 +78,16 @@ export default function ProductDetail() {
 
           <div className="flex flex-col gap-6">
             <header className="space-y-3">
-              <span className="inline-flex items-center gap-2 rounded-full bg-rose-100 px-3 py-1 text-xs font-semibold uppercase tracking-wider text-rose-600">
-                {product.category || 'Market item'}
+            <span className="inline-flex items-center gap-2 rounded-full bg-rose-100 px-3 py-1 text-xs font-semibold uppercase tracking-wider text-rose-600">
+              {product.category || 'Market item'}
+            </span>
+            <h1 className="text-3xl font-black text-slate-900 sm:text-4xl">{product.name}</h1>
+            {Boolean(product?.preorder_enabled) && (
+              <span className="inline-flex items-center gap-2 rounded-full border border-rose-200 bg-rose-50 px-3 py-1 text-xs font-semibold uppercase tracking-wider text-rose-500">
+                Preorder item
               </span>
-              <h1 className="text-3xl font-black text-slate-900 sm:text-4xl">{product.name}</h1>
-              <p className="text-sm uppercase tracking-widest text-rose-400">{product.subcategory || ''}</p>
+            )}
+            <p className="text-sm uppercase tracking-widest text-rose-400">{product.subcategory || ''}</p>
             </header>
 
             <div className="rounded-2xl bg-rose-50/60 p-5 text-rose-700 shadow-inner">
@@ -104,6 +118,15 @@ export default function ProductDetail() {
               >
                 Add to cart
               </button>
+              {Boolean(product?.preorder_enabled) ? (
+                <button
+                  type="button"
+                  onClick={handlePreorder}
+                  className="inline-flex items-center gap-3 rounded-full border border-rose-200 px-5 py-3 text-sm font-semibold text-rose-600 transition hover:bg-rose-100"
+                >
+                  Preorder via Shop &amp; Ship
+                </button>
+              ) : null}
               <Link
                 to="/market"
                 className="inline-flex items-center gap-2 rounded-full border border-rose-200 px-5 py-3 text-sm font-semibold text-rose-600 transition hover:bg-rose-100"

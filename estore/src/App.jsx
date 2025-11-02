@@ -13,6 +13,7 @@ import UsePolicy from "./pages/UsePolicy";
 import UseGlobal from "./pages/UseGlobal";
 import UseMV from "./pages/UseMV";
 import Contact from "./pages/Contact";
+import ShopAndShip from "./pages/ShopAndShip";
 import Footer from "./components/Footer";
 import PublicNavbar from "./components/PublicNavbar";
 
@@ -48,6 +49,7 @@ function App() {
         <Route path="/confirmation" element={<PublicLayout><OrderConfirmation /></PublicLayout>} />
         <Route path="/vendor-onboarding" element={<PublicLayout><VendorOnboarding /></PublicLayout>} />
         <Route path="/contact" element={<PublicLayout><Contact /></PublicLayout>} />
+        <Route path="/shop-and-ship" element={<PublicLayout><ShopAndShip /></PublicLayout>} />
         <Route path="/privacy" element={<PublicLayout><Privacy /></PublicLayout>} />
         <Route path="/privacy/global" element={<PublicLayout><PrivacyGlobal /></PublicLayout>} />
         <Route path="/privacy/mv" element={<PublicLayout><PrivacyMV /></PublicLayout>} />

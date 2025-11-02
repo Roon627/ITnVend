@@ -89,6 +89,8 @@ let JWT_SECRET = null;
 const AUDIENCE_OPTIONS = ['men', 'women', 'unisex'];
 const DELIVERY_TYPES = ['instant_download', 'shipping', 'pickup'];
 const WARRANTY_TERMS = ['none', '1_year', 'lifetime'];
+const PREORDER_STATUSES = ['pending', 'accepted', 'processing', 'received', 'ready', 'completed', 'cancelled'];
+const MAX_PAYMENT_SLIP_BASE64_LENGTH = 8 * 1024 * 1024; // ~6 MB payload after base64 expansion
 
 const slugify = (value = '') =>
     value
@@ -118,6 +120,46 @@ function normalizeEnum(value, allowed, fallback = null) {
   if (!value) return fallback;
   const normalized = value.toString().toLowerCase();
   return allowed.includes(normalized) ? normalized : fallback;
+}
+
+function parseJson(value, fallback = null) {
+    if (value == null) return fallback;
+    if (typeof value === 'object') return value;
+    try {
+        return JSON.parse(value);
+    } catch (err) {
+        return fallback;
+    }
+}
+
+function formatPreorderRow(row, includeSensitive = false) {
+    if (!row) return null;
+    const cartLinks = parseJson(row.cart_links, []);
+    const statusHistory = parseJson(row.status_history, []);
+    const base = {
+        id: row.id,
+        sourceStore: row.source_store || null,
+        cartLinks: Array.isArray(cartLinks) ? cartLinks : [],
+        notes: row.notes || null,
+        customerName: row.customer_name || null,
+        customerEmail: row.customer_email || null,
+        customerPhone: row.customer_phone || null,
+        usdTotal: row.usd_total != null ? Number(row.usd_total) : null,
+        exchangeRate: row.exchange_rate != null ? Number(row.exchange_rate) : null,
+        mvrTotal: row.mvr_total != null ? Number(row.mvr_total) : null,
+        paymentReference: row.payment_reference || null,
+        paymentDate: row.payment_date || null,
+        paymentBank: row.payment_bank || null,
+        deliveryAddress: row.delivery_address || null,
+        status: row.status || 'pending',
+        statusHistory: Array.isArray(statusHistory) ? statusHistory : [],
+        createdAt: row.created_at,
+        updatedAt: row.updated_at
+    };
+    if (includeSensitive) {
+        base.paymentSlip = row.payment_slip || null;
+    }
+    return base;
 }
 
 async function fetchCategoryPath(categoryId, subcategoryId, subsubcategoryId) {
@@ -2239,6 +2281,290 @@ app.post('/api/notifications/read-all', authMiddleware, async (req, res) => {
             [staffId, username]
         );
         res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Preorder intake (public entry point)
+app.post('/api/public/preorders', async (req, res) => {
+    try {
+        const body = req.body || {};
+        const {
+            sourceStore = null,
+            cartLinks = [],
+            notes = null,
+            customer = {},
+            usdTotal = null,
+            exchangeRate = 15.42,
+            payment = {}
+        } = body;
+
+        const customerName = (customer.name || '').toString().trim();
+        const customerEmail = (customer.email || '').toString().trim().toLowerCase();
+        const customerPhoneRaw = (customer.phone || '').toString().trim();
+        if (!customerPhoneRaw) {
+            return res.status(400).json({ error: 'Mobile number is required.' });
+        }
+        const customerPhone = customerPhoneRaw;
+
+        if (!customerName) {
+            return res.status(400).json({ error: 'Customer name is required.' });
+        }
+        if (!customerEmail) {
+            return res.status(400).json({ error: 'Customer email is required.' });
+        }
+        const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        if (!emailPattern.test(customerEmail)) {
+            return res.status(400).json({ error: 'Enter a valid email address.' });
+        }
+
+        const normalizedLinks = Array.isArray(cartLinks)
+            ? cartLinks
+                .map((link) => (typeof link === 'string' ? link.trim() : ''))
+                .filter(Boolean)
+            : typeof cartLinks === 'string'
+                ? cartLinks
+                    .split(/\r?\n/)
+                    .map((link) => link.trim())
+                    .filter(Boolean)
+                : [];
+
+        const sanitizedNotes = notes ? notes.toString().trim() : null;
+        const deliveryAddress = (body.deliveryAddress || '').toString().trim() || null;
+        const usdNumeric = Number.isFinite(Number(usdTotal)) ? Number(usdTotal) : null;
+        if (usdNumeric == null || usdNumeric < 0) {
+            return res.status(400).json({ error: 'Provide a valid USD total.' });
+        }
+        const exchangeNumeric = Number.isFinite(Number(exchangeRate)) && Number(exchangeRate) > 0
+            ? Number(exchangeRate)
+            : 15.42;
+        const mvrTotal = Math.round(usdNumeric * exchangeNumeric * 100) / 100;
+
+        const allowedBanks = ['bml', 'bank_of_maldives', 'maldives_islamic_bank', 'mib'];
+        let paymentBank = payment && payment.bank ? payment.bank.toString().trim().toLowerCase() : null;
+        if (paymentBank && !allowedBanks.includes(paymentBank)) {
+            paymentBank = null;
+        }
+        if (paymentBank === 'bank_of_maldives') paymentBank = 'bml';
+        if (paymentBank === 'maldives_islamic_bank') paymentBank = 'mib';
+
+        const paymentReference = payment && payment.reference ? payment.reference.toString().trim() : null;
+        const paymentDate = payment && payment.date ? payment.date.toString().trim() : null;
+        const paymentSlip = payment && payment.slip ? payment.slip.toString().trim() : null;
+        if (paymentSlip && paymentSlip.length > MAX_PAYMENT_SLIP_BASE64_LENGTH) {
+            return res.status(400).json({ error: 'Payment slip is too large. Please upload a smaller file.' });
+        }
+
+        const now = new Date().toISOString();
+        const history = JSON.stringify([
+            {
+                status: 'pending',
+                note: 'Order received',
+                created_at: now
+            }
+        ]);
+
+        const result = await db.run(
+            `INSERT INTO preorders (
+                source_store,
+                cart_links,
+                notes,
+                customer_name,
+                customer_email,
+                customer_phone,
+                delivery_address,
+                usd_total,
+                exchange_rate,
+                mvr_total,
+                payment_reference,
+                payment_date,
+                payment_slip,
+                payment_bank,
+                status,
+                status_history
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [
+                sourceStore ? sourceStore.toString().trim() : null,
+                JSON.stringify(normalizedLinks),
+                sanitizedNotes,
+                customerName,
+                customerEmail,
+                customerPhone,
+                deliveryAddress,
+                usdNumeric,
+                exchangeNumeric,
+                mvrTotal,
+                paymentReference,
+                paymentDate,
+                paymentSlip,
+                paymentBank,
+                'pending',
+                history
+            ]
+        );
+
+        await logActivity(
+            'preorder',
+            result.lastID,
+            'created',
+            customerEmail,
+            JSON.stringify({ usd: usdNumeric, exchange: exchangeNumeric, bank: paymentBank, address: deliveryAddress })
+        );
+
+        try {
+            const html = `
+                <p>New preorder submitted by <strong>${customerName}</strong> (${customerEmail}).</p>
+                <ul>
+                    <li>Preorder ID: #${result.lastID}</li>
+                    <li>Source store: ${sourceStore ? sourceStore : 'Not specified'}</li>
+                    <li>USD total: ${usdNumeric.toFixed(2)}</li>
+                    <li>MVR total: ${mvrTotal.toFixed(2)} at rate ${exchangeNumeric}</li>
+                    ${deliveryAddress ? `<li>Delivery address: ${deliveryAddress}</li>` : ''}
+                    ${paymentBank ? `<li>Payment bank: ${paymentBank === 'mib' ? 'Maldives Islamic Bank' : 'Bank of Maldives'}</li>` : ''}
+                </ul>
+                <p>Visit the POS dashboard to review and process this request.</p>
+            `;
+            await sendNotificationEmail('New preorder submission', html);
+        } catch (emailErr) {
+            console.warn('Preorder staff notification failed', emailErr?.message || emailErr);
+        }
+
+        try {
+            const ackHtml = `
+                <p>Hi ${customerName},</p>
+                <p>We received your order request. Our team will review and confirm shortly.</p>
+                <p>Reference number: <strong>#${result.lastID}</strong></p>
+                ${deliveryAddress ? `<p>Delivery address noted: ${deliveryAddress}</p>` : ''}
+                <p>Thank you for choosing us!</p>
+            `;
+            await sendNotificationEmail('We received your preorder', ackHtml, customerEmail);
+        } catch (emailErr) {
+            console.warn('Preorder acknowledgement failed', emailErr?.message || emailErr);
+        }
+
+        res.status(201).json({ id: result.lastID, status: 'pending' });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.get('/api/preorders', authMiddleware, requireRole(['accounts', 'manager', 'admin']), async (req, res) => {
+    try {
+        const statusFilterRaw = (req.query.status || 'all').toString().toLowerCase();
+        const params = [];
+        let query = `SELECT
+                id, source_store, cart_links, notes, customer_name, customer_email, customer_phone, delivery_address, usd_total, exchange_rate, mvr_total, payment_reference, payment_date, payment_bank, status, status_history, created_at, updated_at
+            FROM preorders`;
+        if (statusFilterRaw !== 'all') {
+            if (!PREORDER_STATUSES.includes(statusFilterRaw)) {
+                return res.status(400).json({ error: 'Invalid status filter.' });
+            }
+            query += ' WHERE status = ?';
+            params.push(statusFilterRaw);
+        }
+        query += ' ORDER BY created_at DESC LIMIT 200';
+        const rows = await db.all(query, params);
+        res.json(rows.map((row) => formatPreorderRow(row)));
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.get('/api/preorders/:id', authMiddleware, requireRole(['accounts', 'manager', 'admin']), async (req, res) => {
+    try {
+        const { id } = req.params;
+        const row = await db.get('SELECT * FROM preorders WHERE id = ?', [id]);
+        if (!row) {
+            return res.status(404).json({ error: 'Preorder not found' });
+        }
+        res.json(formatPreorderRow(row, true));
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.patch('/api/preorders/:id', authMiddleware, requireRole(['accounts', 'manager', 'admin']), async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { status, internalNote, notifyCustomer = false, customerMessage } = req.body || {};
+        const preorder = await db.get('SELECT * FROM preorders WHERE id = ?', [id]);
+        if (!preorder) {
+            return res.status(404).json({ error: 'Preorder not found' });
+        }
+
+        const trimmedNote = internalNote ? internalNote.toString().trim() : '';
+        const trimmedMessage = customerMessage ? customerMessage.toString().trim() : '';
+
+        let nextStatus = preorder.status;
+        let statusChanged = false;
+        if (status != null) {
+            const normalizedStatus = status.toString().toLowerCase().trim();
+            if (!PREORDER_STATUSES.includes(normalizedStatus)) {
+                return res.status(400).json({ error: 'Invalid status value.' });
+            }
+            if (normalizedStatus !== preorder.status) {
+                nextStatus = normalizedStatus;
+                statusChanged = true;
+            }
+        }
+
+        if (!statusChanged && !trimmedNote && !trimmedMessage) {
+            return res.status(400).json({ error: 'Nothing to update.' });
+        }
+
+        const history = parseJson(preorder.status_history, []) || [];
+        const entry = {
+            status: nextStatus,
+            created_at: new Date().toISOString(),
+            staff: req.user?.username || null,
+            notified_customer: notifyCustomer ? 1 : 0
+        };
+        if (trimmedNote) entry.note = trimmedNote;
+        if (trimmedMessage) entry.customer_message = trimmedMessage;
+        history.push(entry);
+
+        const updates = [];
+        const params = [];
+
+        if (statusChanged) {
+            updates.push('status = ?');
+            params.push(nextStatus);
+        }
+
+        updates.push('status_history = ?');
+        params.push(JSON.stringify(history));
+
+        updates.push('updated_at = CURRENT_TIMESTAMP');
+
+        const sql = `UPDATE preorders SET ${updates.join(', ')} WHERE id = ?`;
+        await db.run(sql, [...params, id]);
+
+        await logActivity(
+            'preorder',
+            id,
+            'updated',
+            req.user?.username || null,
+            JSON.stringify({ status: nextStatus, note: trimmedNote })
+        );
+
+        if (notifyCustomer && trimmedMessage && preorder.customer_email) {
+            const subjectStatus = nextStatus.charAt(0).toUpperCase() + nextStatus.slice(1);
+            const html = `
+                <p>Hi ${preorder.customer_name || 'there'},</p>
+                <p>${trimmedMessage}</p>
+                <p>Current status: <strong>${subjectStatus}</strong></p>
+                <p>Thank you for shopping with us.</p>
+            `;
+            try {
+                await sendNotificationEmail(`Your preorder update (${subjectStatus})`, html, preorder.customer_email);
+            } catch (emailErr) {
+                console.warn('Preorder customer email failed', emailErr?.message || emailErr);
+            }
+        }
+
+        const updated = await db.get('SELECT * FROM preorders WHERE id = ?', [id]);
+        res.json(formatPreorderRow(updated, true));
     } catch (err) {
         res.status(500).json({ error: err.message });
     }

@@ -69,6 +69,13 @@ export default function Home() {
                 </span>
               </Link>
               <Link
+                to="/shop-and-ship"
+                className="inline-flex items-center gap-3 rounded-full border border-white/60 bg-white/10 px-6 py-3 text-sm font-semibold text-white transition hover:bg-white/20"
+              >
+                Share your overseas cart
+                <FaArrowRight className="text-white/80" />
+              </Link>
+              <Link
                 to="/checkout"
                 className="inline-flex items-center gap-3 rounded-full border border-white/60 px-6 py-3 text-sm font-semibold text-white transition hover:bg-white/10"
               >

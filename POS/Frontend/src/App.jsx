@@ -14,6 +14,7 @@ import Header from './components/Header';
 import Accounting from './pages/Accounting/Accounting';
 import Reports from './pages/Reports/Reports';
 import Operations from './pages/Operations/Operations';
+import Preorders from './pages/Preorders';
 import Profile from './pages/Profile';
 import Help from './pages/Help';
 import ManageLookups from './pages/ManageLookups';
@@ -73,6 +74,7 @@ function App() {
       <Route path="/accounting" element={<RoleGuard minRole="accounts"><Accounting /></RoleGuard>} />
       <Route path="/reports" element={<RoleGuard minRole="manager"><Reports /></RoleGuard>} />
       <Route path="/operations" element={<RoleGuard minRole="manager"><Operations /></RoleGuard>} />
+      <Route path="/preorders" element={<RoleGuard minRole="accounts"><Preorders /></RoleGuard>} />
       <Route path="/settings" element={<RoleGuard minRole="manager"><Settings /></RoleGuard>} />
       <Route path="/manage-lookups" element={<RoleGuard minRole="admin"><ManageLookups /></RoleGuard>} />
       <Route path="*" element={<Navigate to="/" replace />} />

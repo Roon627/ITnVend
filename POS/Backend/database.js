@@ -317,6 +317,28 @@ export async function setupDatabase() {
             FOREIGN KEY (product_id) REFERENCES products(id)
         );
 
+        CREATE TABLE IF NOT EXISTS preorders (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            source_store TEXT,
+            cart_links TEXT,
+            notes TEXT,
+            customer_name TEXT,
+            customer_email TEXT,
+            customer_phone TEXT,
+            delivery_address TEXT,
+            usd_total REAL,
+            exchange_rate REAL,
+            mvr_total REAL,
+            payment_reference TEXT,
+            payment_date TEXT,
+            payment_slip TEXT,
+            payment_bank TEXT,
+            status TEXT DEFAULT 'pending',
+            status_history TEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+
         -- Vendors
         CREATE TABLE IF NOT EXISTS vendors (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -780,6 +802,8 @@ export async function setupDatabase() {
     await ensureColumn(db, 'invoices', 'total_amount', 'REAL DEFAULT 0');
     await ensureColumn(db, 'invoices', 'payment_method', 'TEXT');
     await ensureColumn(db, 'invoices', 'payment_reference', 'TEXT');
+    await ensureColumn(db, 'preorders', 'delivery_address', 'TEXT');
+    await ensureColumn(db, 'preorders', 'payment_bank', 'TEXT');
 
     // ensure a default settings row exists with id = 1
     const existing = await db.get('SELECT id FROM settings WHERE id = 1');

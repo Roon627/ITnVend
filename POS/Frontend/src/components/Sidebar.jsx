@@ -11,6 +11,7 @@ import {
   FaQuestionCircle,
   FaClipboardList,
   FaTimes,
+  FaInbox,
 } from 'react-icons/fa';
 import { useAuth } from './AuthContext';
 import { useUI } from './UIContext';
@@ -20,6 +21,7 @@ export default function Sidebar() {
   const { user } = useAuth();
   const canViewAccounting = user && ['accounts', 'manager', 'admin'].includes(user.role);
   const canViewReports = user && ['manager', 'admin'].includes(user.role);
+  const canManagePreorders = user && ['accounts', 'manager', 'admin'].includes(user.role);
   const canManageStaff = user && user.role === 'admin';
 
   const linkClass = ({ isActive }) =>
@@ -73,6 +75,11 @@ export default function Sidebar() {
         <NavLink to="/customers" className={linkClass} onClick={handleNavClick}>
           <FaUsers /> {!collapsedLabelsHidden && 'Customers'}
         </NavLink>
+        {canManagePreorders && (
+          <NavLink to="/preorders" className={linkClass} onClick={handleNavClick}>
+            <FaInbox /> {!collapsedLabelsHidden && 'Preorders'}
+          </NavLink>
+        )}
         {canViewAccounting && (
           <NavLink to="/accounting" className={linkClass} onClick={handleNavClick}>
             <FaCalculator /> {!collapsedLabelsHidden && 'Accounting'}

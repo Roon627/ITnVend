@@ -44,7 +44,7 @@ const CategoryItem = ({ category, level = 0, onUpdate, onDelete, onAddChild }) =
           style={{ color: !hasChildren ? 'transparent' : 'var(--color-muted)' }}
         >
           {hasChildren && (isExpanded ? <FaChevronDown size={12} /> : <FaChevronRight size={12} />)}
-        </button>
+  clear      </button>
 
         {/* Icon and Name */}
         {isEditing ? (

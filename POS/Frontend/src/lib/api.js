@@ -125,16 +125,45 @@ async function fetchWithRetry(path, options = {}, retries = 2, backoff = 200) {
   }
 }
 
-export const api = {
+const apiClient = {
   get: (p, opts = {}) => {
     const { params, ...rest } = opts || {};
     const url = appendParams(p, params);
     return fetchWithRetry(url, { method: 'GET', ...rest });
   },
-  post: (p, body) => fetchWithRetry(p, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }),
-  put: (p, body) => fetchWithRetry(p, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }),
-  del: (p) => fetchWithRetry(p, { method: 'DELETE' }),
+  post: (p, body, opts = {}) => {
+    const { headers: extraHeaders, ...rest } = opts || {};
+    return fetchWithRetry(p, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...(extraHeaders || {}) },
+      body: JSON.stringify(body),
+      ...rest,
+    });
+  },
+  put: (p, body, opts = {}) => {
+    const { headers: extraHeaders, ...rest } = opts || {};
+    return fetchWithRetry(p, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', ...(extraHeaders || {}) },
+      body: JSON.stringify(body),
+      ...rest,
+    });
+  },
+  patch: (p, body, opts = {}) => {
+    const { headers: extraHeaders, ...rest } = opts || {};
+    return fetchWithRetry(p, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', ...(extraHeaders || {}) },
+      body: JSON.stringify(body),
+      ...rest,
+    });
+  },
+  del: (p, opts = {}) => {
+    const { headers: extraHeaders, ...rest } = opts || {};
+    return fetchWithRetry(p, { method: 'DELETE', headers: extraHeaders, ...rest });
+  },
   upload: (p, formData, opts = {}) => fetchWithRetry(p, { method: 'POST', body: formData, ...opts }),
 };
 
-export default api;
+export const api = apiClient;
+export default apiClient;
