@@ -16,6 +16,94 @@ async function ensureColumn(db, table, column, definition) {
     }
 }
 
+async function migrateLegacyShifts(db) {
+    const info = await db.all("PRAGMA table_info('shifts')");
+    if (!info.length) return;
+    const hasLegacyColumns = info.some((col) => col.name === 'opened_by');
+    const hasModernOutlet = info.some((col) => col.name === 'outlet_id');
+    if (!hasLegacyColumns || hasModernOutlet) return;
+
+    console.warn('Detected legacy shifts table; migrating to modern schema');
+    await db.exec('ALTER TABLE shifts RENAME TO shifts_legacy');
+    await db.exec(`
+        CREATE TABLE IF NOT EXISTS shifts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            outlet_id INTEGER,
+            started_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            ended_at DATETIME,
+            started_by INTEGER,
+            closed_by INTEGER,
+            starting_balance REAL,
+            closing_balance REAL,
+            device_id TEXT,
+            note TEXT,
+            totals TEXT,
+            discrepancies TEXT,
+            status TEXT DEFAULT 'active',
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+    `);
+
+    const legacyRows = await db.all('SELECT * FROM shifts_legacy');
+    if (legacyRows.length) {
+        const insert = await db.prepare(`
+            INSERT INTO shifts (
+                outlet_id,
+                started_at,
+                ended_at,
+                started_by,
+                closed_by,
+                starting_balance,
+                closing_balance,
+                device_id,
+                note,
+                totals,
+                discrepancies,
+                status,
+                created_at,
+                updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `);
+
+        for (const row of legacyRows) {
+            const startedAt = row.opened_at || new Date().toISOString();
+            const endedAt = row.closed_at || null;
+            const status = endedAt ? 'closed' : 'active';
+            const noteParts = [];
+            if (row.notes) noteParts.push(row.notes);
+            if (row.opened_by) noteParts.push(`Opened by: ${row.opened_by}`);
+            if (row.closed_by) noteParts.push(`Closed by: ${row.closed_by}`);
+            const note = noteParts.length ? noteParts.join('\n') : null;
+            const discrepancies = row.discrepancy != null ? JSON.stringify({ cash: row.discrepancy }) : null;
+            const totals = row.cash_counts || null;
+            const createdAt = startedAt;
+            const updatedAt = endedAt || startedAt;
+
+            await insert.run(
+                1, // default outlet
+                startedAt,
+                endedAt,
+                null,
+                null,
+                row.starting_cash ?? null,
+                row.actual_cash ?? null,
+                null,
+                note,
+                totals,
+                discrepancies,
+                status,
+                createdAt,
+                updatedAt
+            );
+        }
+
+        await insert.finalize();
+    }
+
+    await db.exec('DROP TABLE shifts_legacy');
+}
+
 export async function setupDatabase() {
     const db = await open({
         filename: './database.db',
@@ -458,19 +546,6 @@ export async function setupDatabase() {
         );
 
         -- Operations tables
-        CREATE TABLE IF NOT EXISTS shifts (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            opened_by TEXT NOT NULL,
-            closed_by TEXT,
-            opened_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            closed_at DATETIME,
-            starting_cash REAL DEFAULT 0,
-            actual_cash REAL,
-            cash_counts TEXT, -- JSON string of cash denomination counts
-            discrepancy REAL DEFAULT 0,
-            notes TEXT
-        );
-
         CREATE TABLE IF NOT EXISTS day_end_closes (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             close_date DATE NOT NULL,
@@ -562,6 +637,8 @@ export async function setupDatabase() {
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP
         );
     `);
+
+    await migrateLegacyShifts(db);
 
     await ensureColumn(db, 'products', 'image', 'TEXT');
     await ensureColumn(db, 'products', 'image_source', 'TEXT');
