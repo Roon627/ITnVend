@@ -1,10 +1,21 @@
 import { createContext, useContext, useState, useEffect } from 'react';
 import { useToast } from './ToastContext';
 
-const CartContext = createContext();
+const noop = () => {};
+const defaultValue = {
+  cart: [],
+  addToCart: noop,
+  removeFromCart: noop,
+  updateQuantity: noop,
+  clearCart: noop,
+  cartCount: 0,
+  cartTotal: 0,
+};
+
+const CartContext = createContext(defaultValue);
 
 export function useCart() {
-  return useContext(CartContext);
+  return useContext(CartContext) ?? defaultValue;
 }
 
 export function CartProvider({ children }) {

@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route, Navigate, Link } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import Home from "./pages/Home";
 import PublicProducts from "./pages/PublicProducts";
 import ProductDetail from "./pages/ProductDetail";
@@ -12,32 +12,20 @@ import PrivacyMV from "./pages/PrivacyMV";
 import UsePolicy from "./pages/UsePolicy";
 import UseGlobal from "./pages/UseGlobal";
 import UseMV from "./pages/UseMV";
+import Contact from "./pages/Contact";
 import Footer from "./components/Footer";
+import PublicNavbar from "./components/PublicNavbar";
 
 function PublicLayout({ children }) {
   return (
-    <div className="min-h-screen bg-gradient-to-br from-rose-50 via-white to-sky-50 text-slate-800 flex flex-col">
-      <header className="border-b border-rose-100 bg-white/70 backdrop-blur supports-[backdrop-filter]:bg-white/60">
-        <div className="mx-auto flex max-w-6xl items-center justify-between gap-6 px-6 py-4">
-          <Link to="/" className="text-lg font-semibold text-rose-500 transition hover:text-rose-400">
-            ITnVend Market Hub
-          </Link>
-          <nav className="flex items-center gap-4 text-sm text-rose-400">
-            <Link to="/market" className="font-semibold hover:text-rose-500">
-              Market Hub
-            </Link>
-            <Link to="/cart" className="font-semibold hover:text-rose-500">
-              Cart
-            </Link>
-            <Link to="/checkout" className="font-semibold hover:text-rose-500">
-              Request Proposal
-            </Link>
-            <Link to="/vendor-onboarding" className="font-semibold hover:text-rose-500">
-              Onboarding
-            </Link>
-          </nav>
-        </div>
-      </header>
+    <div className="flex min-h-screen flex-col bg-gradient-to-br from-rose-50 via-white to-sky-50 text-slate-800">
+      <a
+        href="#main-content"
+        className="absolute left-4 top-4 z-50 -translate-y-20 rounded-full bg-white px-4 py-2 text-sm font-semibold text-rose-500 shadow transition focus-visible:translate-y-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-400"
+      >
+        Skip to content
+      </a>
+      <PublicNavbar />
       <main id="main-content" className="flex-1">
         {children}
       </main>
@@ -59,6 +47,7 @@ function App() {
         <Route path="/checkout" element={<PublicLayout><Checkout /></PublicLayout>} />
         <Route path="/confirmation" element={<PublicLayout><OrderConfirmation /></PublicLayout>} />
         <Route path="/vendor-onboarding" element={<PublicLayout><VendorOnboarding /></PublicLayout>} />
+        <Route path="/contact" element={<PublicLayout><Contact /></PublicLayout>} />
         <Route path="/privacy" element={<PublicLayout><Privacy /></PublicLayout>} />
         <Route path="/privacy/global" element={<PublicLayout><PrivacyGlobal /></PublicLayout>} />
         <Route path="/privacy/mv" element={<PublicLayout><PrivacyMV /></PublicLayout>} />

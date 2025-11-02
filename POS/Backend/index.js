@@ -556,7 +556,9 @@ app.get('/api/shifts/:id/reconciliation.pdf', async (req, res) => {
 
 app.get('/api/shifts/active', authMiddleware, async (req, res) => {
     try {
-        const outletId = req.query.outlet_id || (await db.get('SELECT current_outlet_id AS id FROM settings WHERE id = 1')).id || 1;
+        const settingsRow = await db.get('SELECT current_outlet_id AS id FROM settings WHERE id = 1');
+        const outletIdRaw = req.query.outlet_id ?? settingsRow?.id ?? 1;
+        const outletId = Number.isFinite(Number(outletIdRaw)) ? Number(outletIdRaw) : 1;
         const row = await db.get('SELECT * FROM shifts WHERE outlet_id = ? AND status = ? ORDER BY started_at DESC LIMIT 1', [outletId, 'active']);
         if (!row) return res.json(null);
         return res.json(row);
