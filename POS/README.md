@@ -45,7 +45,7 @@ Repository layout (what you'll care about)
 	- `src/` - Vite React source
 	- `Backend/` - optional lightweight Node service for storefront needs (under `estore/Backend`)
 	- Builds reference the POS API using `VITE_API_BASE` and `X-Storefront-Key`
-	- Primary routes: `/` (company overview), `/market` (Market Hub catalogue), `/product/:id`
+	- Primary routes: `/` (company overview), `/market` (Market Hub catalogue), `/product/:id`, `/contact` (support form & scam notice)
 
 Quick start (local monorepo)
 ----------------------------

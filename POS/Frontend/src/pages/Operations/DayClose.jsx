@@ -12,6 +12,9 @@ const DayClose = () => {
   const [shiftData, setShiftData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [processing, setProcessing] = useState(false);
+  const [startModalOpen, setStartModalOpen] = useState(false);
+  const [startingCashInput, setStartingCashInput] = useState('0');
+  const [startModalError, setStartModalError] = useState('');
   const [cashCounts, setCashCounts] = useState({
     ones: 0,
     fives: 0,
@@ -83,17 +86,37 @@ const DayClose = () => {
     }));
   };
 
-  const startNewShift = async () => {
-    if (!window.confirm('Start a new shift? This will close the current shift if open.')) {
+  const startNewShift = () => {
+    const defaultValue =
+      shiftData && typeof shiftData.startingCash === 'number'
+        ? shiftData.startingCash
+        : 0;
+    setStartingCashInput(String(defaultValue));
+    setStartModalError('');
+    setStartModalOpen(true);
+  };
+
+  const cancelStartShift = () => {
+    if (!processing) {
+      setStartModalOpen(false);
+      setStartModalError('');
+    }
+  };
+
+  const confirmStartShift = async () => {
+    const parsed = Number.parseFloat(String(startingCashInput).replace(/,/g, ''));
+    if (!Number.isFinite(parsed) || parsed < 0) {
+      setStartModalError('Enter a valid non-negative amount.');
       return;
     }
 
     setProcessing(true);
     try {
-      const response = await api.post('/api/operations/shift/start', {
-        startingCash: 0 // Could be configurable
+      await api.post('/api/operations/shift/start', {
+        startingCash: parsed,
       });
-      toast.push('New shift started successfully', 'success');
+      toast.push(`New shift started with ${formatCurrency(parsed)}`, 'success');
+      setStartModalOpen(false);
       await loadShiftData();
     } catch (error) {
       console.error('Failed to start new shift:', error);
@@ -405,6 +428,63 @@ const DayClose = () => {
           >
             {processing ? 'Starting...' : 'Start First Shift'}
           </button>
+        </div>
+      )}
+      {startModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 px-4">
+          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl">
+            <h3 className="text-lg font-semibold text-slate-900">Start new shift</h3>
+            <p className="mt-2 text-sm text-slate-500">
+              Enter the opening cash you counted. This becomes the baseline for end-of-day reconciliation.
+            </p>
+            {shiftData?.isOpen && (
+              <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
+                A shift is already open. Starting a new one will close it automatically.
+              </div>
+            )}
+            <div className="mt-4">
+              <label htmlFor="startingCash" className="block text-sm font-medium text-slate-700">
+                Opening cash amount
+              </label>
+              <input
+                id="startingCash"
+                type="number"
+                min="0"
+                step="0.01"
+                value={startingCashInput}
+                onChange={(e) => setStartingCashInput(e.target.value)}
+                className="mt-1 w-full rounded-lg border border-rose-200 px-3 py-2 text-sm focus:border-rose-400 focus:outline-none focus:ring-2 focus:ring-rose-200"
+                placeholder="0.00"
+                autoFocus
+                disabled={processing}
+              />
+              {startModalError ? (
+                <p className="mt-2 text-xs font-semibold text-rose-500">{startModalError}</p>
+              ) : (
+                <p className="mt-2 text-xs text-slate-400">
+                  Hint: enter {formatCurrency(shiftData?.startingCash ?? 0)} to reuse the last opening float.
+                </p>
+              )}
+            </div>
+            <div className="mt-6 flex items-center justify-end gap-3">
+              <button
+                type="button"
+                className="rounded-full border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-500 hover:bg-slate-50 disabled:opacity-50"
+                onClick={cancelStartShift}
+                disabled={processing}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="rounded-full bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow hover:bg-blue-700 disabled:opacity-60"
+                onClick={confirmStartShift}
+                disabled={processing}
+              >
+                {processing ? 'Starting…' : 'Start shift'}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

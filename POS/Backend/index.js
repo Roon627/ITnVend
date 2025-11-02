@@ -2638,51 +2638,6 @@ app.post('/api/quotes', async (req, res) => {
     }
 });
 
-// Notifications endpoints (polling)
-app.get('/api/notifications', authMiddleware, requireRole('cashier'), async (req, res) => {
-    try {
-        const notifications = await db.all('SELECT * FROM notifications ORDER BY created_at DESC LIMIT 50');
-        res.json(notifications);
-    } catch (err) {
-        res.status(500).json({ error: err.message });
-    }
-});
-
-app.put('/api/notifications/:id/read', authMiddleware, requireRole('cashier'), async (req, res) => {
-    try {
-        const { id } = req.params;
-        await db.run('UPDATE notifications SET is_read = 1 WHERE id = ?', [id]);
-        res.json({ id, read: true });
-    } catch (err) {
-        res.status(500).json({ error: err.message });
-    }
-});
-
-// Mark all notifications read (for convenience)
-app.put('/api/notifications/mark-read-all', authMiddleware, requireRole('cashier'), async (req, res) => {
-    try {
-        await db.run(
-            `UPDATE notifications
-             SET is_read = 1
-             WHERE is_read = 0`
-        );
-        res.json({ success: true });
-    } catch (err) {
-        res.status(500).json({ error: err.message });
-    }
-});
-
-// Dismiss (delete) a notification
-app.delete('/api/notifications/:id', authMiddleware, requireRole('cashier'), async (req, res) => {
-    try {
-        const { id } = req.params;
-        await db.run('DELETE FROM notifications WHERE id = ?', [id]);
-        res.status(204).end();
-    } catch (err) {
-        res.status(500).json({ error: err.message });
-    }
-});
-
 app.get('/api/quotes', authMiddleware, requireRole('admin'), async (req, res) => {
     try {
         const quotes = await db.all('SELECT * FROM quotes ORDER BY created_at DESC');
@@ -3655,7 +3610,7 @@ app.get('/api/staff', authMiddleware, requireRole('admin'), async (req, res) => 
     try {
         const staff = await db.all('SELECT id, username, display_name, email, phone, created_at FROM staff ORDER BY id');
         for (const s of staff) {
-            const roles = await db.all('SELECT r.name FROM roles r JOIN staff_roles sr ON sr.role_id = r.id WHERE sr.staff_id = ?', [s.id]);
+            const roles = await db.all('SELECT r.id, r.name FROM roles r JOIN staff_roles sr ON sr.role_id = r.id WHERE sr.staff_id = ?', [s.id]);
             s.roles = roles;
         }
         res.json(staff);
@@ -5012,15 +4967,21 @@ app.post('/api/operations/shift/start', authMiddleware, requireRole(['cashier', 
         // Close any open shifts first
         await db.run(`
             UPDATE shifts
-            SET closed_at = datetime('now'), closed_by = ?
+            SET closed_at = datetime('now'),
+                ended_at = datetime('now'),
+                closed_by = COALESCE(closed_by, ?),
+                status = 'closed',
+                updated_at = datetime('now')
             WHERE closed_at IS NULL
         `, [req.user.username]);
 
         // Start new shift
+        const outletId = req.user?.outletId || req.user?.outlet_id || null;
+        const staffId = req.user?.staffId || null;
         const result = await db.run(`
-            INSERT INTO shifts (opened_by, starting_cash)
-            VALUES (?, ?)
-        `, [req.user.username, startingCash]);
+            INSERT INTO shifts (opened_by, starting_cash, opened_at, started_by, starting_balance, outlet_id, status)
+            VALUES (?, ?, datetime('now'), ?, ?, ?, 'active')
+        `, [req.user.username, startingCash, staffId, startingCash, outletId]);
 
         await logActivity('shifts', result.lastID, 'opened', req.user.username, `Shift opened with $${startingCash} starting cash`);
 
@@ -5034,16 +4995,36 @@ app.post('/api/operations/shift/close', authMiddleware, requireRole(['cashier', 
     const { actualCash, cashCounts, discrepancy, notes } = req.body;
 
     try {
+        const normalizedActualCash = Number.isFinite(Number(actualCash)) ? Number(actualCash) : 0;
+        const normalizedDiscrepancy = Number.isFinite(Number(discrepancy)) ? Number(discrepancy) : 0;
+        const cashCountsPayload = JSON.stringify(cashCounts || {});
+        const discrepanciesPayload = JSON.stringify({ cash: normalizedDiscrepancy });
+
         const result = await db.run(`
             UPDATE shifts
             SET closed_at = datetime('now'),
+                ended_at = datetime('now'),
                 closed_by = ?,
                 actual_cash = ?,
                 cash_counts = ?,
                 discrepancy = ?,
-                notes = ?
+                discrepancies = ?,
+                closing_balance = ?,
+                notes = ?,
+                note = ?,
+                status = 'closed',
+                updated_at = datetime('now')
             WHERE closed_at IS NULL
-        `, [req.user.username, actualCash, JSON.stringify(cashCounts), discrepancy, notes]);
+        `, [
+            req.user.username,
+            normalizedActualCash,
+            cashCountsPayload,
+            normalizedDiscrepancy,
+            discrepanciesPayload,
+            normalizedActualCash,
+            notes,
+            notes
+        ]);
 
         if (result.changes === 0) {
             return res.status(400).json({ error: 'No open shift found' });
