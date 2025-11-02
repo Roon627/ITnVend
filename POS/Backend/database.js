@@ -254,6 +254,25 @@ export async function setupDatabase() {
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP
         );
 
+        -- Shifts: track POS staff shifts and reconciliation metadata
+        CREATE TABLE IF NOT EXISTS shifts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            outlet_id INTEGER,
+            started_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            ended_at DATETIME,
+            started_by INTEGER,
+            closed_by INTEGER,
+            starting_balance REAL,
+            closing_balance REAL,
+            device_id TEXT,
+            note TEXT,
+            totals TEXT, -- JSON blob with aggregated totals by method
+            discrepancies TEXT, -- JSON
+            status TEXT DEFAULT 'active',
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+
         -- Stock adjustments audit table
         CREATE TABLE IF NOT EXISTS stock_adjustments (
             id INTEGER PRIMARY KEY AUTOINCREMENT,

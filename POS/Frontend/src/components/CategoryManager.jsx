@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { FaChevronDown, FaChevronRight, FaPlus, FaEdit, FaTrash, FaSave } from 'react-icons/fa';
+import { FaChevronDown, FaChevronRight, FaPlus, FaEdit, FaTrash, FaSave, FaFolder, FaFolderOpen } from 'react-icons/fa';
 import { api } from '../lib/api';
 
 const CategoryItem = ({ category, level = 0, onUpdate, onDelete, onAddChild }) => {
@@ -41,7 +41,10 @@ const CategoryItem = ({ category, level = 0, onUpdate, onDelete, onAddChild }) =
             autoFocus
           />
         ) : (
-          <span className="text-slate-800">{category.name}</span>
+          <div className="flex items-center gap-2">
+            {category.children?.length ? (isExpanded ? <FaFolderOpen className="text-slate-400" /> : <FaFolder className="text-slate-400" />) : <FaFolder className="text-slate-300" />}
+            <span className="text-slate-800">{category.name}</span>
+          </div>
         )}
         <div className="opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-2">
           <button onClick={() => setIsEditing(true)} className="text-sky-600 hover:text-sky-800"><FaEdit size="14" /></button>

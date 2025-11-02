@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import HelpContent from '../components/HelpContent';
 
 const ARTICLES = [
   {
@@ -81,24 +82,7 @@ export default function Help() {
         </div>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2">
-        <div className="bg-white rounded-lg shadow-sm p-5 space-y-2">
-          <h3 className="text-lg font-semibold text-slate-800">Quick start checklist</h3>
-          <ul className="text-sm text-slate-600 list-disc list-inside space-y-1">
-            <li>Import your product catalog from CSV</li>
-            <li>Configure outlet taxes and invoice templates</li>
-            <li>Invite staff and assign roles</li>
-            <li>Generate a test invoice to verify PDFs</li>
-          </ul>
-        </div>
-        <div className="bg-white rounded-lg shadow-sm p-5 space-y-2">
-          <h3 className="text-lg font-semibold text-slate-800">Contact &amp; support</h3>
-          <p className="text-sm text-slate-600">
-            For critical issues submit a ticket in the Admin → Reports section or email our support team.
-            We respond within one business day.
-          </p>
-        </div>
-      </div>
+      <HelpContent />
     </div>
   );
 }

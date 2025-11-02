@@ -7,6 +7,7 @@ import { createServer } from 'http';
 import { Server } from 'socket.io';
 import { setupDatabase } from './database.js';
 import { generateInvoicePdf } from './invoice-service.js';
+import PDFDocument from 'pdfkit';
 import { getWebSocketService } from './websocket-service.js';
 import cacheService from './cache-service.js';
 import nodemailer from 'nodemailer';
@@ -357,6 +358,212 @@ app.use('/api', (req, res, next) => {
         return res.status(503).json({ error: 'Database not ready' });
     }
     next();
+});
+
+// Shifts API
+app.post('/api/shifts/start', authMiddleware, async (req, res) => {
+    try {
+        // attempt to derive outlet from body or settings
+        const outletId = req.body.outlet_id || (await db.get('SELECT current_outlet_id AS id FROM settings WHERE id = 1')).id || 1;
+        // enforce single active shift per outlet
+        const active = await db.get('SELECT id FROM shifts WHERE outlet_id = ? AND status = ?', [outletId, 'active']);
+        if (active) return res.status(409).json({ error: 'Active shift already exists for this outlet', id: active.id });
+
+        const startedBy = req.user?.staffId || null;
+        const startingBalance = typeof req.body.starting_balance === 'number' ? req.body.starting_balance : (req.body.starting_balance ? Number(req.body.starting_balance) : null);
+        const deviceId = req.body.device_id || null;
+        const note = req.body.note || null;
+
+        const r = await db.run(
+            'INSERT INTO shifts (outlet_id, started_at, started_by, starting_balance, device_id, note, status) VALUES (?, CURRENT_TIMESTAMP, ?, ?, ?, ?, ?)',
+            [outletId, startedBy, startingBalance, deviceId, note, 'active']
+        );
+        const created = await db.get('SELECT * FROM shifts WHERE id = ?', [r.lastID]);
+        // broadcast via websocket to outlet room
+        try { global.io?.to(`outlet:${outletId}`).emit('shift.started', { shift: created }); } catch (e) { console.debug('WS broadcast failed', e); }
+        return res.status(201).json(created);
+    } catch (err) {
+        console.error('Failed to start shift', err);
+        return res.status(500).json({ error: err.message });
+    }
+});
+
+app.post('/api/shifts/:id/stop', authMiddleware, async (req, res) => {
+    try {
+        const id = Number(req.params.id);
+        if (!id) return res.status(400).json({ error: 'Invalid shift id' });
+        const shift = await db.get('SELECT * FROM shifts WHERE id = ?', [id]);
+        if (!shift) return res.status(404).json({ error: 'Shift not found' });
+        if (shift.status !== 'active') return res.status(409).json({ error: 'Shift already closed' });
+
+        const closingBalance = typeof req.body.closing_balance === 'number' ? req.body.closing_balance : (req.body.closing_balance ? Number(req.body.closing_balance) : null);
+        const tillNotes = req.body.till_notes || null;
+        const safeDrop = typeof req.body.safe_drop === 'number' ? req.body.safe_drop : (req.body.safe_drop ? Number(req.body.safe_drop) : null);
+        const discrepancies = req.body.discrepancies ? JSON.stringify(req.body.discrepancies) : null;
+        const closedBy = req.user?.staffId || null;
+
+        // compute richer reconciliation totals for the shift period
+        let reconciliation = {
+            totalsByMethod: {},
+            totalSales: 0,
+            transactionCount: 0,
+            taxCollected: 0,
+            refundsTotal: 0,
+            refundsCount: 0,
+            generatedAt: new Date().toISOString()
+        };
+
+        try {
+            // totals grouped by payment method
+            const byMethod = await db.all(
+                `SELECT p.method as method, COUNT(p.id) as payments_count, COUNT(DISTINCT p.invoice_id) as transactions, COALESCE(SUM(p.amount),0) as amount
+                 FROM payments p
+                 JOIN invoices i ON i.id = p.invoice_id
+                 WHERE i.outlet_id = ? AND p.recorded_at >= ? AND p.recorded_at <= CURRENT_TIMESTAMP
+                 GROUP BY p.method`,
+                [shift.outlet_id, shift.started_at]
+            );
+            (byMethod || []).forEach((row) => {
+                reconciliation.totalsByMethod[row.method || 'unknown'] = {
+                    paymentsCount: Number(row.payments_count) || 0,
+                    transactions: Number(row.transactions) || 0,
+                    amount: Number(row.amount) || 0
+                };
+            });
+
+            // overall sales, tax and transaction count (paid invoices)
+            const salesRow = await db.get(
+                `SELECT COUNT(DISTINCT i.id) as transactionCount, COALESCE(SUM(i.total),0) as totalSales, COALESCE(SUM(i.tax_amount),0) as taxCollected
+                 FROM invoices i
+                 WHERE i.outlet_id = ? AND i.created_at >= ? AND i.created_at <= CURRENT_TIMESTAMP AND i.status = 'paid'`,
+                [shift.outlet_id, shift.started_at]
+            );
+            reconciliation.totalSales = Number(salesRow?.totalSales || 0);
+            reconciliation.transactionCount = Number(salesRow?.transactionCount || 0);
+            reconciliation.taxCollected = Number(salesRow?.taxCollected || 0);
+
+            // refunds (payments with negative amount)
+            const refundsRow = await db.get(
+                `SELECT COALESCE(SUM(CASE WHEN p.amount < 0 THEN p.amount ELSE 0 END),0) as refundsTotal, COALESCE(SUM(CASE WHEN p.amount < 0 THEN 1 ELSE 0 END),0) as refundsCount
+                 FROM payments p
+                 JOIN invoices i ON i.id = p.invoice_id
+                 WHERE i.outlet_id = ? AND p.recorded_at >= ? AND p.recorded_at <= CURRENT_TIMESTAMP`,
+                [shift.outlet_id, shift.started_at]
+            );
+            reconciliation.refundsTotal = Number(refundsRow?.refundsTotal || 0);
+            reconciliation.refundsCount = Number(refundsRow?.refundsCount || 0);
+        } catch (e) {
+            console.debug('Failed to compute reconciliation for shift', e);
+        }
+
+        // persist shift closed state + reconciliation summary
+        await db.run(
+            'UPDATE shifts SET ended_at = CURRENT_TIMESTAMP, closing_balance = ?, discrepancies = ?, closed_by = ?, totals = ?, status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+            [closingBalance, discrepancies, closedBy, JSON.stringify(reconciliation), 'closed', id]
+        );
+
+        const updated = await db.get('SELECT * FROM shifts WHERE id = ?', [id]);
+
+        // create a short-lived signed link for reconciliation PDF (15 minutes)
+        let pdfUrl = null;
+        try {
+            const token = jwt.sign({ shiftId: id }, JWT_SECRET, { expiresIn: '15m' });
+            pdfUrl = `${req.protocol}://${req.get('host')}/api/shifts/${id}/reconciliation.pdf?pdf_token=${encodeURIComponent(token)}`;
+        } catch (e) {
+            console.debug('Failed to create pdf token', e);
+        }
+
+        try { global.io?.to(`outlet:${updated.outlet_id}`).emit('shift.stopped', { shift: updated }); } catch (e) { console.debug('WS broadcast failed', e); }
+        return res.json({ shift: updated, reconciliation, pdfUrl });
+    } catch (err) {
+        console.error('Failed to stop shift', err);
+        return res.status(500).json({ error: err.message });
+    }
+});
+
+// Serve reconciliation PDF for a shift (signed token or auth)
+app.get('/api/shifts/:id/reconciliation.pdf', async (req, res) => {
+    try {
+        const id = Number(req.params.id);
+        const token = req.query.pdf_token || null;
+        let authorized = false;
+        if (token) {
+            try {
+                const payload = jwt.verify(token, JWT_SECRET);
+                if (payload && Number(payload.shiftId) === id) authorized = true;
+            } catch (e) { /* token invalid */ }
+        }
+        // allow access with Authorization header too
+        if (!authorized && req.headers.authorization) {
+            try {
+                const auth = req.headers.authorization.replace('Bearer ', '');
+                const payload = jwt.verify(auth, JWT_SECRET);
+                if (payload) authorized = true;
+            } catch (e) { /* ignore */ }
+        }
+        if (!authorized) return res.status(401).send('Unauthorized');
+
+        const shift = await db.get('SELECT * FROM shifts WHERE id = ?', [id]);
+        if (!shift) return res.status(404).send('Shift not found');
+
+        // build reconciliation object from stored totals (if present) or compute minimal
+        let reconciliation = shift.totals ? (typeof shift.totals === 'string' ? JSON.parse(shift.totals) : shift.totals) : null;
+        if (!reconciliation) reconciliation = { generatedAt: new Date().toISOString() };
+
+        res.writeHead(200, {
+            'Content-Type': 'application/pdf',
+            'Content-Disposition': `attachment;filename=shift-reconciliation-${id}.pdf`,
+        });
+
+        const doc = new PDFDocument({ margin: 50, size: 'A4' });
+        doc.pipe(res);
+
+        const settingsRow = await db.get('SELECT * FROM settings WHERE id = 1');
+        const outlet = settingsRow ? { name: settingsRow.outlet_name || 'My Outlet', currency: settingsRow.currency || 'MVR' } : { name: 'My Outlet', currency: 'MVR' };
+
+        doc.fontSize(18).text(`${outlet.name}`, { align: 'left' });
+        doc.fontSize(12).text(`Shift Reconciliation`, { align: 'right' });
+        doc.moveDown(0.5);
+        doc.fontSize(10).text(`Shift ID: ${shift.id}`);
+        doc.text(`Started: ${shift.started_at || 'N/A'}`);
+        doc.text(`Ended: ${shift.ended_at || 'N/A'}`);
+        doc.moveDown(0.5);
+
+        doc.fontSize(12).text('Summary', { underline: true });
+        doc.moveDown(0.3);
+        doc.fontSize(10).text(`Total sales: ${reconciliation.totalSales ?? 0}`);
+        doc.text(`Transactions: ${reconciliation.transactionCount ?? 0}`);
+        doc.text(`Tax collected: ${reconciliation.taxCollected ?? 0}`);
+        doc.text(`Refunds: ${reconciliation.refundsTotal ?? 0} (${reconciliation.refundsCount ?? 0})`);
+        doc.moveDown(0.5);
+
+        doc.fontSize(12).text('By payment method', { underline: true });
+        doc.moveDown(0.3);
+        const methods = reconciliation.totalsByMethod || {};
+        Object.keys(methods).forEach((m) => {
+            const row = methods[m];
+            doc.fontSize(10).text(`${m}: ${row.amount ?? 0} (${row.transactions ?? 0} tx, ${row.paymentsCount ?? 0} payments)`);
+        });
+
+        doc.moveDown(1);
+        doc.fontSize(9).fillColor('#666').text('Generated: ' + (reconciliation.generatedAt || new Date().toISOString()));
+        doc.end();
+    } catch (err) {
+        console.error('Failed to generate reconciliation PDF', err);
+        return res.status(500).send('Failed to generate PDF');
+    }
+});
+
+app.get('/api/shifts/active', authMiddleware, async (req, res) => {
+    try {
+        const outletId = req.query.outlet_id || (await db.get('SELECT current_outlet_id AS id FROM settings WHERE id = 1')).id || 1;
+        const row = await db.get('SELECT * FROM shifts WHERE outlet_id = ? AND status = ? ORDER BY started_at DESC LIMIT 1', [outletId, 'active']);
+        if (!row) return res.json(null);
+        return res.json(row);
+    } catch (err) {
+        console.error('Failed to fetch active shift', err);
+        return res.status(500).json({ error: err.message });
+    }
 });
 
 // Serve uploaded images from backend/public/images and organize by category

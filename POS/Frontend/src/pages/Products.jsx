@@ -214,92 +214,110 @@ function TechnicalDetailsPreview({ value }) {
   );
 }
 
-function ProductInsight({ product, formatCurrency }) {
+function ProductInsight({ product, formatCurrency, onTagClick }) {
   if (!product) {
     return (
-      <div className="text-sm text-slate-500">
-        Select a product to see stock levels, pricing, and technical notes.
-      </div>
+      <div className="text-sm text-slate-500">Select a product to see stock levels, pricing, and technical notes.</div>
     );
   }
   const previewSrc = resolveMediaUrl(product.image_source || product.imageUrl || product.image);
+  const tagList = Array.isArray(product.tags) ? product.tags : [];
+  const meta = [
+    { label: 'Brand', value: product.brand || product.brandName || product.brand_id || product.brandId },
+    { label: 'Material', value: product.material || product.materialName || product.materialId },
+    { label: 'Color', value: product.color || product.colorName || product.colorId },
+    { label: 'Year', value: product.year },
+    { label: 'Type', value: product.type },
+    { label: 'Warranty', value: product.warranty_term || product.warrantyTerm },
+    { label: 'Delivery', value: product.delivery_type || product.deliveryType },
+  ].filter((m) => m.value || m.value === 0);
+
+  const categoryPath = [product.category, product.subcategory, product.subsubcategory].filter(Boolean).join(' › ');
+
   return (
-    <div className="space-y-4">
-      {previewSrc ? (
-        <img
-          src={previewSrc}
-          alt={product.name}
-          className="w-full h-48 object-cover rounded-md border"
-        />
-      ) : (
-        <div className="w-full h-48 rounded-md border border-dashed flex items-center justify-center text-slate-400 text-sm">
-          No image available
-        </div>
-      )}
-      <div className="grid grid-cols-2 gap-3 text-sm">
-        <div>
-          <p className="text-slate-500">Price</p>
-          <p className="font-semibold text-slate-800">{formatCurrency(product.price || 0)}</p>
-        </div>
-        <div>
-          <p className="text-slate-500">Stock</p>
-          <p className="font-semibold text-slate-800">
-            {product.stock ?? 0}
-            {product.track_inventory === 0 ? ' (not tracked)' : ''}
-          </p>
-        </div>
-        <div>
-          <p className="text-slate-500">Preorder</p>
-          {product.preorder_enabled ? (
-            <div className="space-y-1">
-              <p className="font-semibold text-emerald-700">Enabled</p>
-              {product.preorder_release_date && (
-                <p className="text-xs text-slate-500">
-                  Release target: {product.preorder_release_date}
-                </p>
-              )}
-              {product.preorder_notes && (
-                <p className="text-xs text-slate-500 whitespace-pre-line">{product.preorder_notes}</p>
-              )}
-            </div>
+    <div className="bg-white rounded-lg border p-4">
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <div className="md:col-span-1">
+          {previewSrc ? (
+            <img src={previewSrc} alt={product.name} className="w-full h-44 md:h-56 object-cover rounded-md border" />
           ) : (
-            <p className="font-semibold text-slate-500">Disabled</p>
+            <div className="w-full h-44 md:h-56 rounded-md border border-dashed flex items-center justify-center text-slate-400 text-sm">No image</div>
           )}
         </div>
-        {product.sku && (
-          <div>
-            <p className="text-slate-500">SKU</p>
-            <p className="font-semibold text-slate-800 break-all">{product.sku}</p>
+
+        <div className="md:col-span-3">
+          <div className="flex items-start justify-between">
+            <div>
+              <h3 className="text-lg font-semibold text-slate-800">{product.name}</h3>
+              <p className="text-sm text-slate-500 mt-1">{product.short_description || product.shortDescription}</p>
+            </div>
+            <div className="text-right">
+              <div className="text-2xl font-bold text-slate-800">{formatCurrency(product.price || 0)}</div>
+              <div className="text-sm text-slate-500">{product.track_inventory === 0 ? 'Not tracked' : 'Tracked'}</div>
+            </div>
           </div>
-        )}
-        {product.barcode && (
-          <div>
-            <p className="text-slate-500">Barcode</p>
-            <p className="font-semibold text-slate-800 break-all">{product.barcode}</p>
+
+          <div className="mt-3 grid grid-cols-2 gap-3 text-sm">
+            <div>
+              <p className="text-slate-500">Stock</p>
+              <p className="font-semibold text-slate-800">{product.stock ?? 0}</p>
+            </div>
+            <div>
+              <p className="text-slate-500">SKU</p>
+              <p className="font-semibold text-slate-800 break-all">{product.sku || '—'}</p>
+            </div>
+            <div>
+              <p className="text-slate-500">Barcode</p>
+              <p className="font-semibold text-slate-800 break-all">{product.barcode || '—'}</p>
+            </div>
+            <div>
+              <p className="text-slate-500">Category</p>
+              <p className="font-semibold text-slate-800">{categoryPath || '—'}</p>
+            </div>
           </div>
-        )}
-        {product.category && (
-          <div>
-            <p className="text-slate-500">Category</p>
-            <p className="font-semibold text-slate-800">{product.category}</p>
+
+          {meta.length > 0 && (
+            <div className="mt-4 grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+              {meta.map((m) => (
+                <div key={m.label} className="bg-slate-50 rounded px-2 py-1">
+                  <div className="text-slate-500">{m.label}</div>
+                  <div className="font-medium text-slate-800">{m.value}</div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {tagList.length > 0 && (
+            <div className="mt-4 flex flex-wrap gap-2">
+              {tagList.map((t, i) => {
+                const label = typeof t === 'string' ? t : (t.name || t.label || t.id || JSON.stringify(t));
+                return (
+                  <button
+                    key={i}
+                    type="button"
+                    onClick={() => onTagClick && onTagClick(label)}
+                    className="inline-flex items-center gap-2 px-2 py-1 bg-gradient-to-r from-blue-50 to-white text-blue-800 text-xs rounded-md hover:from-blue-100 hover:scale-105 transition-transform"
+                    title={`Filter by tag: ${label}`}
+                  >
+                    {label}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
+          {product.description && (
+            <div className="mt-4">
+              <h4 className="text-sm font-semibold text-slate-700 mb-2">Description</h4>
+              <p className="text-sm text-slate-600 whitespace-pre-line">{product.description}</p>
+            </div>
+          )}
+
+          <div className="mt-4">
+            <h4 className="text-sm font-semibold text-slate-700 mb-2">Technical details</h4>
+            <TechnicalDetailsPreview value={product.technical_details || product.technicalDetails || ''} />
           </div>
-        )}
-        {product.subcategory && (
-          <div>
-            <p className="text-slate-500">Subcategory</p>
-            <p className="font-semibold text-slate-800">{product.subcategory}</p>
-          </div>
-        )}
-      </div>
-      {product.description && (
-        <div>
-          <h4 className="text-sm font-semibold text-slate-700 mb-2">Description</h4>
-          <p className="text-sm text-slate-600 whitespace-pre-line">{product.description}</p>
         </div>
-      )}
-      <div>
-        <h4 className="text-sm font-semibold text-slate-700 mb-2">Technical details</h4>
-        <TechnicalDetailsPreview value={product.technical_details || product.technicalDetails || ''} />
       </div>
     </div>
   );
@@ -481,12 +499,11 @@ function ProductModal({ open, draft, onClose, onChange, onSave, onUploadImage, u
                 value={draft.categoryId || ''}
                 onChange={async (v) => {
                   // refresh lookups/tree in case user added categories in Manage Lookups
-                  try { if (typeof refreshLookups === 'function') await refreshLookups(); } catch (e) { /* ignore */ }
-                  handleFieldChange('categoryId')({ target: { value: v } });
-                  handleFieldChange('subcategoryId')({ target: { value: '' } });
-                  handleFieldChange('subsubcategoryId')({ target: { value: '' } });
+                  try { if (typeof onTagsChanged === 'function') await onTagsChanged(); } catch (e) { /* ignore */ }
                   const found = categoryTree.find((c) => c.id === v);
-                  handleFieldChange('category')({ target: { value: found ? found.name : '' } });
+                  const updatedDraft = { ...(draft || {}), categoryId: v, subcategoryId: '', subsubcategoryId: '', category: found ? found.name : '' };
+                  // perform atomic update to avoid transient stale state for dependent selects
+                  onChange && onChange('categoryId', v, updatedDraft);
                 }}
                 options={categoryTree.map((c) => ({ id: c.id, name: c.name }))}
                 placeholder="Select category"
@@ -495,15 +512,14 @@ function ProductModal({ open, draft, onClose, onChange, onSave, onUploadImage, u
                 label="Subcategory"
                 value={draft.subcategoryId || ''}
                 onChange={async (v) => {
-                  try { if (typeof refreshLookups === 'function') await refreshLookups(); } catch (e) { /* ignore */ }
-                  handleFieldChange('subcategoryId')({ target: { value: v } });
-                  handleFieldChange('subsubcategoryId')({ target: { value: '' } });
+                  try { if (typeof onTagsChanged === 'function') await onTagsChanged(); } catch (e) { /* ignore */ }
                   let name = '';
                   for (const c of categoryTree) {
                     const child = (c.children || []).find((ch) => ch.id === v);
                     if (child) { name = child.name; break; }
                   }
-                  handleFieldChange('subcategory')({ target: { value: name } });
+                  const updatedDraft = { ...(draft || {}), subcategoryId: v, subsubcategoryId: '', subcategory: name };
+                  onChange && onChange('subcategoryId', v, updatedDraft);
                 }}
                 options={(() => {
                   const parent = categoryTree.find((c) => c.id === draft.categoryId);
@@ -516,7 +532,8 @@ function ProductModal({ open, draft, onClose, onChange, onSave, onUploadImage, u
                 label="Sub-subcategory"
                 value={draft.subsubcategoryId || ''}
                 onChange={(v) => {
-                  handleFieldChange('subsubcategoryId')({ target: { value: v } });
+                  const updatedDraft = { ...(draft || {}), subsubcategoryId: v };
+                  onChange && onChange('subsubcategoryId', v, updatedDraft);
                 }}
                 options={(() => {
                   let list = [];
@@ -615,7 +632,7 @@ export default function Products() {
 
   const [products, setProducts] = useState([]);
   const [categories, setCategories] = useState({});
-  const [filters, setFilters] = useState({ category: '', subcategory: '', search: '' });
+  const [filters, setFilters] = useState({ category: '', subcategory: '', search: '', tag: '' });
   const [searchValue, setSearchValue] = useState('');
   const [form, setForm] = useState(EMPTY_FORM);
   const [adding, setAdding] = useState(false);
@@ -670,6 +687,7 @@ export default function Products() {
         category: filters.category || undefined,
         subcategory: filters.subcategory || undefined,
         search: filters.search || undefined,
+        tag: filters.tag || undefined,
       };
       const list = await api.get('/products', { params });
       setProducts(Array.isArray(list) ? list : []);
@@ -842,7 +860,10 @@ export default function Products() {
     fetchProducts();
   }, [fetchProducts]);
 
-  const openCreateModal = () => {
+  const openCreateModal = async () => {
+    try {
+      await fetchLookupsAndTree();
+    } catch (e) { /* ignore */ }
     setModalDraft({
       ...EMPTY_FORM,
     });
@@ -948,7 +969,10 @@ export default function Products() {
     }
   };
 
-  const handleBeginEdit = (product) => {
+  const handleBeginEdit = async (product) => {
+    try {
+      await fetchLookupsAndTree();
+    } catch (e) { /* ignore */ }
     setModalDraft({
       id: product.id,
       name: product.name || '',
@@ -1018,6 +1042,10 @@ export default function Products() {
       preorderNotes: product.preorder_notes || '',
     });
     setModalStockReason('');
+  };
+
+  const handleFilterByTag = (tag) => {
+    setFilters((prev) => ({ ...prev, tag, search: '' }));
   };
 
   const handleModalSave = async () => {
@@ -1678,7 +1706,7 @@ export default function Products() {
                   </div>
                 )}
               </div>
-              <ProductInsight product={selectedProduct} formatCurrency={formatCurrency} />
+              <ProductInsight product={selectedProduct} formatCurrency={formatCurrency} onTagClick={handleFilterByTag} />
             </div>
           </aside>
         </div>
@@ -1688,7 +1716,7 @@ export default function Products() {
         open={modalOpen}
         draft={modalDraft}
         onClose={closeModal}
-        onChange={handleModalChange}
+        onChange={handleModalFieldChange}
         onSave={handleModalSave}
         onUploadImage={handleModalImageUpload}
         uploading={modalUploading}

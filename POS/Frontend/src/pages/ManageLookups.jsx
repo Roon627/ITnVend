@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { api } from '../lib/api';
+import { FaTrademark, FaBoxOpen, FaPalette, FaTags } from 'react-icons/fa';
 import { useToast } from '../components/ToastContext';
 import CategoryManager from '../components/CategoryManager';
 
-const EditableList = ({ title, items, onUpdate, onDelete, onAdd }) => {
+const EditableList = ({ title, items, onUpdate, onDelete, onAdd, Icon }) => {
   const [drafts, setDrafts] = useState({});
   const [newItem, setNewItem] = useState('');
 
@@ -33,7 +34,10 @@ const EditableList = ({ title, items, onUpdate, onDelete, onAdd }) => {
 
   return (
     <div className="bg-white p-4 rounded-lg shadow">
-      <h2 className="text-xl font-semibold text-slate-700 mb-4">{title}</h2>
+      <h2 className="text-xl font-semibold text-slate-700 mb-4 flex items-center gap-3">
+        {Icon ? <Icon className="text-slate-500" /> : null}
+        <span>{title}</span>
+      </h2>
       <div className="max-h-60 overflow-y-auto pr-2">
         <ul className="space-y-2">
           {items.map(item => (
@@ -141,6 +145,7 @@ export default function ManageLookups() {
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <EditableList
+            Icon={FaTrademark}
             title="Brands"
             items={lookups.brands}
             onUpdate={(id, name) => handleGenericUpdate('brands', id, name)}
@@ -148,6 +153,7 @@ export default function ManageLookups() {
             onAdd={(name) => handleGenericAdd('brands', name)}
           />
           <EditableList
+            Icon={FaBoxOpen}
             title="Materials"
             items={lookups.materials}
             onUpdate={(id, name) => handleGenericUpdate('materials', id, name)}
@@ -155,6 +161,7 @@ export default function ManageLookups() {
             onAdd={(name) => handleGenericAdd('materials', name)}
           />
           <EditableList
+            Icon={FaPalette}
             title="Colors"
             items={lookups.colors}
             onUpdate={(id, name) => handleGenericUpdate('colors', id, name)}
@@ -162,6 +169,7 @@ export default function ManageLookups() {
             onAdd={(name) => handleGenericAdd('colors', name)}
           />
           <EditableList
+            Icon={FaTags}
             title="Tags"
             items={lookups.tags}
             onUpdate={(id, name) => handleGenericUpdate('tags', id, name)}

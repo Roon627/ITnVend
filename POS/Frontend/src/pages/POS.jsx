@@ -4,7 +4,7 @@ import { useToast } from '../components/ToastContext';
 import { useSettings } from '../components/SettingsContext';
 import { useAuth } from '../components/AuthContext';
 import InvoiceEditModal from '../components/InvoiceEditModal';
-import { useStockUpdates, useOrderUpdates, useWebSocketRoom } from '../hooks/useWebSocket';
+import { useStockUpdates, useOrderUpdates, useWebSocketRoom, useWebSocketEvent } from '../hooks/useWebSocket';
 import { resolveMediaUrl } from '../lib/media';
 
 export default function POS() {
@@ -55,6 +55,29 @@ export default function POS() {
   const searchInputRef = useRef(null);
   const payNowBtnRef = useRef(null);
 
+  const [shiftStartedAt, setShiftStartedAt] = useState(() => {
+    try { return localStorage.getItem('pos_shift_started_at') || ''; } catch (e) { return ''; }
+  });
+  const [shiftId, setShiftId] = useState(() => {
+    try { return localStorage.getItem('pos_shift_id') || null; } catch (e) { return null; }
+  });
+  const [shiftPending, setShiftPending] = useState(false);
+  // Mobile cart/drawer state: hidden by default on small screens
+  const [cartOpenMobile, setCartOpenMobile] = useState(false);
+
+  const formatShiftRelative = (iso) => {
+    if (!iso) return '';
+    try {
+      const then = new Date(iso).getTime();
+      const now = Date.now();
+      const mins = Math.floor((now - then) / 60000);
+      if (mins < 1) return 'just now';
+      if (mins < 60) return `${mins}m ago`;
+      if (mins < 1440) return `${Math.floor(mins / 60)}h ago`;
+      return `${Math.floor(mins / 1440)}d ago`;
+    } catch (e) { return ''; }
+  };
+
   const humanizeLabel = (value) => {
     if (!value) return '—';
     return String(value)
@@ -66,6 +89,20 @@ export default function POS() {
     loadInitialData();
     loadHeldOrders();
     loadTransactionHistory();
+    // attempt to sync active shift from server
+    (async () => {
+      try {
+        const active = await api.get('/shifts/active');
+        if (active) {
+          setShiftStartedAt(active.started_at || '');
+          setShiftId(active.id || null);
+          try { localStorage.setItem('pos_shift_started_at', active.started_at); localStorage.setItem('pos_shift_id', String(active.id)); } catch (e) { /* ignore */ }
+        }
+      } catch (e) {
+        // ignore sync errors; fall back to localStorage
+        console.debug('Failed to sync active shift', e?.message || e);
+      }
+    })();
   }, []);
 
   useEffect(() => {
@@ -165,6 +202,48 @@ export default function POS() {
 
   // WebSocket real-time updates
   useWebSocketRoom('staff', !!user); // Join staff room when user is logged in
+
+  // join outlet room so we receive shift events for this outlet
+  const outletId = globalSettings?.outlet?.id;
+  useWebSocketRoom(outletId ? `outlet:${outletId}` : null, !!outletId);
+
+  // Listen for shift events so POS UI updates immediately
+  useWebSocketEvent('shift.started', (payload) => {
+    try {
+      const shift = payload?.shift;
+      if (!shift) return;
+      const started = shift.started_at || new Date().toISOString();
+      try { localStorage.setItem('pos_shift_started_at', started); localStorage.setItem('pos_shift_id', String(shift.id)); } catch (e) {}
+      setShiftStartedAt(started);
+      setShiftId(shift.id || null);
+      toast.push('Shift started', 'info');
+    } catch (e) {
+      console.debug('Failed to handle shift.started', e);
+    }
+  });
+
+  useWebSocketEvent('shift.stopped', (payload) => {
+    try {
+      const shift = payload?.shift;
+      // if the stopped shift matches our current shift, clear it
+      if (shift && String(shift.id) === String(shiftId)) {
+        try { localStorage.removeItem('pos_shift_started_at'); localStorage.removeItem('pos_shift_id'); } catch (e) {}
+        setShiftStartedAt('');
+        setShiftId(null);
+        toast.push('Shift closed', 'info');
+      } else {
+        // If another shift was closed in this outlet, show a notification
+        toast.push('A shift was closed', 'info');
+      }
+    } catch (e) {
+      console.debug('Failed to handle shift.stopped', e);
+    }
+  });
+
+  // Close mobile cart when switching tabs to improve UX
+  useEffect(() => {
+    setCartOpenMobile(false);
+  }, [activeTab]);
 
   useStockUpdates((data) => {
     // Update product stock in real-time
@@ -492,9 +571,20 @@ export default function POS() {
       </div>
 
       <main className="p-4 sm:p-6">
-        <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 lg:gap-8">
+  <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 lg:gap-8">
           {/* Left Panel - Products/Categories/History */}
           <div className="lg:col-span-3">
+            {/* Mobile cart toggle */}
+            <div className="mb-4 lg:hidden flex justify-end">
+              <button
+                onClick={() => setCartOpenMobile((s) => !s)}
+                className="inline-flex items-center gap-2 px-3 py-2 bg-blue-600 text-white rounded-md"
+                aria-expanded={cartOpenMobile}
+                aria-controls="pos-cart-panel"
+              >
+                Cart ({cart.length})
+              </button>
+            </div>
             {/* Tab Navigation */}
             <div className="bg-white rounded-xl shadow-lg p-4 mb-6">
               <div className="flex flex-wrap items-center gap-2 sm:gap-4 border-b overflow-x-auto pb-2">
@@ -755,8 +845,85 @@ export default function POS() {
           </div>
 
           {/* Right Panel - Cart and Customer */}
-          <div className="row-start-1 lg:row-auto">
-            <div className="bg-white rounded-xl shadow-lg p-6 lg:sticky lg:top-6 lg:col-start-4">
+          <div className={`row-start-1 lg:row-auto ${cartOpenMobile ? '' : 'hidden lg:block'}`}>
+            <div id="pos-cart-panel" className="bg-white rounded-xl shadow-lg p-6 lg:sticky lg:top-6 lg:col-start-4">
+              {/* Close button for mobile */}
+              <div className="flex justify-end lg:hidden mb-4">
+                <button onClick={() => setCartOpenMobile(false)} className="px-3 py-1 text-sm text-gray-500 rounded hover:bg-gray-100">Close</button>
+              </div>
+                {/* Shift controls: start/end shift and badge for active shift */}
+                <div className="mb-4 flex items-center justify-between gap-3">
+                  {shiftStartedAt ? (
+                    <div className="flex items-center gap-3">
+                      <div className="px-3 py-2 bg-yellow-50 text-yellow-800 rounded-md text-sm font-medium" title={new Date(shiftStartedAt).toLocaleString()}>
+                        Shift started {formatShiftRelative(shiftStartedAt)}
+                      </div>
+                      <button
+                        onClick={async () => {
+                          // stop shift: prefer server call, fall back to local clear
+                          setShiftPending(true);
+                          try {
+                            const idToStop = shiftId || (await api.get('/shifts/active'))?.id;
+                            if (idToStop) {
+                              await api.post(`/shifts/${idToStop}/stop`, {});
+                            }
+                            localStorage.removeItem('pos_shift_started_at');
+                            localStorage.removeItem('pos_shift_id');
+                            setShiftStartedAt('');
+                            setShiftId(null);
+                            toast.push('Shift closed', 'info');
+                          } catch (e) {
+                            // fallback: clear local marker and notify user
+                            try { localStorage.removeItem('pos_shift_started_at'); localStorage.removeItem('pos_shift_id'); } catch (err) {}
+                            setShiftStartedAt(''); setShiftId(null);
+                            toast.push('Shift closed locally (server unavailable)', 'warning');
+                            console.debug('Failed to stop shift', e?.message || e);
+                          } finally { setShiftPending(false); }
+                        }}
+                        className="px-3 py-2 bg-gray-100 text-gray-800 rounded-md text-sm hover:bg-gray-200"
+                        disabled={shiftPending}
+                      >
+                        {shiftPending ? 'Closing…' : 'End shift'}
+                      </button>
+                      <a href="/reports" className="px-3 py-2 bg-blue-50 text-blue-700 rounded-md text-sm">Reconcile</a>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={async () => {
+                        setShiftPending(true);
+                        try {
+                          // try server start first
+                          const payload = {};
+                          const resp = await api.post('/shifts/start', payload);
+                          if (resp && resp.started_at) {
+                            const now = resp.started_at;
+                            try { localStorage.setItem('pos_shift_started_at', now); localStorage.setItem('pos_shift_id', String(resp.id)); } catch (e) {}
+                            setShiftStartedAt(now);
+                            setShiftId(resp.id || null);
+                            toast.push('Shift started', 'info');
+                          } else {
+                            // fallback to local mark
+                            const now = new Date().toISOString();
+                            localStorage.setItem('pos_shift_started_at', now);
+                            setShiftStartedAt(now);
+                            toast.push('Shift started locally (server returned unexpected response)', 'warning');
+                          }
+                        } catch (e) {
+                          // network error: fallback to local marker and notify
+                          const now = new Date().toISOString();
+                          try { localStorage.setItem('pos_shift_started_at', now); } catch (err) {}
+                          setShiftStartedAt(now);
+                          toast.push('Shift started locally (server unavailable)', 'warning');
+                          console.debug('Failed to start shift', e?.message || e);
+                        } finally { setShiftPending(false); }
+                      }}
+                      className="px-3 py-2 bg-yellow-500 text-white rounded-md text-sm hover:bg-yellow-600"
+                      disabled={shiftPending}
+                    >
+                      {shiftPending ? 'Starting…' : 'Start shift'}
+                    </button>
+                  )}
+                </div>
               {/* Customer Selection */}
               <div className="mb-6">
                 <div className="flex justify-between items-center mb-2">

@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useWebSocketRoom, useWebSocketEvent } from '../hooks/useWebSocket';
+import { FaTh, FaList } from 'react-icons/fa';
 import api from '../lib/api';
 import { useToast } from '../components/ToastContext';
 import { useSettings } from '../components/SettingsContext';
@@ -49,6 +51,73 @@ export default function Invoices() {
   const [typeFilter, setTypeFilter] = useState('all');
 
   const [showBuilder, setShowBuilder] = useState(false);
+  // help moved to central Help page; keep a small link here instead
+  const [shiftStartedAt, setShiftStartedAt] = useState(() => {
+    try { return localStorage.getItem('pos_shift_started_at') || ''; } catch (e) { return ''; }
+  });
+  // try to sync active shift from server when the page loads
+  useEffect(() => {
+    (async () => {
+      try {
+        const active = await api.get('/shifts/active');
+        if (active && active.started_at) {
+          setShiftStartedAt(active.started_at);
+          try { localStorage.setItem('pos_shift_started_at', active.started_at); } catch (e) {}
+        }
+      } catch (err) {
+        // ignore: keep localStorage fallback
+        console.debug('Failed to sync active shift on invoices page', err?.message || err);
+      }
+    })();
+  }, []);
+
+  // Join outlet room and listen for shift events so invoice header badge updates in real-time
+  const outletId = globalSettings?.outlet?.id;
+  useWebSocketRoom(outletId ? `outlet:${outletId}` : null, !!outletId);
+
+  useWebSocketEvent('shift.started', (payload) => {
+    try {
+      const shift = payload?.shift;
+      if (!shift) return;
+      const started = shift.started_at || new Date().toISOString();
+      try { localStorage.setItem('pos_shift_started_at', started); } catch (e) {}
+      setShiftStartedAt(started);
+      push('Shift started', 'info');
+    } catch (e) {
+      console.debug('Failed to handle shift.started on invoices', e);
+    }
+  });
+
+  useWebSocketEvent('shift.stopped', (payload) => {
+    try {
+      const shift = payload?.shift;
+      if (!shift) return;
+      // clear local marker if it matches current marker
+      const current = localStorage.getItem('pos_shift_id');
+      if (current && String(current) === String(shift.id)) {
+        try { localStorage.removeItem('pos_shift_started_at'); localStorage.removeItem('pos_shift_id'); } catch (e) {}
+        setShiftStartedAt('');
+      }
+      push('Shift closed', 'info');
+    } catch (e) {
+      console.debug('Failed to handle shift.stopped on invoices', e);
+    }
+  });
+  // format a short relative label for shift badge
+  const formatShiftRelative = (iso) => {
+    if (!iso) return '';
+    try {
+      const then = new Date(iso).getTime();
+      const now = Date.now();
+      const mins = Math.floor((now - then) / 60000);
+      if (mins < 1) return 'just now';
+      if (mins < 60) return `${mins}m ago`;
+      if (mins < 1440) return `${Math.floor(mins / 60)}h ago`;
+      return `${Math.floor(mins / 1440)}d ago`;
+    } catch (e) {
+      return '';
+    }
+  };
   const [builderType, setBuilderType] = useState('invoice');
   const [builderProducts, setBuilderProducts] = useState([]);
   const [builderCustomers, setBuilderCustomers] = useState([]);
@@ -69,6 +138,24 @@ export default function Invoices() {
   const [outlets, setOutlets] = useState([]);
   const [savedViews, setSavedViews] = useState([]);
   const [editingInvoiceId, setEditingInvoiceId] = useState(null);
+  // Use a global UI preference key so the view mode can be shared across pages
+  const UI_VIEW_KEY = 'ui_view_mode';
+  const [viewMode, setViewMode] = useState(() => {
+    try {
+      return localStorage.getItem(UI_VIEW_KEY) || 'table';
+    } catch (e) {
+      return 'table';
+    }
+  }); // 'table' or 'cards'
+
+  // persist view preference globally
+  useEffect(() => {
+    try {
+      localStorage.setItem(UI_VIEW_KEY, viewMode);
+    } catch (e) {
+      // ignore
+    }
+  }, [viewMode]);
 
   const invoiceSummary = useMemo(() => {
     if (!Array.isArray(invoices) || invoices.length === 0) {
@@ -545,23 +632,62 @@ export default function Invoices() {
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-6">
         <div>
           <h1 className="text-3xl font-bold">Invoices &amp; Quotes</h1>
-          <p className="text-sm text-gray-500">Track billing, monitor outstanding balances, and convert quotes without leaving the console.</p>
+          <div className="flex items-center gap-3 mt-1">
+            <p className="text-sm text-gray-500">Track billing, monitor outstanding balances, and convert quotes without leaving the console.</p>
+            <a href="/help" target="_blank" rel="noopener noreferrer" className="text-xs text-blue-600 hover:text-blue-800 underline">Help</a>
+          </div>
         </div>
-        <div className="flex flex-wrap gap-3">
-          <button
-            onClick={() => openBuilder('invoice')}
-            className="px-4 py-2 bg-green-600 text-white rounded-md font-semibold hover:bg-green-700"
-          >
-            New Invoice
-          </button>
-          <button
-            onClick={() => openBuilder('quote')}
-            className="px-4 py-2 bg-blue-600 text-white rounded-md font-semibold hover:bg-blue-700"
-          >
-            New Quote
-          </button>
+          <div className="flex flex-wrap gap-3 items-center">
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => openBuilder('invoice')}
+              className="px-4 py-2 bg-green-600 text-white rounded-md font-semibold hover:bg-green-700"
+              title="Open the invoice builder: add products, select customer, and create an invoice"
+            >
+              New Invoice
+            </button>
+            <button
+              onClick={() => openBuilder('quote')}
+              className="px-4 py-2 bg-blue-600 text-white rounded-md font-semibold hover:bg-blue-700"
+              title="Open the quote builder: prepare a quote you can send or convert later"
+            >
+              New Quote
+            </button>
+
+            {/* View toggle: table or card (grid) */}
+            <div className="flex items-center gap-1 ml-2">
+              <button
+                onClick={() => setViewMode('table')}
+                className={`px-2 py-1 rounded-md text-sm font-semibold border flex items-center gap-2 ${viewMode === 'table' ? 'bg-gray-900 text-white' : 'bg-white text-gray-700'}`}
+                title="Show table view"
+                aria-pressed={viewMode === 'table'}
+                aria-label="Table view"
+              >
+                <FaList className="inline-block text-sm" />
+                <span className="hidden sm:inline">Table</span>
+              </button>
+              <button
+                onClick={() => setViewMode('cards')}
+                className={`px-2 py-1 rounded-md text-sm font-semibold border flex items-center gap-2 ${viewMode === 'cards' ? 'bg-gray-900 text-white' : 'bg-white text-gray-700'}`}
+                title="Show card/grid view"
+                aria-pressed={viewMode === 'cards'}
+                aria-label="Cards view"
+              >
+                <FaTh className="inline-block text-sm" />
+                <span className="hidden sm:inline">Cards</span>
+              </button>
+            </div>
+
+            {/* Shift controls have been moved to POS page for convenience — show active shift badge here */}
+            {shiftStartedAt ? (
+              <div className="px-3 py-2 bg-yellow-50 text-yellow-800 rounded-md text-sm font-medium" aria-live="polite" title={new Date(shiftStartedAt).toLocaleString()}>
+                Shift started {formatShiftRelative(shiftStartedAt)}
+              </div>
+            ) : null}
+          </div>
         </div>
       </div>
+      {/* Help moved to the central Help page — click the link above to open full guidance */}
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4 mb-6">
         {summaryCards.map((card) => (
@@ -754,131 +880,172 @@ export default function Invoices() {
         <div className="text-sm text-gray-500">{selectedIds.size} selected</div>
       </div>
 
-      <div className="bg-white shadow rounded-lg overflow-hidden">
-        <table className="min-w-full divide-y divide-gray-200">
-          <thead className="bg-gray-100">
-            <tr>
-              <th className="p-4">
-                <input
-                  type="checkbox"
-                  checked={selectAll}
-                  onChange={() => toggleSelectAll(filteredInvoices)}
-                />
-              </th>
-              <th className="p-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">ID</th>
-              <th className="p-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Type</th>
-              <th className="p-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Customer</th>
-              <th className="p-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date</th>
-              <th className="p-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total</th>
-              <th className="p-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-              <th className="p-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Outlet</th>
-              <th className="p-4 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
-            </tr>
-          </thead>
-          <tbody className="bg-white divide-y divide-gray-200">
+      {viewMode === 'table' ? (
+        <div className="bg-white shadow rounded-lg overflow-hidden">
+          <table className="min-w-full divide-y divide-gray-200">
+            <thead className="bg-gray-100">
+              <tr>
+                <th className="p-4">
+                  <input
+                    type="checkbox"
+                    checked={selectAll}
+                    onChange={() => toggleSelectAll(filteredInvoices)}
+                  />
+                </th>
+                <th className="p-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">ID</th>
+                <th className="p-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Type</th>
+                <th className="p-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Customer</th>
+                <th className="p-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date</th>
+                <th className="p-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total</th>
+                <th className="p-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                <th className="p-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Outlet</th>
+                <th className="p-4 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="bg-white divide-y divide-gray-200">
+              {filteredInvoices.map((invoice) => {
+                const docType = invoice.type === 'quote' ? 'quote' : 'invoice';
+                const statusOptions = STATUS_OPTIONS[docType] || [];
+                const statusBadgeClass = STATUS_BADGE_CLASSES[invoice.status] || 'bg-gray-100 text-gray-600';
+                return (
+                  <tr key={invoice.id} className="hover:bg-gray-50">
+                    <td className="p-4">
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.has(invoice.id)}
+                        onChange={() => toggleSelectId(invoice.id)}
+                      />
+                    </td>
+                    <td className="p-4 whitespace-nowrap font-medium text-gray-900">#{invoice.id}</td>
+                    <td className="p-4 whitespace-nowrap">
+                      <span
+                        className={`px-2 py-1 rounded text-xs font-semibold uppercase ${
+                          invoice.type === 'quote' ? 'bg-blue-100 text-blue-700' : 'bg-green-100 text-green-700'
+                        }`}
+                      >
+                        {invoice.type || 'invoice'}
+                      </span>
+                    </td>
+                    <td className="p-4 whitespace-nowrap">{invoice.customer_name || '—'}</td>
+                    <td className="p-4 whitespace-nowrap text-sm text-gray-500">{new Date(invoice.created_at).toLocaleDateString()}</td>
+                    <td className="p-4 whitespace-nowrap font-semibold">{formatCurrency(invoice.total)}</td>
+                    <td className="p-4 whitespace-nowrap">
+                      <div className="flex flex-col gap-1">
+                        <span className={`px-2 py-1 rounded text-xs font-semibold uppercase ${statusBadgeClass}`}>
+                          {formatStatusLabel(invoice.status)}
+                        </span>
+                        <select
+                          value={invoice.status || ''}
+                          onChange={(e) => handleStatusChange(invoice, e.target.value)}
+                          className="border rounded px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100"
+                          disabled={!canManageTransactions || statusUpdatingId === invoice.id}
+                        >
+                          {(!invoice.status || invoice.status === '') && <option value="">Set status…</option>}
+                          {statusOptions.map((option) => (
+                            <option key={option.value} value={option.value}>
+                              {option.label}
+                            </option>
+                          ))}
+                        </select>
+                        {statusUpdatingId === invoice.id && (
+                          <span className="text-[10px] uppercase tracking-wide text-gray-400">Updating…</span>
+                        )}
+                      </div>
+                    </td>
+                    <td className="p-4 whitespace-nowrap text-sm text-gray-500">{invoice.outlet_name || '—'}</td>
+                    <td className="p-4 whitespace-nowrap text-right">
+                      <div className="flex items-center justify-end gap-3">
+                        {canManageTransactions && (
+                          <button
+                            onClick={() => openInvoiceEditor(invoice.id)}
+                            className="text-indigo-600 hover:underline"
+                          >
+                            Edit
+                          </button>
+                        )}
+                        <button
+                          onClick={async () => {
+                            try {
+                              const linkResp = await api.post(`/invoices/${invoice.id}/pdf-link`);
+                              window.open(linkResp.url, '_blank');
+                            } catch (err) {
+                              push('Failed to open PDF', 'error');
+                            }
+                          }}
+                          className="text-blue-600 hover:underline"
+                        >
+                          PDF
+                        </button>
+                        {canManageTransactions && invoice.type === 'quote' && (
+                          <button
+                            onClick={() => handleConvertQuote(invoice)}
+                            className="text-green-600 hover:underline disabled:text-gray-400"
+                            disabled={convertingId === invoice.id}
+                          >
+                            {convertingId === invoice.id ? 'Converting…' : 'Convert'}
+                          </button>
+                        )}
+                        {canManageTransactions && (
+                          <button
+                            onClick={() => handleDelete(invoice.id)}
+                            className="text-red-600 hover:underline"
+                          >
+                            Delete
+                          </button>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+              {filteredInvoices.length === 0 && (
+                <tr>
+                  <td colSpan={9} className="p-6 text-center text-gray-500">No records found.</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <div className="bg-white shadow rounded-lg overflow-hidden p-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {filteredInvoices.length === 0 && (
+              <div className="col-span-full text-center text-gray-500 p-6">No records found.</div>
+            )}
             {filteredInvoices.map((invoice) => {
-              const docType = invoice.type === 'quote' ? 'quote' : 'invoice';
-              const statusOptions = STATUS_OPTIONS[docType] || [];
               const statusBadgeClass = STATUS_BADGE_CLASSES[invoice.status] || 'bg-gray-100 text-gray-600';
               return (
-                <tr key={invoice.id} className="hover:bg-gray-50">
-                  <td className="p-4">
-                    <input
-                      type="checkbox"
-                      checked={selectedIds.has(invoice.id)}
-                      onChange={() => toggleSelectId(invoice.id)}
-                    />
-                  </td>
-                  <td className="p-4 whitespace-nowrap font-medium text-gray-900">#{invoice.id}</td>
-                  <td className="p-4 whitespace-nowrap">
-                    <span
-                      className={`px-2 py-1 rounded text-xs font-semibold uppercase ${
-                        invoice.type === 'quote' ? 'bg-blue-100 text-blue-700' : 'bg-green-100 text-green-700'
-                      }`}
-                    >
-                      {invoice.type || 'invoice'}
-                    </span>
-                  </td>
-                  <td className="p-4 whitespace-nowrap">{invoice.customer_name || '—'}</td>
-                  <td className="p-4 whitespace-nowrap text-sm text-gray-500">{new Date(invoice.created_at).toLocaleDateString()}</td>
-                  <td className="p-4 whitespace-nowrap font-semibold">{formatCurrency(invoice.total)}</td>
-                  <td className="p-4 whitespace-nowrap">
-                    <div className="flex flex-col gap-1">
-                      <span className={`px-2 py-1 rounded text-xs font-semibold uppercase ${statusBadgeClass}`}>
-                        {formatStatusLabel(invoice.status)}
-                      </span>
-                      <select
-                        value={invoice.status || ''}
-                        onChange={(e) => handleStatusChange(invoice, e.target.value)}
-                        className="border rounded px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100"
-                        disabled={!canManageTransactions || statusUpdatingId === invoice.id}
-                      >
-                        {(!invoice.status || invoice.status === '') && <option value="">Set status…</option>}
-                        {statusOptions.map((option) => (
-                          <option key={option.value} value={option.value}>
-                            {option.label}
-                          </option>
-                        ))}
-                      </select>
-                      {statusUpdatingId === invoice.id && (
-                        <span className="text-[10px] uppercase tracking-wide text-gray-400">Updating…</span>
+                <div key={invoice.id} className="border rounded-lg p-4 bg-white hover:shadow">
+                  <div className="flex items-start justify-between">
+                    <div>
+                      <div className="text-sm text-gray-500">#{invoice.id} • <span className="uppercase text-xs font-semibold">{invoice.type || 'invoice'}</span></div>
+                      <div className="font-semibold text-lg text-gray-900 mt-1">{invoice.customer_name || '—'}</div>
+                      <div className="text-sm text-gray-500 mt-1">{new Date(invoice.created_at).toLocaleDateString()}</div>
+                    </div>
+                    <div className="text-right">
+                      <div className="text-lg font-bold">{formatCurrency(invoice.total)}</div>
+                      <div className={`inline-block mt-2 px-2 py-1 rounded text-xs font-semibold ${statusBadgeClass}`}>{formatStatusLabel(invoice.status)}</div>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between mt-4">
+                    <div className="text-sm text-gray-500">{invoice.outlet_name || '—'}</div>
+                    <div className="flex items-center gap-3">
+                      <button onClick={async () => { try { const linkResp = await api.post(`/invoices/${invoice.id}/pdf-link`); window.open(linkResp.url, '_blank'); } catch (err) { push('Failed to open PDF', 'error'); } }} className="text-blue-600 text-sm">PDF</button>
+                      {canManageTransactions && (
+                        <>
+                          <button onClick={() => openInvoiceEditor(invoice.id)} className="text-indigo-600 text-sm">Edit</button>
+                          <button onClick={() => handleDelete(invoice.id)} className="text-red-600 text-sm">Delete</button>
+                        </>
                       )}
                     </div>
-                  </td>
-                  <td className="p-4 whitespace-nowrap text-sm text-gray-500">{invoice.outlet_name || '—'}</td>
-                  <td className="p-4 whitespace-nowrap text-right">
-                    <div className="flex items-center justify-end gap-3">
-                      {canManageTransactions && (
-                        <button
-                          onClick={() => openInvoiceEditor(invoice.id)}
-                          className="text-indigo-600 hover:underline"
-                        >
-                          Edit
-                        </button>
-                      )}
-                      <button
-                        onClick={async () => {
-                          try {
-                            const linkResp = await api.post(`/invoices/${invoice.id}/pdf-link`);
-                            window.open(linkResp.url, '_blank');
-                          } catch (err) {
-                            push('Failed to open PDF', 'error');
-                          }
-                        }}
-                        className="text-blue-600 hover:underline"
-                      >
-                        PDF
-                      </button>
-                      {canManageTransactions && invoice.type === 'quote' && (
-                        <button
-                          onClick={() => handleConvertQuote(invoice)}
-                          className="text-green-600 hover:underline disabled:text-gray-400"
-                          disabled={convertingId === invoice.id}
-                        >
-                          {convertingId === invoice.id ? 'Converting…' : 'Convert'}
-                        </button>
-                      )}
-                      {canManageTransactions && (
-                        <button
-                          onClick={() => handleDelete(invoice.id)}
-                          className="text-red-600 hover:underline"
-                        >
-                          Delete
-                        </button>
-                      )}
-                    </div>
-                  </td>
-                </tr>
+                  </div>
+                </div>
               );
             })}
-            {filteredInvoices.length === 0 && (
-              <tr>
-                <td colSpan={9} className="p-6 text-center text-gray-500">No records found.</td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
+          </div>
+        </div>
+      )}
 
       {showBuilder && (
         <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50">
@@ -886,7 +1053,7 @@ export default function Invoices() {
             <div className="flex items-center justify-between px-6 py-4 border-b">
               <div>
                 <h2 className="text-xl font-semibold">{builderType === 'invoice' ? 'Create Invoice' : 'Create Quote'}</h2>
-                <p className="text-sm text-gray-500">Select a customer and add products to build the document.</p>
+                <p className="text-sm text-gray-500">Steps: search products and click to add them → pick a customer on the right → review totals and click to create. Use the cart to remove items before saving.</p>
               </div>
               <button onClick={() => setShowBuilder(false)} className="text-gray-500 hover:text-gray-700 text-lg">✕</button>
             </div>
