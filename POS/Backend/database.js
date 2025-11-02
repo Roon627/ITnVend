@@ -672,6 +672,22 @@ export async function setupDatabase() {
     await db.run('CREATE INDEX IF NOT EXISTS idx_products_subcategory ON products(subcategory_id)');
     await db.run('CREATE INDEX IF NOT EXISTS idx_products_subsubcategory ON products(subsubcategory_id)');
 
+    await ensureColumn(db, 'shifts', 'opened_at', 'DATETIME');
+    await ensureColumn(db, 'shifts', 'opened_by', 'TEXT');
+    await ensureColumn(db, 'shifts', 'closed_at', 'DATETIME');
+    await ensureColumn(db, 'shifts', 'starting_cash', 'REAL DEFAULT 0');
+    await ensureColumn(db, 'shifts', 'actual_cash', 'REAL');
+    await ensureColumn(db, 'shifts', 'cash_counts', 'TEXT');
+    await ensureColumn(db, 'shifts', 'discrepancy', 'REAL DEFAULT 0');
+    await ensureColumn(db, 'shifts', 'notes', 'TEXT');
+
+    await db.run("UPDATE shifts SET opened_at = started_at WHERE opened_at IS NULL AND started_at IS NOT NULL");
+    await db.run("UPDATE shifts SET opened_by = COALESCE(opened_by, CAST(started_by AS TEXT)) WHERE started_by IS NOT NULL");
+    await db.run("UPDATE shifts SET closed_at = ended_at WHERE closed_at IS NULL AND ended_at IS NOT NULL");
+    await db.run("UPDATE shifts SET starting_cash = COALESCE(starting_cash, starting_balance) WHERE starting_balance IS NOT NULL");
+    await db.run("UPDATE shifts SET actual_cash = COALESCE(actual_cash, closing_balance) WHERE closing_balance IS NOT NULL");
+    await db.run("UPDATE shifts SET notes = COALESCE(notes, note) WHERE note IS NOT NULL AND (notes IS NULL OR TRIM(notes) = '')");
+
     const slugify = (value) => value.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-');
 
     // Seed lookup tables with baseline data if empty
