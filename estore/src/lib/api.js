@@ -114,9 +114,27 @@ export const api = {
     const url = appendParams(p, params);
     return fetchWithRetry(url, { method: 'GET', ...rest });
   },
-  post: (p, body) => fetchWithRetry(p, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }),
-  put: (p, body) => fetchWithRetry(p, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }),
-  del: (p) => fetchWithRetry(p, { method: 'DELETE' }),
+  post: (p, body, opts = {}) => {
+    const { headers: extraHeaders, ...rest } = opts || {};
+    const isStringBody = typeof body === 'string';
+    return fetchWithRetry(p, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...(extraHeaders || {}) },
+      body: isStringBody ? body : JSON.stringify(body),
+      ...rest,
+    });
+  },
+  put: (p, body, opts = {}) => {
+    const { headers: extraHeaders, ...rest } = opts || {};
+    const isStringBody = typeof body === 'string';
+    return fetchWithRetry(p, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', ...(extraHeaders || {}) },
+      body: isStringBody ? body : JSON.stringify(body),
+      ...rest,
+    });
+  },
+  del: (p, opts = {}) => fetchWithRetry(p, { method: 'DELETE', ...(opts || {}) }),
   upload: (p, formData, opts = {}) => fetchWithRetry(p, { method: 'POST', body: formData, ...opts }),
 };
 

@@ -25,6 +25,7 @@ const io = new Server(server, {
 });
 
 const STOREFRONT_API_KEY = process.env.STOREFRONT_API_KEY || null;
+const STOREFRONT_API_SECRET = process.env.STOREFRONT_API_SECRET || null;
 
 app.set('trust proxy', true);
 // make port configurable so multiple services can run without colliding
@@ -56,7 +57,18 @@ function clearRefreshCookie(res) {
     res.cookie('irnvend_refresh', '', opts);
 }
 // allow larger payloads for uploads (base64 images) and long requests
-app.use(express.json({ limit: '10mb' }));
+app.use(
+    express.json({
+        limit: '10mb',
+        verify: (req, res, buf) => {
+            if (buf && buf.length) {
+                req.rawBody = buf.toString('utf8');
+            } else {
+                req.rawBody = '';
+            }
+        },
+    })
+);
 // Simple request logging for diagnostics
 app.use((req, res, next) => {
     console.log(`${new Date().toISOString()} - ${req.method} ${req.originalUrl} - ${req.ip}`);
@@ -91,6 +103,10 @@ const DELIVERY_TYPES = ['instant_download', 'shipping', 'pickup'];
 const WARRANTY_TERMS = ['none', '1_year', 'lifetime'];
 const PREORDER_STATUSES = ['pending', 'accepted', 'processing', 'received', 'ready', 'completed', 'cancelled'];
 const MAX_PAYMENT_SLIP_BASE64_LENGTH = 8 * 1024 * 1024; // ~6 MB payload after base64 expansion
+const PREORDER_RATE_LIMIT_WINDOW = 15 * 60 * 1000; // 15 minutes
+const PREORDER_RATE_LIMIT_COUNT = 20;
+const MAX_PREORDER_NOTES_LENGTH = 4000;
+const MAX_PREORDER_CART_LINKS = 10;
 
 const slugify = (value = '') =>
     value
@@ -307,6 +323,26 @@ async function sendNotificationEmail(subject, html, toOverride, throwOnError = f
         if (throwOnError) throw err;
         return { ok: false, error: err?.message || String(err) };
     }
+}
+
+const preorderRateBuckets = new Map(); // key -> [timestamps]
+
+function enforcePreorderRateLimit(req, res, next) {
+    const now = Date.now();
+    const ip = req.ip || req.headers['x-forwarded-for'] || req.connection?.remoteAddress || 'unknown';
+    const customerEmail = req.body?.customer?.email ? req.body.customer.email.toString().trim().toLowerCase() : null;
+    const keys = new Set([`ip:${ip}`]);
+    if (customerEmail) keys.add(`email:${customerEmail}`);
+    for (const key of keys) {
+        const timestamps = (preorderRateBuckets.get(key) || []).filter((ts) => now - ts < PREORDER_RATE_LIMIT_WINDOW);
+        if (timestamps.length >= PREORDER_RATE_LIMIT_COUNT) {
+            console.warn(`Preorder rate limit reached for ${key}`);
+            return res.status(429).json({ error: 'Too many preorder requests. Please try again later.' });
+        }
+        timestamps.push(now);
+        preorderRateBuckets.set(key, timestamps);
+    }
+    next();
 }
 
 // Simple in-memory users & sessions for demo purposes
@@ -2287,8 +2323,57 @@ app.post('/api/notifications/read-all', authMiddleware, async (req, res) => {
 });
 
 // Preorder intake (public entry point)
-app.post('/api/public/preorders', async (req, res) => {
+app.post('/api/public/preorders', enforcePreorderRateLimit, async (req, res) => {
     try {
+        if (STOREFRONT_API_KEY) {
+            const providedKey = (req.headers['x-storefront-key'] || '').toString().trim();
+            if (providedKey !== STOREFRONT_API_KEY) {
+                console.warn(`Preorder rejected: invalid API key from ${req.ip}`);
+                return res.status(401).json({ error: 'Invalid API key' });
+            }
+        }
+        if (STOREFRONT_API_SECRET) {
+            const signatureHeader = (req.headers['x-storefront-signature'] || '').toString().trim();
+            const timestampHeader = (req.headers['x-storefront-timestamp'] || '').toString().trim();
+            if (!signatureHeader || !timestampHeader) {
+                console.warn(`Preorder rejected: missing signature headers from ${req.ip}`);
+                return res.status(400).json({ error: 'Missing signature headers' });
+            }
+            const timestampValue = Number(timestampHeader);
+            if (!Number.isFinite(timestampValue)) {
+                console.warn(`Preorder rejected: invalid signature timestamp from ${req.ip}`);
+                return res.status(400).json({ error: 'Invalid signature timestamp' });
+            }
+            if (Math.abs(Date.now() - timestampValue) > 5 * 60 * 1000) {
+                console.warn(`Preorder rejected: signature timestamp outside window from ${req.ip}`);
+                return res.status(400).json({ error: 'Signature timestamp is outside the allowable window.' });
+            }
+            const rawPayload =
+                typeof req.rawBody === 'string' && req.rawBody.length
+                    ? req.rawBody
+                    : JSON.stringify(req.body || {});
+            const expectedSignature = crypto
+                .createHmac('sha256', STOREFRONT_API_SECRET)
+                .update(`${timestampHeader}.${rawPayload}`)
+                .digest('hex');
+            let providedBuffer;
+            let expectedBuffer;
+            try {
+                providedBuffer = Buffer.from(signatureHeader.toLowerCase(), 'hex');
+                expectedBuffer = Buffer.from(expectedSignature, 'hex');
+            } catch (err) {
+                console.warn(`Preorder rejected: malformed signature from ${req.ip}`);
+                return res.status(400).json({ error: 'Malformed signature.' });
+            }
+            if (
+                providedBuffer.length !== expectedBuffer.length ||
+                !crypto.timingSafeEqual(providedBuffer, expectedBuffer)
+            ) {
+                console.warn(`Preorder rejected: signature mismatch from ${req.ip}`);
+                return res.status(401).json({ error: 'Invalid signature' });
+            }
+        }
+
         const body = req.body || {};
         const {
             sourceStore = null,
@@ -2331,6 +2416,16 @@ app.post('/api/public/preorders', async (req, res) => {
                 : [];
 
         const sanitizedNotes = notes ? notes.toString().trim() : null;
+        if (sanitizedNotes && sanitizedNotes.length > MAX_PREORDER_NOTES_LENGTH) {
+            return res.status(400).json({ error: 'Notes are too long.' });
+        }
+        if (normalizedLinks.length > MAX_PREORDER_CART_LINKS) {
+            return res.status(400).json({ error: 'Too many cart links. Limit to 10.' });
+        }
+        const invalidLink = normalizedLinks.find((link) => !/^https?:\/\/[^\s]+$/i.test(link));
+        if (invalidLink) {
+            return res.status(400).json({ error: 'Cart links must be valid URLs.' });
+        }
         const deliveryAddress = (body.deliveryAddress || '').toString().trim() || null;
         const usdNumeric = Number.isFinite(Number(usdTotal)) ? Number(usdTotal) : null;
         if (usdNumeric == null || usdNumeric < 0) {

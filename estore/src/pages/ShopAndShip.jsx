@@ -4,6 +4,8 @@ import { FaCloudUploadAlt, FaInfoCircle } from 'react-icons/fa';
 import api from '../lib/api';
 
 const DEFAULT_RATE = 15.42;
+const STOREFRONT_API_KEY = import.meta.env.VITE_STOREFRONT_API_KEY || '';
+const STOREFRONT_API_SECRET = import.meta.env.VITE_STOREFRONT_API_SECRET || '';
 
 function toBase64(file) {
   return new Promise((resolve, reject) => {
@@ -12,6 +14,41 @@ function toBase64(file) {
     reader.onerror = (err) => reject(err);
     reader.readAsDataURL(file);
   });
+}
+
+let cryptoJsHmac = null;
+
+async function createSignature(secret, message) {
+  if (!secret) return '';
+  const webCrypto =
+    (typeof globalThis !== 'undefined' && globalThis.crypto) ||
+    (typeof window !== 'undefined' ? window.crypto : null);
+  const encoder = new TextEncoder();
+  if (webCrypto?.subtle) {
+    try {
+      const keyData = encoder.encode(secret);
+      const cryptoKey = await webCrypto.subtle.importKey('raw', keyData, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+      const signatureBuffer = await webCrypto.subtle.sign('HMAC', cryptoKey, encoder.encode(message));
+      const bytes = new Uint8Array(signatureBuffer);
+      let hex = '';
+      for (let i = 0; i < bytes.length; i += 1) {
+        hex += bytes[i].toString(16).padStart(2, '0');
+      }
+      return hex;
+    } catch (err) {
+      console.warn('Web crypto HMAC failed, falling back to software implementation', err);
+    }
+  }
+
+  if (!cryptoJsHmac) {
+    const [{ default: hmacSHA256 }, { default: Hex }] = await Promise.all([
+      import('crypto-js/hmac-sha256'),
+      import('crypto-js/enc-hex'),
+    ]);
+    cryptoJsHmac = { hmacSHA256, Hex };
+  }
+  const { hmacSHA256, Hex } = cryptoJsHmac;
+  return hmacSHA256(message, secret).toString(Hex);
 }
 
 export default function ShopAndShip() {
@@ -153,7 +190,26 @@ export default function ShopAndShip() {
 
     setSubmitting(true);
     try {
-      const response = await api.post('/api/public/preorders', payload);
+      const payloadString = JSON.stringify(payload);
+      const headers = {};
+      if (STOREFRONT_API_KEY) {
+        headers['x-storefront-key'] = STOREFRONT_API_KEY;
+      }
+      if (STOREFRONT_API_SECRET) {
+        try {
+          const timestamp = Date.now().toString();
+          const signature = await createSignature(STOREFRONT_API_SECRET, `${timestamp}.${payloadString}`);
+          headers['x-storefront-timestamp'] = timestamp;
+          headers['x-storefront-signature'] = signature;
+        } catch (sigErr) {
+          console.error('Failed to produce preorder signature', sigErr);
+          setError('Secure submission is unavailable in this environment. Please reach out to support or try again later.');
+          setSubmitting(false);
+          return;
+        }
+      }
+
+      const response = await api.post('/api/public/preorders', payloadString, { headers });
       setSuccessId(response?.id || null);
       resetForm();
       window.scrollTo({ top: 0, behavior: 'smooth' });

@@ -100,7 +100,8 @@ Environment variables and configuration
 	- `PORT` - API listen port (default `4000`)
 	- `DATABASE_URL` - Postgres connection string (leave unset for SQLite)
 	- `JWT_SECRET` - supply a stable secret in production
-	- `STOREFRONT_API_KEY` - enables `/api/storefront/*` endpoints for the estore; storefront requests must send `X-Storefront-Key`
+	- `STOREFRONT_API_KEY` - shared identifier required by `/api/public/preorders`; storefront requests must send `X-Storefront-Key`
+	- `STOREFRONT_API_SECRET` - shared HMAC secret used to sign preorder submissions; backend rejects unsigned, invalid, or stale requests
 	- `FRONTEND_URL` - used in password reset emails
 - POS frontend (`POS/Frontend/.env` or shell envs)
 	- `VITE_API_BASE` - absolute POS API base (defaults to current origin)
@@ -112,7 +113,8 @@ Environment variables and configuration
 - Estore frontend (`estore/.env` or shell envs)
 	- `VITE_API_BASE` - absolute POS API base (`https://pos.itnvend.com/api` in prod)
 	- `VITE_UPLOAD_BASE` - absolute uploads base
-	- `VITE_STOREFRONT_KEY` - same value as `STOREFRONT_API_KEY`
+	- `VITE_STOREFRONT_API_KEY` - matches `STOREFRONT_API_KEY`; injected as `X-Storefront-Key`
+	- `VITE_STOREFRONT_API_SECRET` - matches `STOREFRONT_API_SECRET`; used by the browser to compute preorder signature headers
 	- `VITE_DEV_HOST` / `VITE_ALLOWED_HOSTS` - custom domain support
 
 Database and seeds
@@ -185,6 +187,7 @@ Troubleshooting & known issues
 - If you see native module errors in containers (e.g., `invalid ELF header`), recreate the server container so `npm install` runs inside Linux.
 - If the backend fails to start because `database.db` is locked, ensure no other process (or another server instance) is using it. Close other node processes or restart your machine.
 - The app currently seeds products only when the products table is empty. If you changed seeds and expect them to appear, run the append seed script or recreate the DB.
+- Preorder signatures: errors such as `Invalid API key`, `Missing signature headers`, or `Invalid signature` indicate the storefront key/secret pair is missing or mismatched. Confirm both `.env` files use the same values and rebuild the storefront so the Vite env variables take effect.
 
 Contributing & next steps I can help with
 -----------------------------------------
