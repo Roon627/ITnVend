@@ -629,7 +629,7 @@ export default function Invoices() {
 
   return (
     <div className="p-6 bg-gray-50 min-h-full">
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-6">
+      <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4 mb-6">
         <div>
           <h1 className="text-3xl font-bold">Invoices &amp; Quotes</h1>
           <div className="flex items-center gap-3 mt-1">
@@ -637,57 +637,65 @@ export default function Invoices() {
             <a href="/help" target="_blank" rel="noopener noreferrer" className="text-xs text-blue-600 hover:text-blue-800 underline">Help</a>
           </div>
         </div>
-          <div className="flex flex-wrap gap-3 items-center">
-          <div className="flex items-center gap-2">
+        <div className="flex flex-col sm:flex-row sm:flex-wrap sm:items-center sm:justify-end gap-3 w-full md:w-auto">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 w-full sm:w-auto">
             <button
               onClick={() => openBuilder('invoice')}
-              className="px-4 py-2 bg-green-600 text-white rounded-md font-semibold hover:bg-green-700"
+              className="w-full px-4 py-2 bg-green-600 text-white rounded-md font-semibold shadow-sm transition hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-300"
               title="Open the invoice builder: add products, select customer, and create an invoice"
             >
               New Invoice
             </button>
             <button
               onClick={() => openBuilder('quote')}
-              className="px-4 py-2 bg-blue-600 text-white rounded-md font-semibold hover:bg-blue-700"
+              className="w-full px-4 py-2 bg-blue-600 text-white rounded-md font-semibold shadow-sm transition hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-300"
               title="Open the quote builder: prepare a quote you can send or convert later"
             >
               New Quote
             </button>
-
-            {/* View toggle: table or card (grid) */}
-            <div className="flex items-center gap-1 ml-2">
-              <button
-                onClick={() => setViewMode('table')}
-                className={`px-2 py-1 rounded-md text-sm font-semibold border flex items-center gap-2 ${viewMode === 'table' ? 'bg-gray-900 text-white' : 'bg-white text-gray-700'}`}
-                title="Show table view"
-                aria-pressed={viewMode === 'table'}
-                aria-label="Table view"
-              >
-                <FaList className="inline-block text-sm" />
-                <span className="hidden sm:inline">Table</span>
-              </button>
-              <button
-                onClick={() => setViewMode('cards')}
-                className={`px-2 py-1 rounded-md text-sm font-semibold border flex items-center gap-2 ${viewMode === 'cards' ? 'bg-gray-900 text-white' : 'bg-white text-gray-700'}`}
-                title="Show card/grid view"
-                aria-pressed={viewMode === 'cards'}
-                aria-label="Cards view"
-              >
-                <FaTh className="inline-block text-sm" />
-                <span className="hidden sm:inline">Cards</span>
-              </button>
-            </div>
-
-            {/* Shift controls have been moved to POS page for convenience — show active shift badge here */}
-            {shiftStartedAt ? (
-              <div className="px-3 py-2 bg-yellow-50 text-yellow-800 rounded-md text-sm font-medium" aria-live="polite" title={new Date(shiftStartedAt).toLocaleString()}>
-                Shift started {formatShiftRelative(shiftStartedAt)}
-              </div>
-            ) : null}
           </div>
+
+          {/* View toggle: table or card (grid) */}
+          <div className="flex items-center justify-between sm:justify-center gap-2 rounded-lg border border-gray-200 bg-white px-2 py-1 shadow-sm w-full sm:w-auto">
+            <button
+              onClick={() => setViewMode('table')}
+              className={`flex items-center gap-2 rounded-md px-3 py-1 text-sm font-semibold transition ${
+                viewMode === 'table' ? 'bg-gray-900 text-white shadow-sm' : 'text-gray-700 hover:text-gray-900'
+              }`}
+              title="Show table view"
+              aria-pressed={viewMode === 'table'}
+              aria-label="Table view"
+            >
+              <FaList className="inline-block text-sm" />
+              <span className="hidden sm:inline">Table</span>
+            </button>
+            <button
+              onClick={() => setViewMode('cards')}
+              className={`flex items-center gap-2 rounded-md px-3 py-1 text-sm font-semibold transition ${
+                viewMode === 'cards' ? 'bg-gray-900 text-white shadow-sm' : 'text-gray-700 hover:text-gray-900'
+              }`}
+              title="Show card/grid view"
+              aria-pressed={viewMode === 'cards'}
+              aria-label="Cards view"
+            >
+              <FaTh className="inline-block text-sm" />
+              <span className="hidden sm:inline">Cards</span>
+            </button>
+          </div>
+
+          {/* Shift controls have been moved to POS page for convenience - show active shift badge here */}
+          {shiftStartedAt ? (
+            <div
+              className="w-full sm:w-auto px-3 py-2 bg-yellow-50 text-yellow-800 rounded-md text-sm font-medium text-center sm:text-left shadow-sm"
+              aria-live="polite"
+              title={new Date(shiftStartedAt).toLocaleString()}
+            >
+              Shift started {formatShiftRelative(shiftStartedAt)}
+            </div>
+          ) : null}
         </div>
       </div>
-      {/* Help moved to the central Help page — click the link above to open full guidance */}
+      {/* Help moved to the central Help page - click the link above to open full guidance */}
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4 mb-6">
         {summaryCards.map((card) => (
@@ -701,7 +709,7 @@ export default function Invoices() {
       </div>
 
       <div className="bg-white shadow-sm rounded-lg p-4 mb-6 space-y-4">
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex w-full flex-wrap items-center gap-2 overflow-x-auto pb-1 sm:pb-0">
           {typeChips.map((chip) => (
             <button
               key={chip.value}
@@ -718,7 +726,7 @@ export default function Invoices() {
           ))}
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex w-full flex-wrap items-center gap-2 overflow-x-auto pb-1 sm:pb-0">
           <button
             onClick={() => setStatusFilter('all')}
             className={`px-3 py-1.5 rounded-full text-xs font-semibold border transition ${
@@ -809,28 +817,28 @@ export default function Invoices() {
                   type="button"
                   aria-label={`Remove saved view ${view.name}`}
                 >
-                  ×
+                  &times;
                 </button>
               </span>
             ))}
           </div>
         )}
 
-        <div className="flex flex-wrap justify-between items-center gap-3 pt-2 border-t border-gray-100">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pt-2 border-t border-gray-100">
           <div className="text-xs text-gray-500">
             Showing {filteredInvoices.length} of {invoices.length} documents
           </div>
-          <div className="flex flex-wrap gap-3">
-            <div className="flex gap-2">
-              <button onClick={resetFilters} className="px-3 py-1 border rounded text-xs text-gray-600 hover:border-gray-400 hover:bg-gray-50">
+          <div className="flex flex-col sm:flex-row sm:flex-wrap sm:items-center gap-3">
+            <div className="flex flex-col xs:flex-row gap-2">
+              <button onClick={resetFilters} className="px-3 py-1 border rounded text-xs text-gray-600 transition hover:border-gray-400 hover:bg-gray-50">
                 Reset filters
               </button>
-              <button onClick={saveCurrentView} className="px-3 py-1 border rounded text-xs text-gray-600 hover:border-blue-400 hover:bg-blue-50">
+              <button onClick={saveCurrentView} className="px-3 py-1 border rounded text-xs text-gray-600 transition hover:border-blue-400 hover:bg-blue-50">
                 Save view
               </button>
             </div>
-            <div className="border-l border-gray-300 pl-3">
-              <button onClick={exportCsv} className="px-3 py-1 bg-gray-900 text-white rounded text-xs hover:bg-gray-700">
+            <div className="flex sm:border-l sm:border-gray-300 sm:pl-3">
+              <button onClick={exportCsv} className="px-3 py-1 bg-gray-900 text-white rounded text-xs transition hover:bg-gray-700">
                 Export CSV
               </button>
             </div>
@@ -838,20 +846,20 @@ export default function Invoices() {
         </div>
       </div>
 
-      <div className="mb-3 flex items-center justify-between gap-4">
-        <div className="flex items-center gap-3">
+      <div className="mb-3 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+        <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
           <button
             onClick={() => toggleSelectAll(filteredInvoices)}
-            className="px-3 py-1 border rounded bg-white text-sm hover:bg-gray-50"
+            className="px-3 py-1 border rounded bg-white text-sm transition hover:bg-gray-50"
           >
             {selectAll ? 'Unselect all' : 'Select visible'}
           </button>
 
-          <div className="flex items-center gap-2 border-l border-gray-300 pl-3">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-2 sm:border-l sm:border-gray-300 sm:pl-3">
             <select
               value={bulkStatus}
               onChange={(e) => setBulkStatus(e.target.value)}
-              className="border rounded px-2 py-1 text-sm"
+              className="border rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300"
               disabled={bulkProcessing}
             >
               <option value="">Bulk set status…</option>
@@ -866,23 +874,24 @@ export default function Invoices() {
                 ))}
               </optgroup>
             </select>
-            <button onClick={applyBulkStatus} className="px-3 py-1 bg-blue-600 text-white rounded text-sm hover:bg-blue-700" disabled={bulkProcessing}>
+            <button onClick={applyBulkStatus} className="px-3 py-1 bg-blue-600 text-white rounded text-sm transition hover:bg-blue-700 disabled:bg-blue-300" disabled={bulkProcessing}>
               {bulkProcessing ? 'Applying…' : 'Apply'}
             </button>
           </div>
 
-          <div className="border-l border-gray-300 pl-3">
-            <button onClick={bulkDownloadPdfs} className="px-3 py-1 border rounded text-sm hover:bg-gray-50">
+          <div className="flex sm:border-l sm:border-gray-300 sm:pl-3">
+            <button onClick={bulkDownloadPdfs} className="px-3 py-1 border rounded text-sm transition hover:bg-gray-50">
               Download PDFs
             </button>
           </div>
-        </div>
+      </div>
         <div className="text-sm text-gray-500">{selectedIds.size} selected</div>
       </div>
 
       {viewMode === 'table' ? (
-        <div className="bg-white shadow rounded-lg overflow-hidden">
-          <table className="min-w-full divide-y divide-gray-200">
+        <div className="bg-white shadow rounded-lg">
+          <div className="overflow-x-auto">
+            <table className="min-w-[960px] w-full divide-y divide-gray-200">
             <thead className="bg-gray-100">
               <tr>
                 <th className="p-4">
@@ -1006,8 +1015,9 @@ export default function Invoices() {
             </tbody>
           </table>
         </div>
+      </div>
       ) : (
-        <div className="bg-white shadow rounded-lg overflow-hidden p-4">
+        <div className="bg-white shadow rounded-lg overflow-hidden p-4 sm:p-5">
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             {filteredInvoices.length === 0 && (
               <div className="col-span-full text-center text-gray-500 p-6">No records found.</div>
@@ -1044,7 +1054,7 @@ export default function Invoices() {
               );
             })}
           </div>
-        </div>
+      </div>
       )}
 
       {showBuilder && (
@@ -1055,7 +1065,7 @@ export default function Invoices() {
                 <h2 className="text-xl font-semibold">{builderType === 'invoice' ? 'Create Invoice' : 'Create Quote'}</h2>
                 <p className="text-sm text-gray-500">Steps: search products and click to add them → pick a customer on the right → review totals and click to create. Use the cart to remove items before saving.</p>
               </div>
-              <button onClick={() => setShowBuilder(false)} className="text-gray-500 hover:text-gray-700 text-lg">✕</button>
+              <button onClick={() => setShowBuilder(false)} className="text-gray-500 hover:text-gray-700 text-lg" aria-label="Close builder">&times;</button>
             </div>
 
             <div className="flex-1 overflow-y-auto px-6 py-4 grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -1146,7 +1156,7 @@ export default function Invoices() {
               </div>
             </div>
           </div>
-        </div>
+      </div>
       )}
 
       {editingInvoiceId && (
@@ -1159,3 +1169,9 @@ export default function Invoices() {
     </div>
   );
 }
+
+
+
+
+
+
