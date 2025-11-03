@@ -3,7 +3,7 @@ import cors from 'cors';
 import os from 'os';
 import fs from 'fs';
 import path from 'path';
-import { createServer } from 'http';
+import https from 'https';
 import { Server } from 'socket.io';
 import { setupDatabase } from './database.js';
 import { generateInvoicePdf } from './invoice-service.js';
@@ -15,8 +15,24 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
 
+const CERTS_DIR = path.join(process.cwd(), 'certs');
+const HTTPS_CERT_PATH = path.join(CERTS_DIR, 'pos-itnvend-com.pem');
+const HTTPS_KEY_PATH = path.join(CERTS_DIR, 'pos-itnvend-com-key.pem');
+
+function loadHttpsOptions() {
+    try {
+        return {
+            key: fs.readFileSync(HTTPS_KEY_PATH),
+            cert: fs.readFileSync(HTTPS_CERT_PATH)
+        };
+    } catch (err) {
+        console.error('Failed to load HTTPS certificates. Ensure mkcert output exists in the certs directory.');
+        throw err;
+    }
+}
+
 const app = express();
-const server = createServer(app);
+const server = https.createServer(loadHttpsOptions(), app);
 const io = new Server(server, {
   cors: {
     origin: true,
@@ -857,8 +873,8 @@ async function startServer() {
         const wsService = getWebSocketService();
 
         server.listen(port, '0.0.0.0', () => {
-            console.log(`Server running at http://0.0.0.0:${port}`);
-            console.log(`WebSocket server ready`);
+            console.log('HTTPS Server running on https://pos.itnvend.com:4000');
+            console.log('WebSocket server ready');
         });
         // Cleanup uploaded images older than 30 days (run once on startup and then daily)
         async function cleanupOldImages(days = 30) {

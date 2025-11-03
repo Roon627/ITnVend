@@ -271,11 +271,11 @@ export default function POS() {
         api.get('/products/categories')
       ]);
 
-  setProducts(productsData);
-  setCustomers(Array.isArray(customersData) ? customersData : []);
-  setCategories(categoriesData);
+      setProducts(Array.isArray(productsData) ? productsData : []);
+      setCustomers(Array.isArray(customersData) ? customersData : []);
+      setCategories(categoriesData && typeof categoriesData === 'object' ? categoriesData : {});
 
-      if (customersData.length > 0) {
+      if (Array.isArray(customersData) && customersData.length > 0) {
         setSelectedCustomerId(customersData[0].id);
       }
     } catch (error) {

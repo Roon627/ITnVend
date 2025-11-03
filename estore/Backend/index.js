@@ -2,17 +2,59 @@ import express from "express";
 import morgan from "morgan";
 import cors from "cors";
 import fetch from "node-fetch";
+import https from "https";
+import fs from "fs";
+import path from "path";
 import dotenv from "dotenv";
 
 dotenv.config();
 
 const PORT = process.env.PORT || 4100;
-const POS_API_BASE = process.env.POS_API_BASE || "http://localhost:4000";
+const POS_API_BASE = process.env.POS_API_BASE || "https://pos.itnvend.com:4000";
 const POS_API_TOKEN = process.env.POS_API_TOKEN || null;
 const ALLOWED_ORIGINS = (process.env.CORS_ORIGIN || "*")
   .split(",")
   .map((origin) => origin.trim())
   .filter(Boolean);
+
+const CERT_DIR = process.env.CERT_DIR || path.join(process.cwd(), "certs");
+const CERT_PATH = process.env.CERT_PATH || path.join(CERT_DIR, "estore-itnvend-com.pem");
+const KEY_PATH = process.env.KEY_PATH || path.join(CERT_DIR, "estore-itnvend-com-key.pem");
+const POS_API_CA_PATH = process.env.POS_API_CA_PATH || null;
+const POS_API_REJECT_UNAUTHORIZED = process.env.POS_API_REJECT_UNAUTHORIZED === "true";
+
+function loadHttpsOptions() {
+  try {
+    return {
+      cert: fs.readFileSync(CERT_PATH),
+      key: fs.readFileSync(KEY_PATH),
+    };
+  } catch (error) {
+    console.error("Failed to load HTTPS credentials:", error.message || error);
+    throw error;
+  }
+}
+
+function createPosAgent() {
+  if (!POS_API_BASE.toLowerCase().startsWith("https://")) return undefined;
+  try {
+    if (POS_API_CA_PATH) {
+      const caBundle = fs.readFileSync(POS_API_CA_PATH);
+      return new https.Agent({ ca: caBundle });
+    }
+  } catch (error) {
+    console.warn("Failed to read POS_API_CA_PATH; falling back to relaxed TLS.", error.message || error);
+  }
+  if (POS_API_REJECT_UNAUTHORIZED) {
+    return new https.Agent();
+  }
+  console.warn(
+    "Using relaxed TLS verification for POS_API_BASE. Provide POS_API_CA_PATH or set POS_API_REJECT_UNAUTHORIZED=true once a trusted certificate is available."
+  );
+  return new https.Agent({ rejectUnauthorized: false });
+}
+
+const posAgent = createPosAgent();
 
 const app = express();
 
@@ -26,7 +68,8 @@ app.use(express.json({ limit: "10mb" }));
 app.use(morgan("dev"));
 
 function buildTargetUrl(req) {
-  return `${POS_API_BASE}${req.originalUrl}`;
+  const base = POS_API_BASE.endsWith("/") ? POS_API_BASE.slice(0, -1) : POS_API_BASE;
+  return `${base}${req.originalUrl}`;
 }
 
 async function forwardJson(req, res, options = {}) {
@@ -46,6 +89,7 @@ async function forwardJson(req, res, options = {}) {
     const fetchOptions = {
       method: options.method || req.method,
       headers,
+      agent: posAgent,
     };
 
     if (fetchOptions.method !== "GET" && fetchOptions.method !== "HEAD") {
@@ -86,7 +130,9 @@ app.use((req, res) => {
   res.status(404).json({ error: "Not found" });
 });
 
-app.listen(PORT, () => {
-  console.log(`[estore-backend] listening on port ${PORT}`);
+const server = https.createServer(loadHttpsOptions(), app);
+
+server.listen(PORT, () => {
+  console.log(`[estore-backend] HTTPS server listening on https://estore.itnvend.com:${PORT}`);
   console.log(`[estore-backend] forwarding to ${POS_API_BASE}`);
 });

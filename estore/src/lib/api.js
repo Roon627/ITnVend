@@ -7,6 +7,7 @@
 // - If the path is a relative path (no leading '/'), prepend '/api/' as well
 
 const API_BASE = import.meta.env.VITE_API_BASE || '';
+const API_DIRECT_FALLBACK = (import.meta.env.VITE_API_DIRECT_FALLBACK || '').trim().replace(/\/$/, '');
 let authToken = null;
 
 export function setAuthToken(token) {
@@ -52,8 +53,8 @@ async function fetchWithRetry(path, options = {}, retries = 2, backoff = 200) {
       if (authToken) options.headers['Authorization'] = `Bearer ${authToken}`;
       // include credentials so HttpOnly refresh cookie is sent
       options.credentials = 'include';
-  // normalize path to backend API route
-  url = null;
+    // normalize path to backend API route
+    url = null;
       if (/^https?:\/\//.test(path)) {
         url = path;
       } else if (path.startsWith('/api')) {
@@ -81,9 +82,17 @@ async function fetchWithRetry(path, options = {}, retries = 2, backoff = 200) {
     } catch (err) {
       // If this was the last attempt and we received a 404 from the dev server
       // try a direct call to the backend host used by the Vite proxy (helpful in local dev)
-      if (attempt === retries && typeof window !== 'undefined' && err && err.status === 404 && url && url.startsWith('/api')) {
+      if (
+        attempt === retries &&
+        typeof window !== 'undefined' &&
+        err &&
+        err.status === 404 &&
+        url &&
+        url.startsWith('/api') &&
+        API_DIRECT_FALLBACK
+      ) {
         try {
-          const direct = `http://localhost:4000${url}`; // fallback target used in vite.config.js
+          const direct = `${API_DIRECT_FALLBACK}${url}`;
           if (!options.headers) options.headers = {};
           if (authToken) options.headers['Authorization'] = `Bearer ${authToken}`;
           options.credentials = 'include';

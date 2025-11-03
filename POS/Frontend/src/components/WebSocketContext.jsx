@@ -20,17 +20,21 @@ export const WebSocketProvider = ({ children }) => {
 
   useEffect(() => {
     // Connect to WebSocket server
-    // Use the backend host (same host as current page) but force port 4000
-    // (the backend API/socket server). Replace the origin port safely.
-    const origin = new URL(window.location.href);
-    origin.port = '4000';
-    const socketUrl = origin.origin; // examples: http://localhost:4000
+    // Use the backend host (same host as current page) but force port 4000.
+    // When the app is served via HTTPS, switch to wss so the socket handshake uses TLS.
+    const isSecure = window.location.protocol === 'https:';
+    const envHost = import.meta.env?.VITE_SOCKET_HOST;
+    const envPort = import.meta.env?.VITE_SOCKET_PORT;
+    const socketHost = envHost && envHost.trim().length ? envHost : window.location.hostname;
+    const socketPort = envPort && envPort.trim().length ? envPort : '4000';
+    const socketProtocol = isSecure ? 'wss:' : 'ws:';
+    const socketUrl = `${socketProtocol}//${socketHost}:${socketPort}`;
 
     const socket = io(socketUrl, {
       transports: ['websocket', 'polling'],
-      upgrade: true,
       rememberUpgrade: true,
       timeout: 20000,
+      secure: isSecure,
     });
 
     socketRef.current = socket;
