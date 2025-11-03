@@ -1,6 +1,51 @@
 import React from 'react';
 
 export default function EmailSettings({ formState, updateField, useGmailPreset, testSmtp, isManager, status }) {
+  const invoicePlaceholders = [
+    '{{customer_name}}',
+    '{{order_id}}',
+    '{{invoice_id}}',
+    '{{subtotal}}',
+    '{{tax_amount}}',
+    '{{total}}',
+    '{{payment_method}}',
+    '{{status}}',
+    '{{preorder_flag}}',
+    '{{items_html}}',
+    '{{outlet_name}}',
+  ];
+  const quoteCustomerPlaceholders = [
+    '{{contact_name}}',
+    '{{contact_first}}',
+    '{{contact_email}}',
+    '{{quote_id}}',
+    '{{invoice_id}}',
+    '{{subtotal}}',
+    '{{tax_amount}}',
+    '{{total}}',
+    '{{item_count}}',
+    '{{submitted_at}}',
+    '{{items_html}}',
+  ];
+  const quoteStaffPlaceholders = [
+    '{{company_name}}',
+    '{{contact_name}}',
+    '{{contact_email}}',
+    '{{phone}}',
+    '{{submission_type}}',
+    '{{existing_customer_ref}}',
+    '{{registration_number}}',
+    '{{details}}',
+    '{{quote_id}}',
+    '{{invoice_id}}',
+    '{{subtotal}}',
+    '{{tax_amount}}',
+    '{{total}}',
+    '{{item_count}}',
+    '{{submitted_at}}',
+    '{{items_html}}',
+  ];
+
   return (
     <div className="bg-white p-6 rounded-md shadow space-y-6">
       <h3 className="text-lg font-medium mb-3">Email & Quotation Settings</h3>
@@ -85,16 +130,25 @@ export default function EmailSettings({ formState, updateField, useGmailPreset, 
           <h4 className="text-md font-medium mb-2">Email Templates</h4>
           <div className="grid grid-cols-1 gap-3">
             <div>
-              <label className="block text-sm font-medium">Invoice Email Template</label>
+              <label className="block text-sm font-medium">Invoice / Order Confirmation (customer)</label>
               <textarea value={formState.email_template_invoice} onChange={(e) => updateField('email_template_invoice', e.target.value)} className="mt-1 block w-full border rounded-md px-3 py-2 shadow-sm font-mono" rows={4} />
+              <p className="mt-1 text-xs text-gray-500">
+                Placeholders: {invoicePlaceholders.join(', ')}. Use {'{{items_html}}'} to embed a bullet list of line items.
+              </p>
             </div>
             <div>
-              <label className="block text-sm font-medium">Quote Email Template</label>
+              <label className="block text-sm font-medium">Quote receipt email (customer)</label>
               <textarea value={formState.email_template_quote} onChange={(e) => updateField('email_template_quote', e.target.value)} className="mt-1 block w-full border rounded-md px-3 py-2 shadow-sm font-mono" rows={4} />
+              <p className="mt-1 text-xs text-gray-500">
+                Placeholders: {quoteCustomerPlaceholders.join(', ')}.
+              </p>
             </div>
             <div>
-              <label className="block text-sm font-medium">Quote Request Notification Template</label>
+              <label className="block text-sm font-medium">Quote request notification (staff)</label>
               <textarea value={formState.email_template_quote_request} onChange={(e) => updateField('email_template_quote_request', e.target.value)} className="mt-1 block w-full border rounded-md px-3 py-2 shadow-sm font-mono" rows={4} />
+              <p className="mt-1 text-xs text-gray-500">
+                Placeholders: {quoteStaffPlaceholders.join(', ')}.
+              </p>
             </div>
           </div>
         </div>

@@ -381,10 +381,17 @@ function ProductModal({ open, draft, onClose, onChange, onSave, onUploadImage, u
 
   const handleFieldChange = (key) => (event) => {
     // support being called with synthetic event or direct value
-    if (event && event.target && Object.prototype.hasOwnProperty.call(event.target, 'value')) {
-      const { value, type, checked } = event.target;
-      onChange(key, type === 'checkbox' ? checked : value);
-      return;
+    if (event && event.target) {
+      const { target } = event;
+      const { type } = target;
+      if (type === 'checkbox') {
+        onChange(key, !!target.checked);
+        return;
+      }
+      if ('value' in target) {
+        onChange(key, target.value);
+        return;
+      }
     }
     // direct value
     onChange(key, event);
@@ -489,6 +496,56 @@ function ProductModal({ open, draft, onClose, onChange, onSave, onUploadImage, u
                 <div>
                   <label className="text-sm font-medium text-slate-600">Reason for stock change (required)</label>
                   <input type="text" value={stockReason} onChange={(e) => onStockReasonChange && onStockReasonChange(e.target.value)} placeholder="e.g. Received shipment" className="mt-1 w-full rounded-md border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                </div>
+              )}
+            </div>
+
+            <div className="mt-4 border rounded-lg p-4 bg-slate-50 space-y-3">
+              <label className="inline-flex items-center gap-2 text-sm font-semibold text-slate-700">
+                <input
+                  type="checkbox"
+                  checked={draft.availableForPreorder}
+                  onChange={handleFieldChange('availableForPreorder')}
+                  className="rounded border-slate-300 text-blue-600"
+                />
+                Available for preorder
+              </label>
+              <p className="text-xs text-slate-500">
+                Enable this to flag the product as preorder-only. Customers will see preorder messaging in the POS and storefront.
+              </p>
+              {draft.availableForPreorder && (
+                <div className="space-y-3">
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+                    <label className="text-sm font-medium text-slate-600">
+                      Release date
+                      <input
+                        type="date"
+                        value={draft.preorderReleaseDate || ''}
+                        onChange={handleFieldChange('preorderReleaseDate')}
+                        className="mt-1 w-full rounded-md border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                    </label>
+                    <label className="text-sm font-medium text-slate-600 sm:col-span-2">
+                      ETA / Shipping window
+                      <input
+                        type="text"
+                        value={draft.preorderEta || ''}
+                        onChange={handleFieldChange('preorderEta')}
+                        placeholder="e.g. Ships mid-July"
+                        className="mt-1 w-full rounded-md border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                    </label>
+                  </div>
+                  <label className="text-sm font-medium text-slate-600">
+                    Preorder notes
+                    <textarea
+                      value={draft.preorderNotes || ''}
+                      onChange={handleFieldChange('preorderNotes')}
+                      rows={3}
+                      className="mt-1 w-full rounded-md border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      placeholder="Optional message that appears on preorder confirmations."
+                    />
+                  </label>
                 </div>
               )}
             </div>
@@ -923,8 +980,9 @@ export default function Products() {
         cost: form.cost ? parseFloat(form.cost) : 0,
         trackInventory: form.trackInventory,
         availableForPreorder: form.availableForPreorder,
-        preorderReleaseDate: form.preorderReleaseDate || null,
-        preorderNotes: form.preorderNotes || null,
+        preorderReleaseDate: form.availableForPreorder ? form.preorderReleaseDate || null : null,
+        preorderNotes: form.availableForPreorder ? form.preorderNotes || null : null,
+        preorderEta: form.availableForPreorder ? form.preorderEta || null : null,
       };
       const created = await api.post('/products', payload);
       toast.push('Product added', 'info');
@@ -1073,8 +1131,9 @@ export default function Products() {
           cost: modalDraft.cost ? parseFloat(modalDraft.cost) : 0,
           trackInventory: modalDraft.trackInventory,
           availableForPreorder: modalDraft.availableForPreorder,
-          preorderReleaseDate: modalDraft.preorderReleaseDate || null,
-          preorderNotes: modalDraft.preorderNotes || null,
+          preorderReleaseDate: modalDraft.availableForPreorder ? modalDraft.preorderReleaseDate || null : null,
+          preorderNotes: modalDraft.availableForPreorder ? modalDraft.preorderNotes || null : null,
+          preorderEta: modalDraft.availableForPreorder ? modalDraft.preorderEta || null : null,
         };
         const created = await api.post('/products', payload);
         toast.push('Product added', 'info');
@@ -1106,7 +1165,6 @@ export default function Products() {
         warrantyTerm: modalDraft.warrantyTerm || null,
         type: modalDraft.type || 'physical',
         shortDescription: modalDraft.shortDescription || null,
-        preorderEta: modalDraft.preorderEta || null,
         year: modalDraft.year || null,
         tags: modalDraft.tags || [],
         autoSku: modalDraft.autoSku === false ? false : true,
@@ -1119,8 +1177,9 @@ export default function Products() {
         cost: modalDraft.cost ? parseFloat(modalDraft.cost) : 0,
         trackInventory: modalDraft.trackInventory,
         availableForPreorder: modalDraft.availableForPreorder,
-        preorderReleaseDate: modalDraft.preorderReleaseDate || null,
-        preorderNotes: modalDraft.preorderNotes || null,
+        preorderReleaseDate: modalDraft.availableForPreorder ? modalDraft.preorderReleaseDate || null : null,
+        preorderNotes: modalDraft.availableForPreorder ? modalDraft.preorderNotes || null : null,
+        preorderEta: modalDraft.availableForPreorder ? modalDraft.preorderEta || null : null,
       };
 
       // Detect if only stock changed compared to original draft
@@ -1141,6 +1200,10 @@ export default function Products() {
             barcode: modalOriginalDraft.barcode || null,
             cost: modalOriginalDraft.cost ? parseFloat(modalOriginalDraft.cost) : 0,
             trackInventory: modalOriginalDraft.trackInventory,
+            availableForPreorder: modalOriginalDraft.availableForPreorder,
+            preorderReleaseDate: modalOriginalDraft.availableForPreorder ? modalOriginalDraft.preorderReleaseDate || null : null,
+            preorderNotes: modalOriginalDraft.availableForPreorder ? modalOriginalDraft.preorderNotes || null : null,
+            preorderEta: modalOriginalDraft.availableForPreorder ? modalOriginalDraft.preorderEta || null : null,
           };
           const changedKeys = Object.keys(payload).filter((k) => {
             const a = payload[k] == null ? null : payload[k];

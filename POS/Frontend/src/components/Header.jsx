@@ -28,7 +28,9 @@ function formatRelativeTime(value) {
   }
   if (!(input instanceof Date) || Number.isNaN(input.getTime())) return '';
   const diff = Date.now() - input.getTime();
-  if (diff < 60 * 1000) return 'Just now';
+  const absDiff = Math.abs(diff);
+  if (absDiff < 60 * 1000) return 'Just now';
+  if (diff < 0) return input.toLocaleString();
   if (diff < 60 * 60 * 1000) return `${Math.floor(diff / (60 * 1000))}m ago`;
   if (diff < 24 * 60 * 60 * 1000) return `${Math.floor(diff / (60 * 60 * 1000))}h ago`;
   // For older items show a localized date/time

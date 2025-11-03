@@ -117,6 +117,12 @@ Environment variables and configuration
 	- `VITE_STOREFRONT_API_SECRET` - matches `STOREFRONT_API_SECRET`; used by the browser to compute preorder signature headers
 	- `VITE_DEV_HOST` / `VITE_ALLOWED_HOSTS` - custom domain support
 
+Email template placeholders
+---------------------------
+- **Order / invoice confirmation (customer)**: `{{customer_name}}`, `{{order_id}}`, `{{invoice_id}}`, `{{subtotal}}`, `{{tax_amount}}`, `{{total}}`, `{{payment_method}}`, `{{status}}`, `{{preorder_flag}}`, `{{items_html}}`, `{{outlet_name}}`
+- **Quote receipt (customer)**: `{{contact_name}}`, `{{contact_first}}`, `{{contact_email}}`, `{{quote_id}}`, `{{invoice_id}}`, `{{subtotal}}`, `{{tax_amount}}`, `{{total}}`, `{{item_count}}`, `{{submitted_at}}`, `{{items_html}}`
+- **Quote request notification (staff)**: `{{company_name}}`, `{{contact_name}}`, `{{contact_email}}`, `{{phone}}`, `{{submission_type}}`, `{{existing_customer_ref}}`, `{{registration_number}}`, `{{details}}`, `{{quote_id}}`, `{{invoice_id}}`, `{{subtotal}}`, `{{tax_amount}}`, `{{total}}`, `{{item_count}}`, `{{submitted_at}}`, `{{items_html}}`
+
 Database and seeds
 ------------------
 - Default DB: SQLite file at `POS/Backend/database.db` when running locally.

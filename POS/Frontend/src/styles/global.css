@@ -244,6 +244,21 @@ a:hover {
   color: var(--color-primary) !important;
 }
 
+.hover\:text-blue-600:hover,
+.hover\:text-blue-500:hover,
+.hover\:text-blue-700:hover,
+.hover\:text-indigo-600:hover,
+.hover\:text-indigo-500:hover,
+.hover\:text-indigo-700:hover {
+  color: var(--color-primary-strong) !important;
+}
+
+.focus\:text-blue-600:focus,
+.focus\:text-blue-500:focus,
+.focus\:text-indigo-600:focus {
+  color: var(--color-primary-strong) !important;
+}
+
 .border-blue-600,
 .border-blue-500,
 .border-blue-400,
@@ -255,6 +270,11 @@ a:hover {
 .hover\:border-blue-400:hover,
 .hover\:border-blue-300:hover {
   border-color: var(--color-primary) !important;
+}
+
+.focus\:border-blue-500:focus,
+.focus\:border-blue-600:focus {
+  border-color: var(--color-primary-strong) !important;
 }
 
 .bg-blue-100,

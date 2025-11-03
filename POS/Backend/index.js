@@ -108,6 +108,32 @@ const PREORDER_RATE_LIMIT_COUNT = 20;
 const MAX_PREORDER_NOTES_LENGTH = 4000;
 const MAX_PREORDER_CART_LINKS = 10;
 
+const HTML_ESCAPE_LOOKUP = {
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;',
+};
+
+function escapeHtml(value) {
+    return String(value ?? '').replace(/[&<>"']/g, (char) => HTML_ESCAPE_LOOKUP[char] || char);
+}
+
+function renderEmailTemplate(template, fallback, variables = {}) {
+    const base = (template && template.trim()) ? template : (fallback || '');
+    let rendered = base;
+    for (const [key, rawValue] of Object.entries(variables)) {
+        const safe = rawValue == null ? '' : String(rawValue);
+        const pattern = new RegExp(`{{\\s*${key}\\s*}}`, 'gi');
+        rendered = rendered.replace(pattern, safe);
+    }
+    if (!/<[a-z!/]/i.test(rendered)) {
+        rendered = rendered.replace(/\r?\n/g, '<br/>');
+    }
+    return rendered;
+}
+
 const slugify = (value = '') =>
     value
         .toString()
@@ -422,9 +448,10 @@ async function queueNotification({ staffId, username, title, message, type = 'in
     try {
         if (!db) return;
         const metaPayload = metadata ? JSON.stringify(metadata) : null;
+        const createdAt = new Date().toISOString();
         await db.run(
-            'INSERT INTO notifications (staff_id, username, title, message, type, link, metadata) VALUES (?, ?, ?, ?, ?, ?, ?)',
-            [staffId || null, username || null, title, message, type, link || null, metaPayload]
+            'INSERT INTO notifications (staff_id, username, title, message, type, link, metadata, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+            [staffId || null, username || null, title, message, type, link || null, metaPayload, createdAt]
         );
     } catch (err) {
         console.warn('Failed to queue notification', err?.message || err);
@@ -2298,7 +2325,8 @@ app.post('/api/notifications/:id/read', authMiddleware, async (req, res) => {
         ) {
             return res.status(403).json({ error: 'Forbidden' });
         }
-        await db.run('UPDATE notifications SET read_at = CURRENT_TIMESTAMP WHERE id = ?', [id]);
+        const nowIso = new Date().toISOString();
+        await db.run('UPDATE notifications SET read_at = ? WHERE id = ?', [nowIso, id]);
         res.json({ success: true });
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -2309,12 +2337,13 @@ app.post('/api/notifications/read-all', authMiddleware, async (req, res) => {
     try {
         const staffId = req.user?.staffId || null;
         const username = req.user?.username || null;
+        const nowIso = new Date().toISOString();
         await db.run(
             `UPDATE notifications
-             SET read_at = CURRENT_TIMESTAMP
+             SET read_at = ?
              WHERE (staff_id IS NOT NULL AND staff_id = ?)
                 OR (username IS NOT NULL AND username = ?)`,
-            [staffId, username]
+            [nowIso, staffId, username]
         );
         res.json({ success: true });
     } catch (err) {
@@ -2990,48 +3019,89 @@ app.post('/api/quotes', async (req, res) => {
 
         // send admin/staff notification (supports sendgrid or smtp via settings_email)
         try {
-            const subject = `Quotation request from ${contact_name}${company_name ? ' @ ' + company_name : ''}`;
-            const bodyHtml = `<p>New quotation request received:</p>
-                <ul>
-                  <li><strong>Company:</strong> ${company_name || '-'}</li>
-                  <li><strong>Contact:</strong> ${contact_name}</li>
-                  <li><strong>Email:</strong> ${contact_email}</li>
-                  <li><strong>Phone:</strong> ${phone || '-'}</li>
-                  <li><strong>Submission type:</strong> ${submission_type || '-'}</li>
-                  <li><strong>Existing account reference:</strong> ${existing_customer_ref || '-'}</li>
-                  <li><strong>Registration number:</strong> ${registration_number || '-'}</li>
-                  <li><strong>Details:</strong> ${details || '-'}</li>
-                  <li><strong>Linked Quote ID:</strong> ${quote.id}</li>
-                  <li><strong>Created Invoice ID:</strong> ${createdInvoice.id}</li>
-                  <li><strong>Subtotal:</strong> ${subtotal}</li>
-                  <li><strong>Tax:</strong> ${taxAmount}</li>
-                  <li><strong>Total:</strong> ${total}</li>
-                </ul>`;
-            await sendNotificationEmail(subject, bodyHtml);
+            const templateSettings = await db.get('SELECT email_template_quote, email_template_quote_request, outlet_name FROM settings WHERE id = 1');
+            const quoteItemsHtml = Array.isArray(cart) && cart.length
+                ? `<ul>${cart.map((item) => `<li>${escapeHtml(item.name || 'Item')} &times; ${escapeHtml(item.quantity ?? '1')} - ${escapeHtml(item.price ?? '0')}</li>`).join('')}</ul>`
+                : '<p>No items provided.</p>';
+            const submittedAt = new Date().toLocaleString();
+            const companySuffixPlain = company_name ? ` @ ${company_name}` : '';
+            const templateVars = {
+                company_name: escapeHtml(company_name || '-'),
+                company_suffix: escapeHtml(companySuffixPlain),
+                contact_name: escapeHtml(contact_name || '-'),
+                contact_first: escapeHtml((contact_name || '').split(' ')[0] || contact_name || '-'),
+                contact_email: escapeHtml(contact_email || '-'),
+                phone: escapeHtml(phone || '-'),
+                submission_type: escapeHtml(submission_type || '-'),
+                existing_customer_ref: escapeHtml(existing_customer_ref || '-'),
+                registration_number: escapeHtml(registration_number || '-'),
+                details: escapeHtml(details || '-'),
+                quote_id: escapeHtml(quote.id),
+                invoice_id: escapeHtml(createdInvoice.id),
+                subtotal: escapeHtml(subtotal.toFixed(2)),
+                tax_amount: escapeHtml(taxAmount.toFixed(2)),
+                total: escapeHtml(total.toFixed(2)),
+                item_count: escapeHtml(String(Array.isArray(cart) ? cart.length : 0)),
+                submitted_at: escapeHtml(submittedAt),
+                items_html: quoteItemsHtml,
+                outlet_name: escapeHtml(templateSettings?.outlet_name || ''),
+            };
+
+            const staffFallback = `
+<p>New quotation request received:</p>
+<ul>
+  <li><strong>Company:</strong> {{company_name}}</li>
+  <li><strong>Contact:</strong> {{contact_name}}</li>
+  <li><strong>Email:</strong> {{contact_email}}</li>
+  <li><strong>Phone:</strong> {{phone}}</li>
+  <li><strong>Submission type:</strong> {{submission_type}}</li>
+  <li><strong>Existing account reference:</strong> {{existing_customer_ref}}</li>
+  <li><strong>Registration number:</strong> {{registration_number}}</li>
+  <li><strong>Details:</strong> {{details}}</li>
+  <li><strong>Linked Quote ID:</strong> {{quote_id}}</li>
+  <li><strong>Created Invoice ID:</strong> {{invoice_id}}</li>
+  <li><strong>Subtotal:</strong> {{subtotal}}</li>
+  <li><strong>Tax:</strong> {{tax_amount}}</li>
+  <li><strong>Total:</strong> {{total}}</li>
+</ul>
+<p><strong>Items</strong></p>
+{{items_html}}
+`.trim();
+
+            const customerFallback = `
+<p>Hi {{contact_first}},</p>
+<p>Thanks for your interest. We received your quotation request and will respond shortly.</p>
+<p><strong>Summary</strong></p>
+<ul>
+  <li><strong>Reference:</strong> Quote #{{quote_id}}</li>
+  <li><strong>Submitted:</strong> {{submitted_at}}</li>
+  <li><strong>Items:</strong> {{item_count}}</li>
+</ul>
+{{items_html}}
+<p>If you need to add more information reply to this email or call our team.</p>
+`.trim();
+
+            const staffBody = renderEmailTemplate(templateSettings?.email_template_quote_request, staffFallback, templateVars);
+            const subject = `Quotation request from ${contact_name || 'Customer'}${companySuffixPlain}`;
+            await sendNotificationEmail(subject, staffBody);
 
             // Send a confirmation email to the requester if outbound email is configured
-            try {
-                const customerHtml = `<p>Hi ${contact_name.split(' ')[0] || contact_name},</p>
-                    <p>Thanks for your interest. We received your quotation request and will respond shortly.</p>
-                    <p><strong>Summary</strong></p>
-                    <ul>
-                      <li><strong>Reference:</strong> Quote #${quote.id}</li>
-                      <li><strong>Submitted:</strong> ${new Date().toLocaleString()}</li>
-                      <li><strong>Items:</strong> ${Array.isArray(cart) && cart.length ? cart.length : 'see attached details'}</li>
-                    </ul>
-                    <p>If you need to add more information reply to this email or call our team.</p>`;
-                await sendNotificationEmail(`We received your quote request (#${quote.id})`, customerHtml, contact_email);
-            } catch (errEmail) {
-                console.warn('Failed to send quote receipt to customer', errEmail?.message || errEmail);
+            if (contact_email) {
+                try {
+                    const customerBody = renderEmailTemplate(templateSettings?.email_template_quote, customerFallback, templateVars);
+                    const customerSubject = renderEmailTemplate(null, 'We received your quote request (#{{quote_id}})', { quote_id: templateVars.quote_id });
+                    await sendNotificationEmail(customerSubject, customerBody, contact_email);
+                } catch (errEmail) {
+                    console.warn('Failed to send quote receipt to customer', errEmail?.message || errEmail);
+                }
             }
 
             // Also notify staff users with email addresses (cashiers/admins) so in-house staff get alerted
             try {
                 const staffList = await db.all("SELECT email FROM staff WHERE email IS NOT NULL AND email != ''");
-                const emails = staffList.map(s => s.email).filter(Boolean);
+                const emails = staffList.map((s) => s.email).filter(Boolean);
                 if (emails.length > 0) {
-                    // Send a single email to staff list (toOverride accepts a comma-separated string)
-                    await sendNotificationEmail(subject, bodyHtml, emails.join(','));
+                    await sendNotificationEmail(subject, staffBody, emails.join(','));
                 }
             } catch (e) {
                 console.warn('Failed to notify staff emails', e?.message || e);
@@ -3871,7 +3941,7 @@ app.post('/api/orders', async (req, res) => {
         // Create an invoice for this order and create journal entries so sales appear in accounting
         try {
             // compute subtotal/tax using current settings/outlet
-            const settingsRow = await db.get('SELECT gst_rate, current_outlet_id FROM settings WHERE id = 1');
+            const settingsRow = await db.get('SELECT gst_rate, current_outlet_id, outlet_name FROM settings WHERE id = 1');
             const gstRate = parseFloat(settingsRow?.gst_rate || 0);
             const outletId = settingsRow?.current_outlet_id || null;
 
@@ -3923,9 +3993,65 @@ app.post('/api/orders', async (req, res) => {
             // send admin notification about new order and create in-app notification
             try {
                 const subject = `New order placed by ${customer.name}`;
-                const itemsHtml = sanitizedCart.map(it => `<li>${it.name} x ${it.quantity} - ${it.price}</li>`).join('');
-                const bodyHtml = `<p>A new order was placed:</p><ul><li><strong>Name:</strong> ${customer.name}</li><li><strong>Email:</strong> ${customer.email}</li><li><strong>Total:</strong> ${invTotal}</li></ul><p>Items:</p><ul>${itemsHtml}</ul><p>Order ID: ${orderId}</p><p>Invoice ID: ${invoiceId}</p>`;
-                await sendNotificationEmail(subject, bodyHtml);
+                const staffItemsHtml = sanitizedCart.map((it) => `<li>${escapeHtml(it.name || 'Item')} &times; ${escapeHtml(it.quantity ?? '0')} - ${escapeHtml(it.price ?? '0')}</li>`).join('');
+                const staffBodyHtml = `
+<p>A new order was placed:</p>
+<ul>
+  <li><strong>Name:</strong> ${escapeHtml(customer.name || '-')}</li>
+  <li><strong>Email:</strong> ${escapeHtml(customer.email || '-')}</li>
+  <li><strong>Total:</strong> ${escapeHtml(invTotal.toFixed(2))}</li>
+</ul>
+<p>Items:</p>
+<ul>${staffItemsHtml}</ul>
+<p>Order ID: ${escapeHtml(orderId)}</p>
+<p>Invoice ID: ${escapeHtml(invoiceId)}</p>
+`.trim();
+                await sendNotificationEmail(subject, staffBodyHtml);
+
+                if (customer.email) {
+                    try {
+                        let templateRow;
+                        try {
+                            templateRow = await db.get('SELECT email_template_invoice_customer AS customer_template, outlet_name FROM settings WHERE id = 1');
+                        } catch (tplErr) {
+                            console.debug('email_template_invoice_customer missing; using email_template_invoice fallback', tplErr?.message || tplErr);
+                            templateRow = await db.get('SELECT email_template_invoice AS customer_template, outlet_name FROM settings WHERE id = 1');
+                        }
+                        const customerItemsHtml = sanitizedCart.length
+                            ? `<ul>${sanitizedCart.map((it) => `<li>${escapeHtml(it.name || 'Item')} &times; ${escapeHtml(it.quantity ?? '0')} - ${escapeHtml(it.price ?? '0')}</li>`).join('')}</ul>`
+                            : '<p>No individual items were provided.</p>';
+                        const customerTemplateVars = {
+                            customer_name: escapeHtml(customer.name || 'Customer'),
+                            order_id: escapeHtml(orderId),
+                            invoice_id: escapeHtml(invoiceId),
+                            subtotal: escapeHtml(invSubtotal.toFixed(2)),
+                            tax_amount: escapeHtml(invTax.toFixed(2)),
+                            total: escapeHtml(invTotal.toFixed(2)),
+                            payment_method: escapeHtml(paymentMethod || '-'),
+                            status: escapeHtml(orderStatus),
+                            preorder_flag: escapeHtml(hasPreorderItems ? 'Yes' : 'No'),
+                            items_html: customerItemsHtml,
+                            outlet_name: escapeHtml(templateRow?.outlet_name || settingsRow?.outlet_name || ''),
+                        };
+                        const customerFallback = `
+<p>Hi {{customer_name}},</p>
+<p>Thank you for your order! We've created invoice #{{invoice_id}} and will process it shortly.</p>
+<ul>
+  <li><strong>Order ID:</strong> {{order_id}}</li>
+  <li><strong>Total:</strong> {{total}}</li>
+  <li><strong>Status:</strong> {{status}}</li>
+</ul>
+<p><strong>Items</strong></p>
+{{items_html}}
+<p>If you have any questions just reply to this message.</p>
+`.trim();
+                        const customerBody = renderEmailTemplate(templateRow?.customer_template, customerFallback, customerTemplateVars);
+                        const customerSubject = renderEmailTemplate(null, 'Your order #{{order_id}} has been received', { order_id: customerTemplateVars.order_id });
+                        await sendNotificationEmail(customerSubject, customerBody, customer.email);
+                    } catch (customerEmailErr) {
+                        console.warn('Failed to send customer order confirmation', customerEmailErr?.message || customerEmailErr);
+                    }
+                }
             } catch (err) {
                 console.warn('Failed to send order notification', err?.message || err);
             }
