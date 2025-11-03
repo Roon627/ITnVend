@@ -5,6 +5,7 @@ import api from '../lib/api';
 import { useCart } from '../components/CartContext';
 import { useSettings } from '../components/SettingsContext';
 import ProductCard from '../components/ProductCard';
+import { mapPreorderFlags } from '../lib/preorder';
 
 const CATEGORY_LIMIT = 6;
 
@@ -23,7 +24,10 @@ export default function Home() {
   useEffect(() => {
     api
       .get('/products')
-      .then((allProducts) => setProducts(allProducts.slice(0, 6)))
+      .then((allProducts) => {
+        const list = Array.isArray(allProducts) ? mapPreorderFlags(allProducts) : [];
+        setProducts(list.slice(0, 6));
+      })
       .catch(() => setProducts([]));
   }, []);
 

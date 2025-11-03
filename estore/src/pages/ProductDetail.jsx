@@ -4,6 +4,7 @@ import api from '../lib/api';
 import { useCart } from '../components/CartContext';
 import { useSettings } from '../components/SettingsContext';
 import { resolveMediaUrl } from '../lib/media';
+import { withPreorderFlags, isPreorderProduct } from '../lib/preorder';
 
 export default function ProductDetail() {
   const { id } = useParams();
@@ -17,7 +18,7 @@ export default function ProductDetail() {
     api
       .get(`/products/${id}`)
       .then((p) => {
-        if (mounted) setProduct(p);
+        if (mounted) setProduct(withPreorderFlags(p));
       })
       .catch(() => setProduct(null));
     return () => {
@@ -36,6 +37,7 @@ export default function ProductDetail() {
   }
 
   const imageSrc = resolveMediaUrl(product.image || product.image_source || product.imageUrl);
+  const preorder = isPreorderProduct(product);
 
   const handlePreorder = () => {
     const params = new URLSearchParams();
@@ -82,7 +84,7 @@ export default function ProductDetail() {
               {product.category || 'Market item'}
             </span>
             <h1 className="text-3xl font-black text-slate-900 sm:text-4xl">{product.name}</h1>
-            {Boolean(product?.preorder_enabled) && (
+            {preorder && (
               <span className="inline-flex items-center gap-2 rounded-full border border-rose-200 bg-rose-50 px-3 py-1 text-xs font-semibold uppercase tracking-wider text-rose-500">
                 Preorder item
               </span>
@@ -118,7 +120,7 @@ export default function ProductDetail() {
               >
                 Add to cart
               </button>
-              {Boolean(product?.preorder_enabled) ? (
+              {preorder ? (
                 <button
                   type="button"
                   onClick={handlePreorder}

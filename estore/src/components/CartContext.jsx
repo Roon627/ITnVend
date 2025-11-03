@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useEffect } from 'react';
 import { useToast } from './ToastContext';
+import { withPreorderFlags } from '../lib/preorder';
 
 const noop = () => {};
 const defaultValue = {
@@ -39,17 +40,26 @@ export function CartProvider({ children }) {
   }, [cart]);
 
   const addToCart = (product, quantity = 1) => {
-    const existingItem = cart.find((item) => item.id === product.id);
+    const normalized = withPreorderFlags(product);
+    const existingItem = cart.find((item) => item.id === normalized.id);
     setCart((prevCart) => {
       if (existingItem) {
         return prevCart.map((item) =>
-          item.id === product.id ? { ...item, quantity: item.quantity + quantity } : item
+          item.id === normalized.id
+            ? {
+                ...item,
+                quantity: item.quantity + quantity,
+                preorder: item.preorder || normalized.preorder,
+                availableForPreorder: item.availableForPreorder || normalized.availableForPreorder,
+                preorder_enabled: normalized.preorder_enabled ?? item.preorder_enabled,
+              }
+            : item
         );
       }
-      return [...prevCart, { ...product, quantity }];
+      return [...prevCart, { ...normalized, quantity }];
     });
     toast.push(
-      existingItem ? `Updated ${product.name} in cart` : `Added ${product.name} to cart`,
+      existingItem ? `Updated ${normalized.name} in cart` : `Added ${normalized.name} to cart`,
       existingItem ? 'info' : 'success'
     );
   };

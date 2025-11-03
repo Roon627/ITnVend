@@ -5,6 +5,7 @@ import { useCart } from '../components/CartContext';
 import { useSettings } from '../components/SettingsContext';
 import { FaShoppingCart, FaSearch, FaUndoAlt, FaHeart } from 'react-icons/fa';
 import ProductCard from '../components/ProductCard';
+import { mapPreorderFlags } from '../lib/preorder';
 
 const initialFilters = { category: '', subcategory: '', search: '' };
 
@@ -68,8 +69,8 @@ export default function PublicProducts() {
             return acc;
           }, {})
         ).toString();
-        const res = await api.get(query ? `/products?${query}` : '/products', { signal: controller.signal });
-        setProducts(Array.isArray(res) ? res : []);
+  const res = await api.get(query ? `/products?${query}` : '/products', { signal: controller.signal });
+  setProducts(Array.isArray(res) ? mapPreorderFlags(res) : []);
       } catch (err) {
         if (err?.name !== 'AbortError') {
           setProducts([]);

@@ -4056,7 +4056,16 @@ app.post('/api/orders', async (req, res) => {
     const paymentMethod = String(paymentMethodRaw).toLowerCase();
     const isTransferMethod = ['transfer', 'bank_transfer'].includes(paymentMethod);
     const paymentReference = payment?.reference || null;
+    const allowedBanks = ['bml', 'bank_of_maldives', 'maldives_islamic_bank', 'mib'];
+    let paymentBank = payment?.bank ? payment.bank.toString().trim().toLowerCase() : null;
+    if (paymentBank && !allowedBanks.includes(paymentBank)) {
+        paymentBank = null;
+    }
+    if (paymentBank === 'bank_of_maldives') paymentBank = 'bml';
+    if (paymentBank === 'maldives_islamic_bank') paymentBank = 'mib';
+    const customerPhone = customer.phone ? customer.phone.toString().trim() : '';
     let paymentSlipPath = null;
+    let preorderId = null;
 
     if (payment?.slipPath) {
         const normalized = normalizeUploadPath(payment.slipPath);
@@ -4113,6 +4122,18 @@ app.post('/api/orders', async (req, res) => {
             });
         }
 
+        if (hasPreorderItems) {
+            if (!customerPhone) {
+                return res.status(400).json({ error: 'Phone number is required for preorder items.' });
+            }
+            if (!isTransferMethod) {
+                return res.status(400).json({ error: 'Preorder items must be paid via bank transfer.' });
+            }
+            if (!paymentSlipPath) {
+                return res.status(400).json({ error: 'Payment slip is required for preorder items.' });
+            }
+        }
+
         const total = itemsWithDetails.reduce((sum, item) => sum + item.price * item.quantity, 0);
         const orderStatus = hasPreorderItems ? 'preorder' : (isTransferMethod ? 'awaiting_verification' : 'pending');
 
@@ -4121,7 +4142,7 @@ app.post('/api/orders', async (req, res) => {
             [
                 customer.name,
                 customer.email,
-                customer.phone || null,
+                customerPhone || null,
                 customer.company || null,
                 total,
                 orderStatus,
@@ -4168,7 +4189,7 @@ app.post('/api/orders', async (req, res) => {
         // Create an invoice for this order and create journal entries so sales appear in accounting
         try {
             // compute subtotal/tax using current settings/outlet
-            const settingsRow = await db.get('SELECT gst_rate, current_outlet_id, outlet_name FROM settings WHERE id = 1');
+            const settingsRow = await db.get('SELECT gst_rate, current_outlet_id, outlet_name, currency, exchange_rate FROM settings WHERE id = 1');
             const gstRate = parseFloat(settingsRow?.gst_rate || 0);
             const outletId = settingsRow?.current_outlet_id || null;
 
@@ -4188,6 +4209,92 @@ app.post('/api/orders', async (req, res) => {
             const invTax = +(invSubtotal * (gstRate / 100));
             const invTotal = +(invSubtotal + invTax);
             await db.run('UPDATE invoices SET customer_id = (SELECT id FROM customers WHERE email = ? LIMIT 1), subtotal = ?, tax_amount = ?, total = ? WHERE id = ?', [customer.email, invSubtotal, invTax, invTotal, invoiceId]);
+
+            if (hasPreorderItems) {
+                const nowIso = new Date().toISOString();
+                const sourceLabel = normalizedSource && normalizedSource !== 'pos' ? normalizedSource : 'Storefront Checkout';
+                const preorderHistory = JSON.stringify([
+                    {
+                        status: 'pending',
+                        note: 'Preorder captured from storefront checkout',
+                        created_at: nowIso,
+                        staff: null
+                    }
+                ]);
+                const preorderItems = sanitizedCart.map((item) => ({
+                    productId: item.id ?? item.product_id ?? null,
+                    productName: item.name ?? item.product_name ?? null,
+                    quantity: Number(item.quantity) || 0,
+                    price: Number(item.price) || 0,
+                }));
+                const currency = settingsRow?.currency || 'MVR';
+                const exchangeRateSetting = Number(settingsRow?.exchange_rate);
+                const validExchangeRate = Number.isFinite(exchangeRateSetting) && exchangeRateSetting > 0 ? exchangeRateSetting : null;
+                const usdTotal = validExchangeRate ? Math.round((invTotal / validExchangeRate) * 100) / 100 : null;
+                const snapshotPayload = {
+                    items: preorderItems,
+                    subtotal: invSubtotal,
+                    tax: invTax,
+                    total: invTotal,
+                    currency,
+                };
+                const insertPreorder = await db.run(
+                    `INSERT INTO preorders (
+                        source_store,
+                        cart_links,
+                        notes,
+                        customer_name,
+                        customer_email,
+                        customer_phone,
+                        delivery_address,
+                        usd_total,
+                        exchange_rate,
+                        mvr_total,
+                        payment_reference,
+                        payment_date,
+                        payment_slip,
+                        payment_bank,
+                        status,
+                        status_history,
+                        items_snapshot
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)` ,
+                    [
+                        sourceLabel,
+                        JSON.stringify([]),
+                        null,
+                        customer.name,
+                        customer.email,
+                        customerPhone || null,
+                        null,
+                        usdTotal,
+                        validExchangeRate,
+                        invTotal,
+                        paymentReference || null,
+                        null,
+                        paymentSlipPath,
+                        paymentBank,
+                        'pending',
+                        preorderHistory,
+                        JSON.stringify(snapshotPayload)
+                    ]
+                );
+                preorderId = insertPreorder.lastID;
+                await logActivity(
+                    'preorder',
+                    preorderId,
+                    'created',
+                    customer.email,
+                    JSON.stringify({ orderId, invoiceId, total: invTotal, source: sourceLabel })
+                );
+                await queueNotification({
+                    staffId: null,
+                    username: null,
+                    title: 'Storefront preorder captured',
+                    message: `Preorder #${preorderId} generated from order ${orderId}`,
+                    type: 'info',
+                    metadata: { preorderId, orderId, invoiceId, total: invTotal }
+                });
+            }
 
             // Create accounting journal entries (debit AR, credit sales, credit taxes)
             const accountsReceivable = await db.get('SELECT id FROM chart_of_accounts WHERE account_code = ?', ['1200']);
@@ -4290,9 +4397,9 @@ app.post('/api/orders', async (req, res) => {
                 message: `Order ${orderId} placed and converted to invoice #${invoiceId}`,
                 type: 'info',
                 link: `/invoices/${invoiceId}`,
-                metadata: { orderId, invoiceId, total: invTotal }
+                metadata: { orderId, invoiceId, preorderId: preorderId || null, total: invTotal }
             });
-            res.status(201).json({ message: 'Order created successfully', orderId, invoiceId });
+            res.status(201).json({ message: 'Order created successfully', orderId, invoiceId, preorderId });
 
             // WebSocket broadcast for real-time updates
             try {
@@ -4300,6 +4407,7 @@ app.post('/api/orders', async (req, res) => {
                 const orderData = {
                     orderId,
                     invoiceId,
+                    preorderId: preorderId || null,
                     customer: {
                         name: customer.name,
                         email: customer.email,
@@ -4308,7 +4416,7 @@ app.post('/api/orders', async (req, res) => {
                     total: invTotal,
                     items: sanitizedCart,
                     paymentMethod,
-                    status: isTransferMethod ? 'awaiting_verification' : 'pending',
+                    status: hasPreorderItems ? 'preorder' : (isTransferMethod ? 'awaiting_verification' : 'pending'),
                     timestamp: new Date()
                 };
                 wsService.notifyNewOrder(orderData);
@@ -4317,8 +4425,9 @@ app.post('/api/orders', async (req, res) => {
                     customer: customer.name,
                     total: invTotal,
                     type: 'invoice',
-                    status: 'issued',
-                    timestamp: new Date()
+                    status: invoiceStatus,
+                    timestamp: new Date(),
+                    preorderId: preorderId || null
                 });
             } catch (wsErr) {
                 console.warn('WebSocket broadcast failed:', wsErr.message);

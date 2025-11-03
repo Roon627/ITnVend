@@ -3,10 +3,13 @@ import { FaTrash, FaPlus, FaMinus, FaShoppingBag, FaFileAlt } from 'react-icons/
 import { useCart } from '../components/CartContext';
 import { useSettings } from '../components/SettingsContext';
 import { resolveMediaUrl } from '../lib/media';
+import { isPreorderProduct } from '../lib/preorder';
 
 export default function Cart() {
   const { cart, removeFromCart, updateQuantity, cartTotal, clearCart } = useCart();
   const { formatCurrency } = useSettings();
+
+  const cartHasPreorder = cart.some((item) => item?.preorder || isPreorderProduct(item));
 
   if (cart.length === 0) {
     return (
@@ -41,10 +44,19 @@ export default function Cart() {
         <p className="mt-2 text-sm text-rose-400">
           Everything here will pop into the POS as soon as you complete checkout or request a proposal.
         </p>
+        {cartHasPreorder && (
+          <div className="mt-4 rounded-2xl border border-rose-200 bg-rose-50/80 p-4 text-sm text-rose-600">
+            <p className="font-semibold">Preorder reminder</p>
+            <p className="mt-1 text-rose-500">
+              One or more items are preorder-only. Please have your bank transfer slip ready—checkout will ask for it and a phone number so we can validate the reservation.
+            </p>
+          </div>
+        )}
 
         <div className="mt-8 rounded-3xl border border-rose-200 bg-white/95 p-6 shadow-rose-100">
           {cart.map((item) => {
             const imageSrc = resolveMediaUrl(item.image || item.image_source || item.imageUrl);
+            const preorder = item?.preorder || isPreorderProduct(item);
             return (
               <div
                 key={item.id}
@@ -61,6 +73,11 @@ export default function Cart() {
                   <div>
                     <h2 className="text-lg font-semibold text-slate-900">{item.name}</h2>
                     <p className="text-sm text-rose-400">{formatCurrency(item.price)}</p>
+                    {preorder && (
+                      <span className="mt-1 inline-flex items-center gap-1 rounded-full border border-rose-200 bg-rose-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-rose-500">
+                        Preorder item
+                      </span>
+                    )}
                   </div>
                 </div>
 

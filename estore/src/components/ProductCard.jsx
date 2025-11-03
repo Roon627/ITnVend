@@ -2,16 +2,24 @@ import React, { useState } from 'react';
 import { FaShoppingCart } from 'react-icons/fa';
 import { resolveMediaUrl } from '../lib/media';
 import ProductPreviewModal from './ProductPreviewModal';
+import { isPreorderProduct } from '../lib/preorder';
 
 // Dark-styled product card used across Home and PublicProducts
 export default function ProductCard({ product, onAdd = () => {}, formatCurrency = (n) => n }) {
   const image = resolveMediaUrl(product.image || product.image_source || product.imageUrl);
   const [previewOpen, setPreviewOpen] = useState(false);
 
+  const isPreorder = isPreorderProduct(product);
+
   return (
     <>
       <article className="group flex flex-col overflow-hidden rounded-2xl border border-slate-200/40 bg-gradient-to-br from-white via-rose-50 to-sky-50 text-slate-900 shadow-lg shadow-rose-200/40 transition hover:-translate-y-1 hover:shadow-rose-300/70">
         <div className="relative h-44 overflow-hidden">
+          {isPreorder && (
+            <span className="absolute left-3 top-3 z-10 inline-flex items-center gap-1 rounded-full bg-rose-500/90 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-white shadow">
+              Preorder
+            </span>
+          )}
           {image ? (
             <img
               src={image}
@@ -50,10 +58,10 @@ export default function ProductCard({ product, onAdd = () => {}, formatCurrency 
               <button
                 onClick={() => onAdd(product)}
                 className="flex-1 inline-flex items-center justify-center gap-2 rounded-full border border-rose-200 bg-rose-500 px-4 py-2 text-sm text-white shadow-sm transition hover:bg-rose-600"
-                aria-label={`Add ${product.name} to cart`}
+                aria-label={`${isPreorder ? 'Preorder' : 'Add'} ${product.name}`}
               >
                 <FaShoppingCart />
-                <span>Add</span>
+                <span>{isPreorder ? 'Preorder' : 'Add'}</span>
               </button>
             </div>
           </div>

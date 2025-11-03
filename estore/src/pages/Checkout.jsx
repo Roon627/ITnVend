@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useCart } from '../components/CartContext';
 import { useToast } from '../components/ToastContext';
@@ -23,6 +23,10 @@ export default function Checkout() {
   const location = useLocation();
   const isQuote = new URLSearchParams(location.search).get('quote') === 'true';
   const { formatCurrency, currencyCode } = useSettings();
+  const cartHasPreorder = useMemo(
+    () => cart.some((item) => item?.preorder || item?.availableForPreorder || item?.preorder_enabled === 1 || item?.preorder_enabled === '1'),
+    [cart]
+  );
 
   const [form, setForm] = useState({
     name: '',
@@ -39,7 +43,13 @@ export default function Checkout() {
   const [paymentSlipName, setPaymentSlipName] = useState('');
   const [uploadError, setUploadError] = useState('');
 
-  const requiresSlip = !isQuote && paymentMethod === 'transfer';
+  const requiresSlip = !isQuote && (paymentMethod === 'transfer' || cartHasPreorder);
+
+  useEffect(() => {
+    if (cartHasPreorder && paymentMethod !== 'transfer') {
+      setPaymentMethod('transfer');
+    }
+  }, [cartHasPreorder, paymentMethod]);
 
   const handleFieldChange = (event) => {
     const { name, value } = event.target;
@@ -53,6 +63,10 @@ export default function Checkout() {
 
   const handlePaymentMethodChange = (event) => {
     const value = event.target.value;
+    if (cartHasPreorder && value !== 'transfer') {
+      toast.push('Preorder items require bank transfer payment.', 'error');
+      return;
+    }
     setPaymentMethod(value);
     if (value !== 'transfer') {
       setPaymentSlip(null);
@@ -108,6 +122,10 @@ export default function Checkout() {
     event.preventDefault();
     if (!form.name || !form.email) {
       toast.push('Please fill in your name and email.', 'error');
+      return;
+    }
+    if (cartHasPreorder && !form.phone) {
+      toast.push('Preorder items require a contact phone number.', 'error');
       return;
     }
     if (isQuote) {
@@ -176,6 +194,10 @@ export default function Checkout() {
     }
 
     // Direct checkout
+    if (cartHasPreorder && paymentMethod !== 'transfer') {
+      toast.push('Preorder items must be paid via bank transfer.', 'error');
+      return;
+    }
     if (requiresSlip && !paymentSlip) {
       toast.push('Please attach the payment slip for bank transfer.', 'error');
       return;
@@ -195,6 +217,8 @@ export default function Checkout() {
           reference: paymentMethod === 'transfer' ? paymentReference || null : null,
           slip: paymentMethod === 'transfer' ? paymentSlip : null,
         },
+        source: 'estore',
+        isPreorder: cartHasPreorder,
       });
       toast.push('Order placed successfully!', 'success');
       const orderSummary = {
@@ -223,6 +247,14 @@ export default function Checkout() {
         <div>
           <h2 className="text-2xl font-semibold mb-4">Your Information</h2>
           <form onSubmit={handleSubmit} className="bg-white p-6 rounded-lg shadow-md space-y-6">
+            {cartHasPreorder && (
+              <div className="rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm text-rose-600">
+                <p className="font-semibold">Preorder checkout</p>
+                <p className="mt-1 text-rose-500">
+                  We will reserve preorder items once we verify your bank transfer. Please attach the payment slip and include a phone number so our operations team can reach you quickly.
+                </p>
+              </div>
+            )}
             {isQuote && (
               <fieldset>
                 <legend className="text-sm font-semibold text-gray-700 mb-3">How should we process this request?</legend>
@@ -283,7 +315,7 @@ export default function Checkout() {
               </div>
               <div>
                 <label htmlFor="phone" className="block text-gray-700 font-semibold mb-2">
-                  Phone (optional)
+                  Phone {cartHasPreorder ? <span className="text-red-500">*</span> : <span className="text-xs text-gray-400">(optional)</span>}
                 </label>
                 <input
                   type="tel"
@@ -292,6 +324,7 @@ export default function Checkout() {
                   value={form.phone}
                   onChange={handleFieldChange}
                   className="w-full p-2 border rounded-md"
+                  required={cartHasPreorder}
                 />
               </div>
               <div>
@@ -345,24 +378,32 @@ export default function Checkout() {
               <fieldset className="space-y-4">
                 <legend className="text-sm font-semibold text-gray-700">Payment method</legend>
                 <div className="space-y-3">
-                  {PAYMENT_METHODS.map((option) => (
-                    <label
-                      key={option.value}
-                      className={`flex items-center gap-3 rounded-md border p-3 cursor-pointer transition ${
-                        paymentMethod === option.value ? 'border-blue-500 bg-blue-50' : 'border-gray-200 hover:border-blue-200'
-                      }`}
-                    >
-                      <input
-                        type="radio"
-                        name="paymentMethod"
-                        value={option.value}
-                        checked={paymentMethod === option.value}
-                        onChange={handlePaymentMethodChange}
-                        className="mt-1"
-                      />
-                      <span className="text-sm font-semibold text-gray-800">{option.label}</span>
-                    </label>
-                  ))}
+                  {PAYMENT_METHODS.map((option) => {
+                    const disabled = cartHasPreorder && option.value !== 'transfer';
+                    return (
+                      <label
+                        key={option.value}
+                        className={`flex items-center gap-3 rounded-md border p-3 transition ${
+                          disabled
+                            ? 'cursor-not-allowed border-gray-200 bg-gray-50 text-gray-400'
+                            : 'cursor-pointer'
+                        } ${
+                          paymentMethod === option.value ? 'border-blue-500 bg-blue-50' : !disabled ? 'border-gray-200 hover:border-blue-200' : ''
+                        }`}
+                      >
+                        <input
+                          type="radio"
+                          name="paymentMethod"
+                          value={option.value}
+                          checked={paymentMethod === option.value}
+                          onChange={handlePaymentMethodChange}
+                          className="mt-1"
+                          disabled={disabled}
+                        />
+                        <span className="text-sm font-semibold text-gray-800">{option.label}</span>
+                      </label>
+                    );
+                  })}
                 </div>
                 {paymentMethod === 'transfer' && (
                   <div className="space-y-4">
