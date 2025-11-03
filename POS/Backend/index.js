@@ -194,6 +194,22 @@ function formatPreorderRow(row, includeSensitive = false) {
     if (!row) return null;
     const cartLinks = parseJson(row.cart_links, []);
     const statusHistory = parseJson(row.status_history, []);
+    const itemsSnapshotRaw = parseJson(row.items_snapshot, null);
+    let items = [];
+    let orderSummary = null;
+    if (Array.isArray(itemsSnapshotRaw)) {
+        items = itemsSnapshotRaw;
+    } else if (itemsSnapshotRaw && typeof itemsSnapshotRaw === 'object') {
+        if (Array.isArray(itemsSnapshotRaw.items)) {
+            items = itemsSnapshotRaw.items;
+        }
+        orderSummary = {
+            subtotal: itemsSnapshotRaw.subtotal != null ? Number(itemsSnapshotRaw.subtotal) : null,
+            tax: itemsSnapshotRaw.tax != null ? Number(itemsSnapshotRaw.tax) : null,
+            total: itemsSnapshotRaw.total != null ? Number(itemsSnapshotRaw.total) : null,
+            currency: itemsSnapshotRaw.currency || null,
+        };
+    }
     const base = {
         id: row.id,
         sourceStore: row.source_store || null,
@@ -211,6 +227,8 @@ function formatPreorderRow(row, includeSensitive = false) {
         deliveryAddress: row.delivery_address || null,
         status: row.status || 'pending',
         statusHistory: Array.isArray(statusHistory) ? statusHistory : [],
+        items,
+        orderSummary,
         createdAt: row.created_at,
         updatedAt: row.updated_at
     };
@@ -2585,6 +2603,199 @@ app.post('/api/public/preorders', enforcePreorderRateLimit, async (req, res) => 
 
         res.status(201).json({ id: result.lastID, status: 'pending' });
     } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.post('/api/preorders', authMiddleware, requireRole(['cashier', 'accounts', 'manager', 'admin']), async (req, res) => {
+    try {
+        const body = req.body || {};
+        const customerId = Number(body.customerId);
+        const rawItems = Array.isArray(body.items) ? body.items : [];
+        if (!customerId || customerId <= 0) {
+            return res.status(400).json({ error: 'Customer is required.' });
+        }
+        const validItems = [];
+        for (const item of rawItems) {
+            const qty = Number(item.quantity);
+            const price = Number(item.price);
+            if (!Number.isFinite(qty) || qty <= 0) continue;
+            if (!Number.isFinite(price) || price < 0) continue;
+            const productId = item.productId || item.id || item.product_id || null;
+            const productName = item.productName || item.name || item.product_name || null;
+            validItems.push({
+                productId,
+                productName,
+                quantity: qty,
+                price,
+                subtotal: +(price * qty)
+            });
+        }
+        if (validItems.length === 0) {
+            return res.status(400).json({ error: 'Add at least one item to the preorder.' });
+        }
+
+        const customer = await db.get('SELECT * FROM customers WHERE id = ?', [customerId]);
+        if (!customer) {
+            return res.status(404).json({ error: 'Customer not found.' });
+        }
+
+        const subtotalNumeric = Number.isFinite(Number(body.subtotal)) ? Number(body.subtotal) : validItems.reduce((sum, item) => sum + item.subtotal, 0);
+        const taxNumeric = Number.isFinite(Number(body.taxAmount)) ? Number(body.taxAmount) : 0;
+        let totalNumeric = Number(body.total);
+        if (!Number.isFinite(totalNumeric)) {
+            totalNumeric = subtotalNumeric + taxNumeric;
+        }
+
+        const exchangeRateNumeric = Number.isFinite(Number(body.exchangeRate)) && Number(body.exchangeRate) > 0
+            ? Number(body.exchangeRate)
+            : 15.42;
+        const usdTotal = exchangeRateNumeric > 0 ? Math.round((totalNumeric / exchangeRateNumeric) * 100) / 100 : null;
+
+        const cartLinks = Array.isArray(body.cartLinks)
+            ? body.cartLinks.map((link) => (typeof link === 'string' ? link.trim() : '')).filter(Boolean)
+            : [];
+        if (cartLinks.length > MAX_PREORDER_CART_LINKS) {
+            return res.status(400).json({ error: 'Too many cart links. Limit to 10.' });
+        }
+        const invalidLink = cartLinks.find((link) => !/^https?:\/\/[\S]+$/i.test(link));
+        if (invalidLink) {
+            return res.status(400).json({ error: 'Cart links must be valid URLs.' });
+        }
+
+        const sanitizedNotes = body.notes ? body.notes.toString().trim() : null;
+        if (sanitizedNotes && sanitizedNotes.length > MAX_PREORDER_NOTES_LENGTH) {
+            return res.status(400).json({ error: 'Notes are too long.' });
+        }
+
+        const deliveryAddress = body.deliveryAddress ? body.deliveryAddress.toString().trim() : customer.address || null;
+
+        const payment = body.payment || {};
+        let paymentBank = payment.bank ? payment.bank.toString().trim().toLowerCase() : null;
+        const allowedBanks = ['bml', 'bank_of_maldives', 'maldives_islamic_bank', 'mib'];
+        if (paymentBank && !allowedBanks.includes(paymentBank)) {
+            paymentBank = null;
+        }
+        if (paymentBank === 'bank_of_maldives') paymentBank = 'bml';
+        if (paymentBank === 'maldives_islamic_bank') paymentBank = 'mib';
+
+        const paymentReference = payment.reference ? payment.reference.toString().trim() : null;
+        const paymentDate = payment.date ? payment.date.toString().trim() : null;
+
+        let paymentSlip = null;
+        if (payment.slipPath) {
+            const normalized = normalizeUploadPath(payment.slipPath);
+            if (normalized) {
+                paymentSlip = `/uploads/${normalized}`;
+            }
+        } else if (payment.slip) {
+            try {
+                let base64 = payment.slip;
+                let ext = 'png';
+                const match = String(base64).match(/^data:(.+);base64,(.+)$/);
+                if (match) {
+                    const mime = match[1];
+                    base64 = match[2];
+                    const parts = mime.split('/');
+                    ext = parts[1] ? parts[1].split('+')[0] : ext;
+                }
+                const now = new Date();
+                const slipCategory = ['payment_slips', String(now.getFullYear()), String(now.getMonth() + 1).padStart(2, '0')];
+                const { dir } = ensureUploadDir(slipCategory, 'payment_slips');
+                const fileName = `pos-slip-${Date.now()}-${Math.random().toString(36).slice(2, 10)}.${ext || 'png'}`;
+                const filePath = path.join(dir, fileName);
+                fs.writeFileSync(filePath, Buffer.from(base64, 'base64'));
+                const rel = path.relative(imagesDir, filePath).replace(/\\/g, '/');
+                paymentSlip = `/uploads/${rel}`;
+            } catch (err) {
+                console.warn('Failed to persist preorder payment slip', err?.message || err);
+            }
+        }
+
+        const nowIso = new Date().toISOString();
+        const history = JSON.stringify([
+            {
+                status: 'pending',
+                note: 'Preorder captured in POS checkout',
+                created_at: nowIso,
+                staff: req.user?.username || null
+            }
+        ]);
+
+        const insert = await db.run(
+            `INSERT INTO preorders (
+                source_store,
+                cart_links,
+                notes,
+                customer_name,
+                customer_email,
+                customer_phone,
+                delivery_address,
+                usd_total,
+                exchange_rate,
+                mvr_total,
+                payment_reference,
+                payment_date,
+                payment_slip,
+                payment_bank,
+                status,
+                status_history,
+                items_snapshot
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)` ,
+            [
+                body.sourceStore ? body.sourceStore.toString().trim() : 'POS Checkout',
+                JSON.stringify(cartLinks),
+                sanitizedNotes,
+                body.customerName ? body.customerName.toString().trim() : customer.name,
+                body.customerEmail ? body.customerEmail.toString().trim().toLowerCase() : (customer.email || '').toLowerCase() || null,
+                body.customerPhone ? body.customerPhone.toString().trim() : customer.phone || null,
+                deliveryAddress || null,
+                usdTotal,
+                exchangeRateNumeric,
+                totalNumeric,
+                paymentReference,
+                paymentDate,
+                paymentSlip,
+                paymentBank,
+                'pending',
+                history,
+                JSON.stringify({
+                    items: validItems,
+                    subtotal: subtotalNumeric,
+                    tax: taxNumeric,
+                    total: totalNumeric,
+                    currency: 'MVR'
+                })
+            ]
+        );
+
+        await logActivity(
+            'preorder',
+            insert.lastID,
+            'created',
+            req.user?.username || null,
+            JSON.stringify({
+                subtotal: subtotalNumeric,
+                tax: taxNumeric,
+                total: totalNumeric,
+                customerId,
+                exchangeRate: exchangeRateNumeric
+            })
+        );
+
+        await queueNotification({
+            staffId: req.user?.staffId || null,
+            username: req.user?.username || null,
+            title: 'New preorder captured',
+            message: `Preorder #${insert.lastID} recorded for ${body.customerName || customer.name}`,
+            type: 'info',
+            metadata: { preorderId: insert.lastID, total: totalNumeric }
+        });
+
+        const row = await db.get('SELECT * FROM preorders WHERE id = ?', [insert.lastID]);
+        res.status(201).json(formatPreorderRow(row, true));
+    } catch (err) {
+        console.error('Failed to create preorder from POS', err?.message || err);
         res.status(500).json({ error: err.message });
     }
 });

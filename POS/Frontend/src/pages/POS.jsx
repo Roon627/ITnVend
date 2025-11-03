@@ -28,6 +28,23 @@ export default function POS() {
   const [paymentSlipPath, setPaymentSlipPath] = useState(null);
   const [paymentSlipPreview, setPaymentSlipPreview] = useState(null);
   const [paymentSlipUploading, setPaymentSlipUploading] = useState(false);
+  const [isPreorderCart, setIsPreorderCart] = useState(false);
+  const [showPreorderPrompt, setShowPreorderPrompt] = useState(false);
+  const [pendingPreorderProduct, setPendingPreorderProduct] = useState(null);
+  const [pendingPreorderQuantity, setPendingPreorderQuantity] = useState(1);
+  const [showPreorderModal, setShowPreorderModal] = useState(false);
+  const [preorderSubmitting, setPreorderSubmitting] = useState(false);
+  const [preorderForm, setPreorderForm] = useState({
+    customerName: '',
+    customerEmail: '',
+    customerPhone: '',
+    deliveryAddress: '',
+    notes: '',
+    exchangeRate: 15.42,
+    paymentReference: '',
+    paymentDate: '',
+    paymentBank: '',
+  });
 
   const resetPaymentDetails = useCallback(() => {
     setPaymentReference('');
@@ -54,6 +71,9 @@ export default function POS() {
   const canManageTransactions = userRole === 'admin' || userRole === 'accounts';
   const searchInputRef = useRef(null);
   const payNowBtnRef = useRef(null);
+  const selectedCustomer = selectedCustomerId
+    ? customers.find((c) => String(c.id) === String(selectedCustomerId)) || null
+    : null;
 
   const [shiftStartedAt, setShiftStartedAt] = useState(() => {
     try { return localStorage.getItem('pos_shift_started_at') || ''; } catch (e) { return ''; }
@@ -245,6 +265,27 @@ export default function POS() {
     setCartOpenMobile(false);
   }, [activeTab]);
 
+  useEffect(() => {
+    if (!selectedCustomer) return;
+    setPreorderForm((prev) => ({
+      ...prev,
+      customerName: prev.customerName || selectedCustomer.name || '',
+      customerEmail: prev.customerEmail || selectedCustomer.email || '',
+      customerPhone: prev.customerPhone || selectedCustomer.phone || '',
+      deliveryAddress: prev.deliveryAddress || selectedCustomer.address || '',
+    }));
+  }, [selectedCustomer]);
+
+  useEffect(() => {
+    const candidate = Number(globalSettings?.exchange_rate || globalSettings?.outlet?.exchange_rate);
+    if (Number.isFinite(candidate) && candidate > 0) {
+      setPreorderForm((prev) => ({
+        ...prev,
+        exchangeRate: prev.exchangeRate || candidate,
+      }));
+    }
+  }, [globalSettings]);
+
   useStockUpdates((data) => {
     // Update product stock in real-time
     setProducts(prevProducts =>
@@ -263,6 +304,29 @@ export default function POS() {
     // Could also update any order lists or counters here
   });
 
+  const markPreorderFlag = useCallback((item) => {
+    if (!item || typeof item !== 'object') return false;
+    const flag = item.availableForPreorder
+      || item.available_for_preorder
+      || item.preorder_enabled === 1
+      || item.preorder_enabled === true
+      || item.preorder_enabled === '1';
+    return Boolean(flag);
+  }, []);
+
+  const normalizeProduct = useCallback((product) => {
+    if (!product || typeof product !== 'object') return product;
+    return {
+      ...product,
+      availableForPreorder: markPreorderFlag(product),
+    };
+  }, [markPreorderFlag]);
+
+  const cartContainsPreorder = useCallback((items) => {
+    if (!Array.isArray(items)) return false;
+    return items.some((entry) => markPreorderFlag(entry));
+  }, [markPreorderFlag]);
+
   const loadInitialData = async () => {
     try {
       const [productsData, customersData, categoriesData] = await Promise.all([
@@ -271,7 +335,7 @@ export default function POS() {
         api.get('/products/categories')
       ]);
 
-      setProducts(Array.isArray(productsData) ? productsData : []);
+      setProducts(Array.isArray(productsData) ? productsData.map(normalizeProduct) : []);
       setCustomers(Array.isArray(customersData) ? customersData : []);
       setCategories(categoriesData && typeof categoriesData === 'object' ? categoriesData : {});
 
@@ -309,33 +373,51 @@ export default function POS() {
 
   // Held orders still persist locally because they are POS-specific drafts
 
-  const addToCart = (product, customQuantity = null) => {
-    if (product.stock <= 0) return;
+  const addToCart = (product, customQuantity = null, forcePreorder = false) => {
+    if (!product) return;
 
-    const quantity = customQuantity || quantityInput[product.id] || 1;
+    const preorderItem = markPreorderFlag(product);
+    const desiredQuantity = customQuantity || quantityInput[product.id] || 1;
 
-    if (quantity > product.stock) {
-      toast.push(`Only ${product.stock} items available in stock`, 'warning');
+    if (preorderItem && !forcePreorder && !isPreorderCart) {
+      setPendingPreorderProduct(product);
+      setPendingPreorderQuantity(desiredQuantity);
+      setShowPreorderPrompt(true);
       return;
+    }
+
+    const skipStockCheck = preorderItem || isPreorderCart;
+    if (!skipStockCheck) {
+      if (product.stock <= 0) {
+        toast.push('This item is out of stock.', 'warning');
+        return;
+      }
+      if (desiredQuantity > product.stock) {
+        toast.push(`Only ${product.stock} items available in stock`, 'warning');
+        return;
+      }
     }
 
     setCart((currentCart) => {
       const existing = currentCart.find((i) => i.id === product.id);
+      let updatedCart;
       if (existing) {
-        const newQuantity = existing.quantity + quantity;
-        if (newQuantity > product.stock) {
+        const newQuantity = existing.quantity + desiredQuantity;
+        if (!skipStockCheck && newQuantity > product.stock) {
           toast.push(`Cannot add more than ${product.stock} items`, 'warning');
           return currentCart;
         }
-        return currentCart.map((i) =>
+        updatedCart = currentCart.map((i) =>
           i.id === product.id ? { ...i, quantity: newQuantity } : i
         );
+      } else {
+        updatedCart = [...currentCart, { ...product, quantity: desiredQuantity, availableForPreorder: preorderItem }];
       }
-      return [...currentCart, { ...product, quantity }];
+      setIsPreorderCart(cartContainsPreorder(updatedCart));
+      return updatedCart;
     });
 
-    // Clear quantity input for this product
-    setQuantityInput(prev => ({ ...prev, [product.id]: 1 }));
+    setQuantityInput((prev) => ({ ...prev, [product.id]: 1 }));
   };
 
   const updateCartQuantity = (productId, newQuantity) => {
@@ -345,25 +427,39 @@ export default function POS() {
     }
 
     const product = products.find(p => p.id === productId);
-    if (product && newQuantity > product.stock) {
+    const cartEntry = cart.find((item) => item.id === productId);
+    const skipStockCheck = isPreorderCart || markPreorderFlag(product) || markPreorderFlag(cartEntry);
+    if (!skipStockCheck && product && newQuantity > product.stock) {
       toast.push(`Only ${product.stock} items available in stock`, 'warning');
       return;
     }
 
     setCart((currentCart) =>
-      currentCart.map((item) =>
-        item.id === productId ? { ...item, quantity: newQuantity } : item
-      )
+      {
+        const updated = currentCart.map((item) =>
+          item.id === productId ? { ...item, quantity: newQuantity } : item
+        );
+        setIsPreorderCart(cartContainsPreorder(updated));
+        return updated;
+      }
     );
   };
 
   const removeFromCart = (productId) => {
-    setCart((currentCart) => currentCart.filter((i) => i.id !== productId));
+    setCart((currentCart) => {
+      const updated = currentCart.filter((i) => i.id !== productId);
+      setIsPreorderCart(cartContainsPreorder(updated));
+      return updated;
+    });
   };
 
   const clearCart = () => {
     if (cart.length > 0 && window.confirm('Are you sure you want to clear the cart?')) {
       setCart([]);
+      setIsPreorderCart(false);
+      setShowPreorderModal(false);
+      setShowPreorderPrompt(false);
+      setPendingPreorderProduct(null);
     }
   };
 
@@ -381,12 +477,17 @@ export default function POS() {
       name: orderName,
       cart,
       customerId: selectedCustomerId,
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
+      preorder: cartContainsPreorder(cart)
     };
 
     const updatedHeldOrders = [...heldOrders, heldOrder];
     saveHeldOrders(updatedHeldOrders);
     setCart([]);
+    setIsPreorderCart(false);
+    setShowPreorderModal(false);
+    setShowPreorderPrompt(false);
+    setPendingPreorderProduct(null);
     toast.push('Order held successfully', 'success');
   };
 
@@ -394,6 +495,7 @@ export default function POS() {
     const order = heldOrders.find(o => o.id === orderId);
     if (order) {
       setCart(order.cart);
+      setIsPreorderCart(cartContainsPreorder(order.cart));
       setSelectedCustomerId(order.customerId);
       // Remove from held orders
       const updatedHeldOrders = heldOrders.filter(o => o.id !== orderId);
@@ -403,6 +505,10 @@ export default function POS() {
   };
 
   const handlePayment = () => {
+    if (isPreorderCart) {
+      toast.push('Submit preorder carts via the preorder form.', 'warning');
+      return;
+    }
     const total = totalWithTax;
     const paid = parseFloat(paymentAmount) || 0;
 
@@ -415,16 +521,104 @@ export default function POS() {
     handleCheckout('invoice');
   };
 
-  const handleCheckout = async (type = 'invoice') => {
-    // Only send items with quantity > 0 to the server
+  const handleCheckout = async (type = 'invoice', extras = {}) => {
+    const normalizedType = typeof type === 'string' ? type.toLowerCase() : 'invoice';
     const validItemsForCheckout = cart.filter(i => Number(i.quantity || 0) > 0);
     if (!selectedCustomerId || validItemsForCheckout.length === 0) {
       toast.push('Please select a customer and add items (quantity > 0) to the cart.', 'warning');
-      return;
+      return false;
+    }
+
+    if (isPreorderCart && normalizedType !== 'preorder') {
+      toast.push('This cart contains preorder items. Submit it as a preorder.', 'warning');
+      return false;
+    }
+
+    if (normalizedType === 'preorder') {
+      const {
+        customerName,
+        customerEmail,
+        customerPhone,
+        deliveryAddress,
+        notes,
+        exchangeRate,
+        paymentReference: preorderPaymentReference,
+        paymentDate: preorderPaymentDate,
+        paymentBank: preorderPaymentBank,
+      } = extras || {};
+
+      const nameValue = (customerName || '').trim() || selectedCustomer?.name || '';
+      const emailValue = (customerEmail || '').trim() || selectedCustomer?.email || '';
+      const phoneValue = (customerPhone || '').trim() || selectedCustomer?.phone || '';
+
+      if (!nameValue) {
+        toast.push('Customer name is required for preorders.', 'warning');
+        return false;
+      }
+      if (!emailValue) {
+        toast.push('Customer email is required for preorders.', 'warning');
+        return false;
+      }
+      const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailPattern.test(emailValue)) {
+        toast.push('Enter a valid email address.', 'warning');
+        return false;
+      }
+      if (!phoneValue) {
+        toast.push('Customer phone number is required for preorders.', 'warning');
+        return false;
+      }
+
+      const exchangeValue = Number(exchangeRate);
+      const payload = {
+        customerId: Number(selectedCustomerId),
+        customerName: nameValue,
+        customerEmail: emailValue,
+        customerPhone: phoneValue,
+        deliveryAddress: (deliveryAddress || '').trim() || selectedCustomer?.address || '',
+        notes: (notes || '').trim() || null,
+        exchangeRate: Number.isFinite(exchangeValue) && exchangeValue > 0 ? exchangeValue : 15.42,
+        subtotal: cartTotal,
+        taxAmount,
+        total: totalWithTax,
+        items: validItemsForCheckout.map((item) => ({
+          productId: item.id || item.product_id || null,
+          productName: item.name || item.product_name,
+          quantity: Number(item.quantity) || 0,
+          price: Number(item.price) || 0,
+        })),
+        payment: {
+          reference: (preorderPaymentReference || '').trim() || null,
+          date: (preorderPaymentDate || '').trim() || null,
+          bank: (preorderPaymentBank || '').trim() || null,
+        },
+      };
+
+      try {
+        await api.post('/preorders', payload);
+        toast.push('Preorder submitted successfully', 'success');
+        setShowPreorderModal(false);
+        setIsPreorderCart(false);
+        setCart([]);
+        setQuantityInput({});
+        setPreorderForm((prev) => ({
+          ...prev,
+          notes: '',
+          paymentReference: '',
+          paymentDate: '',
+          paymentBank: '',
+        }));
+        setPendingPreorderProduct(null);
+        return true;
+      } catch (err) {
+        const message = err?.message || 'Failed to submit preorder';
+        toast.push(message, 'error');
+        return false;
+      }
     }
 
     try {
-      const paymentInfo = type === 'invoice' ? {
+      const paymentInfo = normalizedType === 'invoice' ? {
         method: paymentMethod,
         amount: parseFloat(paymentAmount) || totalWithTax,
         reference: paymentReference || null,
@@ -434,15 +628,14 @@ export default function POS() {
       const payload = {
         customerId: Number(selectedCustomerId),
         items: validItemsForCheckout,
-        type,
+        type: normalizedType,
         ...(paymentInfo ? { paymentInfo } : {}),
       };
       const created = await api.post('/invoices', payload);
 
-      // Create transaction record
       const transaction = {
         id: created.id,
-        type,
+        type: normalizedType,
         customerId: selectedCustomerId,
         customerName: customers.find(c => c.id == selectedCustomerId)?.name,
         items: validItemsForCheckout,
@@ -459,14 +652,11 @@ export default function POS() {
       setShowPaymentModal(false);
       await loadTransactionHistory();
 
-      // Get signed PDF link and open it
       const linkResp = await api.post(`/invoices/${created.id}/pdf-link`);
       window.open(linkResp.url);
 
-      // Reload products to update stock
-      api.get('/products').then(setProducts);
+      api.get('/products').then((data) => setProducts(Array.isArray(data) ? data.map(normalizeProduct) : []));
 
-      // Clear cart and reset
       setCart([]);
       setPaymentAmount('');
       setChangeAmount(0);
@@ -474,10 +664,47 @@ export default function POS() {
       resetPaymentDetails();
       setShowReceipt(true);
 
-      toast.push(type === 'invoice' ? 'Invoice created successfully' : 'Quote generated successfully', 'success');
+      toast.push(normalizedType === 'invoice' ? 'Invoice created successfully' : 'Quote generated successfully', 'success');
+      return true;
     } catch (err) {
-      toast.push(type === 'invoice' ? 'Failed to create invoice' : 'Failed to create quote', 'error');
+      toast.push(normalizedType === 'invoice' ? 'Failed to create invoice' : 'Failed to create quote', 'error');
+      return false;
     }
+  };
+
+  const handlePreorderSubmit = async (event) => {
+    event.preventDefault();
+    if (preorderSubmitting) return;
+    setPreorderSubmitting(true);
+    const success = await handleCheckout('preorder', preorderForm);
+    setPreorderSubmitting(false);
+    if (!success) return;
+    setShowPreorderModal(false);
+  };
+
+  const handlePreorderPromptConfirm = () => {
+    if (!pendingPreorderProduct) {
+      setShowPreorderPrompt(false);
+      return;
+    }
+    setIsPreorderCart(true);
+    setShowPreorderPrompt(false);
+    addToCart(pendingPreorderProduct, pendingPreorderQuantity, true);
+    setPendingPreorderProduct(null);
+    setShowPreorderModal(true);
+  };
+
+  const handlePreorderPromptCancel = () => {
+    setShowPreorderPrompt(false);
+    setPendingPreorderProduct(null);
+  };
+
+  const handlePreorderFieldChange = (field) => (event) => {
+    const value = event?.target?.value ?? '';
+    setPreorderForm((prev) => ({
+      ...prev,
+      [field]: value,
+    }));
   };
 
   const handleCreateCustomer = async () => {
@@ -1029,17 +1256,27 @@ export default function POS() {
                   </div>
 
                   <div className="flex flex-col gap-2">
-                            <button
-                              ref={payNowBtnRef}
-                              onClick={() => setShowPaymentModal(true)}
-                              className="w-full accent-btn px-4 py-3 rounded-lg font-bold text-lg"
-                              aria-label="Pay Now"
-                            >
-                              Pay Now (F5)
-                            </button>
+                    {isPreorderCart ? (
+                      <button
+                        onClick={() => setShowPreorderModal(true)}
+                        className="w-full accent-btn px-4 py-3 rounded-lg font-bold text-lg"
+                      >
+                        Finalize Preorder
+                      </button>
+                    ) : (
+                      <button
+                        ref={payNowBtnRef}
+                        onClick={() => setShowPaymentModal(true)}
+                        className="w-full accent-btn px-4 py-3 rounded-lg font-bold text-lg"
+                        aria-label="Pay Now"
+                      >
+                        Pay Now (F5)
+                      </button>
+                    )}
                     <button
                       onClick={() => handleCheckout('quote')}
-                      className="w-full btn-secondary px-4 py-3 rounded-lg font-semibold"
+                      disabled={isPreorderCart}
+                      className={`w-full btn-secondary px-4 py-3 rounded-lg font-semibold${isPreorderCart ? ' opacity-50 cursor-not-allowed' : ''}`}
                     >
                       Generate Quote
                     </button>
@@ -1056,6 +1293,200 @@ export default function POS() {
           </div>
         </div>
       </main>
+
+      {/* Preorder Prompt */}
+      {showPreorderPrompt && pendingPreorderProduct && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 w-full max-w-md mx-4">
+            <h3 className="text-xl font-semibold mb-3">Start a preorder?</h3>
+            <p className="text-sm text-gray-600">
+              {pendingPreorderProduct.name} is only available as a preorder. Start a preorder cart to continue
+              and capture the customer details.
+            </p>
+            <div className="mt-4">
+              <p className="text-sm text-gray-700"><strong>Quantity:</strong> {pendingPreorderQuantity}</p>
+              <p className="text-sm text-gray-700"><strong>Price:</strong> {formatCurrency(pendingPreorderProduct.price)}</p>
+            </div>
+            <div className="flex flex-col sm:flex-row gap-2 mt-6">
+              <button
+                onClick={handlePreorderPromptConfirm}
+                className="flex-1 accent-btn px-4 py-2 rounded font-semibold"
+              >
+                Start Preorder
+              </button>
+              <button
+                onClick={handlePreorderPromptCancel}
+                className="flex-1 accent-outline px-4 py-2 rounded font-semibold"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Preorder Modal */}
+      {showPreorderModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 w-full max-w-3xl mx-4 max-h-[90vh] overflow-y-auto">
+            <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-4">
+              <div>
+                <h3 className="text-2xl font-semibold">Preorder Details</h3>
+                <p className="text-sm text-gray-600">Review the cart and fill out customer contact information.</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowPreorderModal(false)}
+                className="text-sm text-gray-500 hover:text-gray-700"
+              >
+                Close
+              </button>
+            </div>
+
+            <div className="mb-6 border rounded-lg p-4 bg-gray-50">
+              <h4 className="font-semibold text-gray-800 mb-3">Cart Summary</h4>
+              <div className="space-y-2 text-sm text-gray-700">
+                {validCartItems.map((item) => (
+                  <div key={item.id} className="flex justify-between">
+                    <span>{item.name} × {item.quantity}</span>
+                    <span>{formatCurrency(Number(item.price || 0) * Number(item.quantity || 0))}</span>
+                  </div>
+                ))}
+              </div>
+              <div className="border-t mt-3 pt-3 text-sm text-gray-700 space-y-1">
+                <div className="flex justify-between">
+                  <span>Subtotal</span>
+                  <span>{formatCurrency(cartTotal)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>Tax ({gstRate}%)</span>
+                  <span>{formatCurrency(taxAmount)}</span>
+                </div>
+                <div className="flex justify-between font-semibold text-lg">
+                  <span>Total</span>
+                  <span>{formatCurrency(totalWithTax)}</span>
+                </div>
+              </div>
+            </div>
+
+            <form onSubmit={handlePreorderSubmit} className="space-y-6">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Customer Name *</label>
+                  <input
+                    type="text"
+                    value={preorderForm.customerName}
+                    onChange={handlePreorderFieldChange('customerName')}
+                    className="w-full px-3 py-2 border border-gray-300 rounded"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Customer Email *</label>
+                  <input
+                    type="email"
+                    value={preorderForm.customerEmail}
+                    onChange={handlePreorderFieldChange('customerEmail')}
+                    className="w-full px-3 py-2 border border-gray-300 rounded"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Customer Phone *</label>
+                  <input
+                    type="tel"
+                    value={preorderForm.customerPhone}
+                    onChange={handlePreorderFieldChange('customerPhone')}
+                    className="w-full px-3 py-2 border border-gray-300 rounded"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Exchange Rate</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={preorderForm.exchangeRate}
+                    onChange={handlePreorderFieldChange('exchangeRate')}
+                    className="w-full px-3 py-2 border border-gray-300 rounded"
+                    min="0"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Delivery Address</label>
+                <textarea
+                  value={preorderForm.deliveryAddress}
+                  onChange={handlePreorderFieldChange('deliveryAddress')}
+                  className="w-full px-3 py-2 border border-gray-300 rounded"
+                  rows={3}
+                />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Payment Reference</label>
+                  <input
+                    type="text"
+                    value={preorderForm.paymentReference}
+                    onChange={handlePreorderFieldChange('paymentReference')}
+                    className="w-full px-3 py-2 border border-gray-300 rounded"
+                    placeholder="Optional"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Payment Date</label>
+                  <input
+                    type="date"
+                    value={preorderForm.paymentDate}
+                    onChange={handlePreorderFieldChange('paymentDate')}
+                    className="w-full px-3 py-2 border border-gray-300 rounded"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Payment Bank</label>
+                  <input
+                    type="text"
+                    value={preorderForm.paymentBank}
+                    onChange={handlePreorderFieldChange('paymentBank')}
+                    className="w-full px-3 py-2 border border-gray-300 rounded"
+                    placeholder="Optional"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Notes</label>
+                <textarea
+                  value={preorderForm.notes}
+                  onChange={handlePreorderFieldChange('notes')}
+                  className="w-full px-3 py-2 border border-gray-300 rounded"
+                  rows={3}
+                  placeholder="Special instructions or preorder terms"
+                />
+              </div>
+
+              <div className="flex flex-col sm:flex-row sm:justify-end gap-2 pt-4 border-t">
+                <button
+                  type="button"
+                  onClick={() => setShowPreorderModal(false)}
+                  className="sm:w-auto w-full accent-outline px-4 py-2 rounded font-semibold"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={preorderSubmitting}
+                  className={`sm:w-auto w-full accent-btn px-4 py-2 rounded font-semibold${preorderSubmitting ? ' opacity-75 cursor-wait' : ''}`}
+                >
+                  {preorderSubmitting ? 'Submitting…' : 'Submit Preorder'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* Payment Modal */}
       {showPaymentModal && (

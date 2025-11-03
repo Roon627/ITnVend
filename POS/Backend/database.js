@@ -804,6 +804,7 @@ export async function setupDatabase() {
     await ensureColumn(db, 'invoices', 'payment_reference', 'TEXT');
     await ensureColumn(db, 'preorders', 'delivery_address', 'TEXT');
     await ensureColumn(db, 'preorders', 'payment_bank', 'TEXT');
+    await ensureColumn(db, 'preorders', 'items_snapshot', 'TEXT');
 
     // ensure a default settings row exists with id = 1
     const existing = await db.get('SELECT id FROM settings WHERE id = 1');
