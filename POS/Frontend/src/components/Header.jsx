@@ -1,12 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import api from '../lib/api';
 import { useUI } from './UIContext';
 import { FaBars, FaBell, FaTimes, FaChevronDown } from 'react-icons/fa';
 import { useAuth } from './AuthContext';
 import { useToast } from './ToastContext';
 import { useNotifications } from './NotificationsContext';
 import { useWebSocket } from './WebSocketContext';
+import { useSettings } from './SettingsContext';
+import BrandLogo from './BrandLogo';
 
 function formatRelativeTime(value) {
   if (!value) return '';
@@ -38,7 +39,6 @@ function formatRelativeTime(value) {
 }
 
 export default function Header() {
-  const [outlet, setOutlet] = useState('ITnVend');
   const [online, setOnline] = useState(navigator.onLine);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const { toggleSidebar } = useUI();
@@ -54,12 +54,10 @@ export default function Header() {
   const profileButtonRef = useRef(null);
   const [profileOpen, setProfileOpen] = useState(false);
   const storeUrl = import.meta.env.VITE_ESTORE_URL || 'http://localhost:5174';
+  const { settings } = useSettings();
+  const outlet = settings?.outlet?.name || settings?.outlet_name || 'ITnVend';
 
   useEffect(() => {
-    api.get('/settings').then((s) => {
-      setOutlet(s.outlet_name || (s.outlet && s.outlet.name) || 'ITnVend');
-    }).catch(() => {});
-
     function onOnline() { setOnline(true); }
     function onOffline() { setOnline(false); }
     window.addEventListener('online', onOnline);
@@ -179,7 +177,7 @@ export default function Header() {
           >
             <FaBars />
           </button>
-          <div className="w-10 h-10 rounded-md bg-gradient-to-br from-teal-400 to-teal-600 flex items-center justify-center text-white font-bold">IT</div>
+          <BrandLogo size={40} />
           <div>
             <h1 className="text-lg font-semibold">{outlet}</h1>
             <p className="text-sm text-slate-500">Point of Sale & Invoicing</p>

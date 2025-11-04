@@ -197,8 +197,10 @@ export async function setupDatabase() {
             email_template_invoice TEXT,
             email_template_quote TEXT,
             email_template_quote_request TEXT,
+            email_template_new_order_staff TEXT,
             email_template_password_reset_subject TEXT,
             email_template_password_reset TEXT,
+            logo_url TEXT,
             current_outlet_id INTEGER DEFAULT 1
         );
 
@@ -799,6 +801,12 @@ export async function setupDatabase() {
     await ensureColumn(db, 'order_items', 'is_preorder', 'INTEGER DEFAULT 0');
     await ensureColumn(db, 'payments', 'reference', 'TEXT');
     await ensureColumn(db, 'payments', 'slip_path', 'TEXT');
+    await ensureColumn(db, 'settings', 'social_facebook', 'TEXT');
+    await ensureColumn(db, 'settings', 'social_instagram', 'TEXT');
+    await ensureColumn(db, 'settings', 'social_whatsapp', 'TEXT');
+    await ensureColumn(db, 'settings', 'social_telegram', 'TEXT');
+    await ensureColumn(db, 'settings', 'email_template_new_order_staff', 'TEXT');
+    await ensureColumn(db, 'settings', 'logo_url', 'TEXT');
 
     await ensureColumn(db, 'invoices', 'total_amount', 'REAL DEFAULT 0');
     await ensureColumn(db, 'invoices', 'payment_method', 'TEXT');
@@ -810,7 +818,7 @@ export async function setupDatabase() {
     // ensure a default settings row exists with id = 1
     const existing = await db.get('SELECT id FROM settings WHERE id = 1');
     if (!existing) {
-    await db.run(`INSERT INTO settings (id, outlet_name, currency, gst_rate, exchange_rate, email_template_password_reset_subject, email_template_password_reset, current_outlet_id) VALUES (1, 'My Outlet', 'MVR', 0, NULL, 'Reset your password', 'Hello {{name}},<br/><br/>Click the link below to reset your password:<br/><a href="{{reset_link}}">Reset password</a><br/><br/>If you did not request this, ignore this email.', 1)`);
+    await db.run(`INSERT INTO settings (id, outlet_name, currency, gst_rate, exchange_rate, email_template_password_reset_subject, email_template_password_reset, current_outlet_id, social_facebook, social_instagram, social_whatsapp, social_telegram) VALUES (1, 'My Outlet', 'MVR', 0, NULL, 'Reset your password', 'Hello {{name}},<br/><br/>Click the link below to reset your password:<br/><a href="{{reset_link}}">Reset password</a><br/><br/>If you did not request this, ignore this email.', 1, NULL, NULL, NULL, NULL)`);
     }
 
     // ensure at least one outlet exists; seed from settings values if needed

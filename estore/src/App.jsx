@@ -14,6 +14,7 @@ import UseGlobal from "./pages/UseGlobal";
 import UseMV from "./pages/UseMV";
 import Contact from "./pages/Contact";
 import ShopAndShip from "./pages/ShopAndShip";
+import Socials from "./pages/Socials";
 import Footer from "./components/Footer";
 import PublicNavbar from "./components/PublicNavbar";
 
@@ -50,6 +51,7 @@ function App() {
         <Route path="/vendor-onboarding" element={<PublicLayout><VendorOnboarding /></PublicLayout>} />
         <Route path="/contact" element={<PublicLayout><Contact /></PublicLayout>} />
         <Route path="/shop-and-ship" element={<PublicLayout><ShopAndShip /></PublicLayout>} />
+  <Route path="/socials" element={<PublicLayout><Socials /></PublicLayout>} />
         <Route path="/privacy" element={<PublicLayout><Privacy /></PublicLayout>} />
         <Route path="/privacy/global" element={<PublicLayout><PrivacyGlobal /></PublicLayout>} />
         <Route path="/privacy/mv" element={<PublicLayout><PrivacyMV /></PublicLayout>} />

@@ -7,6 +7,7 @@ import ThemePanel from './Settings/ThemePanel';
 import OutletsPanel from './Settings/OutletsPanel';
 import EmailSettings from './Settings/EmailSettings';
 import ReconcileModal from '../components/ReconcileModal';
+import SocialLinksPanel from './Settings/SocialLinksPanel';
 
 const CURRENCY_OPTIONS = [
   { code: 'MVR', label: 'MVR - Maldivian Rufiyaa' },
@@ -34,9 +35,17 @@ const DEFAULT_FORM = {
   smtp_port: '',
   smtp_user: '',
   smtp_pass: '',
+  smtp_secure: 0,
+  smtp_require_tls: 0,
+  smtp_from_name: '',
+  smtp_reply_to: '',
   email_template_invoice: '',
   email_template_quote: '',
   email_template_quote_request: '',
+  social_facebook: '',
+  social_instagram: '',
+  social_whatsapp: '',
+  social_telegram: '',
 };
 
 const DEFAULT_NEW_OUTLET = {
@@ -51,6 +60,7 @@ export default function Settings() {
   const { push } = useToast();
   const { user } = useAuth();
   const isManager = user && user.role === 'manager';
+  const isAdmin = user && user.role === 'admin';
   const { theme: activeTheme, setTheme, themes: themeOptions } = useTheme();
 
   const [globalSettings, setGlobalSettings] = useState(null);
@@ -62,6 +72,25 @@ export default function Settings() {
   const [newOutlet, setNewOutlet] = useState(DEFAULT_NEW_OUTLET);
   const [status, setStatus] = useState('idle');
   const [reconcileOpen, setReconcileOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState('outlet');
+
+  const tabs = useMemo(() => (
+    [
+      { id: 'outlet', label: 'Outlet Management', description: 'Currency, addresses, and outlet selection.' },
+      { id: 'smtp', label: 'SMTP Settings', description: 'Email provider credentials and dispatch behaviour.' },
+      { id: 'socials', label: 'Socials', description: 'Storefront social links and customer touchpoints.', adminOnly: true },
+      { id: 'templates', label: 'Templates', description: 'Transactional email templates for customers and staff.' },
+      { id: 'themes', label: 'Themes', description: 'Switch UI themes and colours for the POS.' },
+    ].filter((tab) => !tab.adminOnly || isAdmin)
+  ), [isAdmin]);
+
+  const activeTabMeta = useMemo(() => tabs.find((tab) => tab.id === activeTab), [tabs, activeTab]);
+
+  useEffect(() => {
+    if (!tabs.some((tab) => tab.id === activeTab) && tabs.length) {
+      setActiveTab(tabs[0].id);
+    }
+  }, [tabs, activeTab]);
 
   const refreshSettings = async () => {
     try {
@@ -127,10 +156,18 @@ export default function Settings() {
       smtp_host: globalSettings.email?.smtp_host ?? '',
       smtp_port: globalSettings.email?.smtp_port ?? '',
       smtp_user: globalSettings.email?.smtp_user ?? '',
-      smtp_pass: '',
+  smtp_pass: '',
+  smtp_secure: globalSettings.email?.smtp_secure ?? 0,
+  smtp_require_tls: globalSettings.email?.smtp_require_tls ?? 0,
+  smtp_from_name: globalSettings.email?.smtp_from_name ?? '',
+  smtp_reply_to: globalSettings.email?.smtp_reply_to ?? '',
       email_template_invoice: globalSettings.email_template_invoice ?? globalSettings.invoice_template ?? '',
       email_template_quote: globalSettings.email_template_quote ?? '',
       email_template_quote_request: globalSettings.email_template_quote_request ?? '',
+      social_facebook: globalSettings?.social_facebook ?? globalSettings?.social_links?.facebook ?? '',
+      social_instagram: globalSettings?.social_instagram ?? globalSettings?.social_links?.instagram ?? '',
+      social_whatsapp: globalSettings?.social_whatsapp ?? globalSettings?.social_links?.whatsapp ?? '',
+      social_telegram: globalSettings?.social_telegram ?? globalSettings?.social_links?.telegram ?? '',
     });
   }, [globalSettings, defaultSettings]);
 
@@ -178,7 +215,7 @@ export default function Settings() {
           invoice_template: formState.invoice_template,
         });
       }
-      await api.put('/settings', {
+      const payload = {
         outlet_name: formState.outlet_name,
         currency: formState.currency,
         gst_rate: formState.gst_rate,
@@ -196,7 +233,21 @@ export default function Settings() {
         email_template_invoice: formState.email_template_invoice || null,
         email_template_quote: formState.email_template_quote || null,
         email_template_quote_request: formState.email_template_quote_request || null,
-      });
+      };
+
+      if (isAdmin) {
+        const normalize = (value) => {
+          if (typeof value !== 'string') return value || null;
+          const trimmed = value.trim();
+          return trimmed.length ? trimmed : null;
+        };
+        payload.social_facebook = normalize(formState.social_facebook);
+        payload.social_instagram = normalize(formState.social_instagram);
+        payload.social_whatsapp = normalize(formState.social_whatsapp);
+        payload.social_telegram = normalize(formState.social_telegram);
+      }
+
+      await api.put('/settings', payload);
       await Promise.all([refreshSettings(), fetchOutlets()]);
       setStatus('saved');
       push('Settings saved', 'info');
@@ -260,38 +311,10 @@ export default function Settings() {
     return <div className="p-6">Loading settings…</div>;
   }
 
-  return (
-    <div className="p-6" style={{ minHeight: 'calc(100vh - 72px)' }}>
-      <div className="max-w-5xl mx-auto h-full flex flex-col gap-4">
-        {/* Header */}
-        <div className="sticky top-6 z-20 bg-white/0 backdrop-blur-sm">
-          <div className="flex items-start justify-between mb-4">
-            <h2 className="text-2xl font-bold">Settings</h2>
-            <div className="flex items-center gap-3">
-              <button
-                onClick={() => setReconcileOpen(true)}
-                type="button"
-                className="px-3 py-2 border rounded-md font-semibold hover:bg-gray-50"
-              >
-                Reconcile
-              </button>
-              <button
-                onClick={save}
-                disabled={status === 'saving'}
-                className="bg-blue-600 text-white px-4 py-2 rounded-md font-semibold hover:bg-blue-700 disabled:bg-gray-400"
-              >
-                {status === 'saving' ? 'Saving…' : 'Save Settings'}
-              </button>
-              {status === 'saved' && <span className="text-sm text-green-600">✓ Saved</span>}
-              {status === 'error' && <span className="text-sm text-red-600">Save failed</span>}
-            </div>
-          </div>
-        </div>
-
-        {/* Main content */}
-        <div className="flex-1 overflow-auto space-y-6">
-          <ThemePanel themeOptions={themeOptions} activeTheme={activeTheme} setTheme={setTheme} />
-
+  const renderActiveTab = () => {
+    switch (activeTab) {
+      case 'outlet':
+        return (
           <OutletsPanel
             outlets={outlets}
             selectedOutletId={selectedOutletId}
@@ -307,7 +330,9 @@ export default function Settings() {
             formState={formState}
             updateField={updateField}
           />
-
+        );
+      case 'smtp':
+        return (
           <EmailSettings
             formState={formState}
             updateField={updateField}
@@ -315,22 +340,111 @@ export default function Settings() {
             testSmtp={testSmtp}
             isManager={isManager}
             status={status}
+            showTemplates={false}
+            heading="SMTP Configuration"
           />
+        );
+      case 'socials':
+        return (
+          <SocialLinksPanel
+            formState={formState}
+            updateField={updateField}
+            canEdit={isAdmin}
+          />
+        );
+      case 'templates':
+        return (
+          <EmailSettings
+            formState={formState}
+            updateField={updateField}
+            useGmailPreset={useGmailPreset}
+            testSmtp={testSmtp}
+            isManager={isManager}
+            status={status}
+            showSmtp={false}
+            heading="Email Template Library"
+          />
+        );
+      case 'themes':
+        return (
+          <ThemePanel themeOptions={themeOptions} activeTheme={activeTheme} setTheme={setTheme} />
+        );
+      default:
+        return null;
+    }
+  };
 
-          <div className="flex items-center gap-4 pt-4 border-t">
-            <button
-              onClick={save}
-              disabled={status === 'saving'}
-              className="bg-blue-600 text-white px-5 py-2 rounded-md font-semibold hover:bg-blue-700 disabled:bg-gray-400"
-            >
-              {status === 'saving' ? 'Saving…' : 'Save Settings'}
-            </button>
-            {status === 'saved' && <span className="text-sm text-green-600">✓ Saved</span>}
-            {status === 'error' && (
-              <span className="text-sm text-red-600">Save failed. Please try again.</span>
-            )}
+  const saveLabel = activeTab === 'smtp' ? 'Save SMTP' : activeTab === 'socials' ? 'Save Socials' : activeTab === 'templates' ? 'Save Templates' : 'Save Settings';
+
+  return (
+    <div className="p-6" style={{ minHeight: 'calc(100vh - 72px)' }}>
+      <div className="mx-auto flex h-full max-w-6xl flex-col gap-6">
+        <header className="sticky top-6 z-20 rounded-3xl border border-slate-200 bg-white/70 px-6 py-4 shadow-sm backdrop-blur">
+          <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+            <div>
+              <h2 className="text-2xl font-bold text-slate-800">Settings</h2>
+              <p className="text-sm text-slate-500">Fine-tune how ITnVend operates across outlets, communications, and style.</p>
+            </div>
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => setReconcileOpen(true)}
+                type="button"
+                className="rounded-md border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-600 transition hover:bg-slate-50"
+              >
+                Reconcile
+              </button>
+              <button
+                onClick={save}
+                disabled={status === 'saving'}
+                className="rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow hover:bg-blue-500 disabled:bg-slate-400"
+              >
+                {status === 'saving' ? 'Saving…' : saveLabel}
+              </button>
+              {status === 'saved' && <span className="text-sm text-emerald-600">✓ Saved</span>}
+              {status === 'error' && <span className="text-sm text-rose-500">Save failed</span>}
+            </div>
           </div>
-        </div>
+          <nav className="mt-4 overflow-auto">
+            <ul className="flex flex-wrap gap-2">
+              {tabs.map((tab) => (
+                <li key={tab.id}>
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab(tab.id)}
+                    className={`group inline-flex items-center gap-2 rounded-full border px-4 py-2 text-sm font-semibold transition ${
+                      activeTab === tab.id
+                        ? 'border-blue-400 bg-blue-50 text-blue-700 shadow'
+                        : 'border-slate-200 bg-white text-slate-500 hover:border-blue-200 hover:text-blue-600'
+                    }`}
+                  >
+                    <span>{tab.label}</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </nav>
+          {activeTabMeta?.description && (
+            <p className="mt-3 text-xs font-medium uppercase tracking-wide text-slate-400">
+              {activeTabMeta.description}
+            </p>
+          )}
+        </header>
+
+        <section className="flex-1 space-y-6">
+          {renderActiveTab()}
+        </section>
+
+        <footer className="flex items-center gap-4 border-t border-slate-200 pt-4">
+          <button
+            onClick={save}
+            disabled={status === 'saving'}
+            className="rounded-md bg-blue-600 px-5 py-2 text-sm font-semibold text-white shadow hover:bg-blue-500 disabled:bg-slate-400"
+          >
+            {status === 'saving' ? 'Saving…' : saveLabel}
+          </button>
+          {status === 'saved' && <span className="text-sm text-emerald-600">✓ Saved</span>}
+          {status === 'error' && <span className="text-sm text-rose-500">Save failed. Try again.</span>}
+        </footer>
       </div>
 
       <ReconcileModal

@@ -16,6 +16,7 @@ import {
 } from 'react-icons/fa';
 import { useAuth } from './AuthContext';
 import { useUI } from './UIContext';
+import BrandLogo from './BrandLogo';
 
 export default function Sidebar() {
   const { sidebarCollapsed, sidebarOpen, isDesktop, closeSidebar } = useUI();
@@ -48,9 +49,7 @@ export default function Sidebar() {
     >
       <div className={`flex items-center justify-between p-4 border-b lg:border-b-0 ${collapsedLabelsHidden ? 'lg:justify-center' : ''}`}>
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-md bg-gradient-to-br from-teal-400 to-teal-600 flex items-center justify-center text-white font-bold">
-            IT
-          </div>
+          <BrandLogo size={sidebarCollapsed && isDesktop ? 36 : 40} />
           <h1 className={`text-xl font-bold ${collapsedLabelsHidden ? 'hidden lg:block lg:sr-only' : ''}`}>ITnVend</h1>
         </div>
         {!isDesktop && (

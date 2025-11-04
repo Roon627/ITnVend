@@ -1,4 +1,6 @@
 import PDFDocument from 'pdfkit';
+import fs from 'fs';
+import path from 'path';
 
 const CURRENCY_SYMBOLS = {
     USD: '$',
@@ -17,6 +19,50 @@ export function generateInvoicePdf(invoice, dataCallback, endCallback) {
     doc.on('data', dataCallback);
     doc.on('end', endCallback);
 
+    const resolveLocalImagePath = (raw) => {
+        if (!raw) return null;
+        let candidate = String(raw).trim();
+        if (!candidate) return null;
+        if (/^https?:\/\//i.test(candidate)) {
+            try {
+                const parsed = new URL(candidate);
+                candidate = parsed.pathname;
+            } catch (err) {
+                return null;
+            }
+        }
+        candidate = candidate.replace(/^\/+/, '').replace(/\\/g, '/');
+        const attempts = new Set();
+        const pushAttempt = (value) => {
+            if (!value) return;
+            attempts.add(path.normalize(value));
+        };
+
+        pushAttempt(path.join(process.cwd(), candidate));
+        pushAttempt(path.join(process.cwd(), 'public', candidate));
+
+        if (candidate.startsWith('uploads/')) {
+            pushAttempt(path.join(process.cwd(), 'public', candidate.replace(/^uploads\//, 'images/')));
+        }
+        if (candidate.startsWith('images/')) {
+            pushAttempt(path.join(process.cwd(), 'public', candidate));
+        }
+        if (candidate.includes('public/images')) {
+            const idx = candidate.toLowerCase().indexOf('public/images');
+            const suffix = candidate.slice(idx + 'public/images'.length).replace(/^\/+/, '');
+            pushAttempt(path.join(process.cwd(), 'public', 'images', suffix));
+        }
+
+        for (const attempt of attempts) {
+            try {
+                if (attempt && fs.existsSync(attempt)) return attempt;
+            } catch (err) {
+                // ignore
+            }
+        }
+        return null;
+    };
+
     const outlet = invoice.outlet || {};
     const outletName = outlet.name || invoice.outlet_name || 'My Outlet';
     const currency = outlet.currency || invoice.currency || 'MVR';
@@ -25,9 +71,24 @@ export function generateInvoicePdf(invoice, dataCallback, endCallback) {
 
     // Header: logo placeholder + company
     const startX = doc.x;
-    // logo box
-    doc.rect(startX, doc.y, 90, 50).stroke();
-    doc.fontSize(10).text('LOGO', startX + 28, doc.y + 16);
+    // Try to render a saved logo if provided
+    try {
+        if (outlet.logo_url) {
+            const imgPath = resolveLocalImagePath(outlet.logo_url);
+            if (imgPath) {
+                doc.image(imgPath, startX, doc.y, { width: 90, height: 50, fit: [90, 50] });
+            } else {
+                doc.rect(startX, doc.y, 90, 50).stroke();
+                doc.fontSize(10).text('LOGO', startX + 28, doc.y + 16);
+            }
+        } else {
+            doc.rect(startX, doc.y, 90, 50).stroke();
+            doc.fontSize(10).text('LOGO', startX + 28, doc.y + 16);
+        }
+    } catch (err) {
+        doc.rect(startX, doc.y, 90, 50).stroke();
+        doc.fontSize(10).text('LOGO', startX + 28, doc.y + 16);
+    }
 
     // Company name & address
     doc.fontSize(18).text(outletName, startX + 110, doc.y - 6);
@@ -35,9 +96,15 @@ export function generateInvoicePdf(invoice, dataCallback, endCallback) {
         doc.fontSize(10).text(outlet.store_address, startX + 110, doc.y + 8);
     }
 
-    // Invoice label box on right
-    doc.fontSize(20).fillColor('#333').text(documentLabel, { align: 'right' });
-    doc.moveDown(0.5);
+    // Invoice label on right (styled)
+    const labelWidth = 140;
+    const labelHeight = 36;
+    const pageWidth = doc.page.width - doc.page.margins.right;
+    doc.save();
+    doc.rect(pageWidth - labelWidth, doc.y, labelWidth, labelHeight).fill('#111827');
+    doc.fillColor('#ffffff').fontSize(14).text(documentLabel, pageWidth - labelWidth + 10, doc.y + 8, { width: labelWidth - 20, align: 'center' });
+    doc.restore();
+    doc.moveDown(1.2);
 
     // Meta information row
     const metaTop = doc.y;
@@ -89,10 +156,44 @@ export function generateInvoicePdf(invoice, dataCallback, endCallback) {
     doc.fontSize(12).text('Total:', 360, y + 54, { width: 120, align: 'left' });
     doc.fontSize(14).text(`${currencySymbol}${total.toFixed(2)}`, 470, y + 50, { width: 80, align: 'right' });
 
-    // Optional invoice note / footer
+    // Optional invoice note / footer - strip HTML for PDF and attempt to render inline images
     if (outlet.invoice_template) {
-        doc.moveDown(2);
-        doc.fontSize(9).fillColor('#444').text(outlet.invoice_template, 50, y + 100, { width: 500 });
+        try {
+            const raw = String(outlet.invoice_template || '');
+            // find image srcs
+            const imgSrcs = [];
+            let m;
+            const imgRe = /<img[^>]*src=["']?([^"' >]+)["']?[^>]*>/gi;
+            while ((m = imgRe.exec(raw)) !== null) {
+                imgSrcs.push(m[1]);
+            }
+
+            // strip html but preserve line breaks
+            const text = raw.replace(/<br\s*\/?>/gi, '\n').replace(/<[^>]+>/g, '');
+            doc.moveDown(2);
+            doc.fontSize(9).fillColor('#444').text(text, 50, y + 100, { width: 500 });
+
+            // render any inline images referenced (attempt to resolve local /images paths)
+            if (imgSrcs.length) {
+                let imgX = 60;
+                const imgY = doc.y + 8;
+                for (const src of imgSrcs) {
+                    try {
+                        const imgPath = resolveLocalImagePath(src);
+                        if (imgPath) {
+                            doc.image(imgPath, imgX, imgY, { width: 24, height: 24, fit: [24, 24] });
+                            imgX += 34;
+                        }
+                    } catch (err) {
+                        // ignore image rendering errors
+                    }
+                }
+            }
+        } catch (err) {
+            // safe fallback: print raw text
+            doc.moveDown(2);
+            doc.fontSize(9).fillColor('#444').text(String(outlet.invoice_template), 50, y + 100, { width: 500 });
+        }
     }
 
     doc.moveDown(2);

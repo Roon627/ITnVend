@@ -511,6 +511,20 @@ async function createInvoiceAndJournal({ customerId, customerName, items, gstRat
         );
         journalId = jr.lastID;
 
+        // Ensure new columns exist in settings table to avoid SQL errors on older DBs
+        try {
+            const cols = await db.all(`PRAGMA table_info(settings)`);
+            const colNames = cols.map(c => c.name);
+            if (!colNames.includes('email_template_new_order_staff')) {
+                await db.run(`ALTER TABLE settings ADD COLUMN email_template_new_order_staff TEXT`);
+            }
+            if (!colNames.includes('logo_url')) {
+                await db.run(`ALTER TABLE settings ADD COLUMN logo_url TEXT`);
+            }
+        } catch (err) {
+            console.warn('Failed to ensure settings columns exist', err?.message || err);
+        }
+
         await db.run(
             'INSERT INTO journal_entry_lines (journal_entry_id, account_id, description, debit, credit) VALUES (?, ?, ?, ?, ?)',
             [journalId, accountsReceivable.id, `Order #${orderId}${customerName ? ` - ${customerName}` : ''}`, total, 0]
@@ -869,6 +883,56 @@ const imagesDir = path.join(process.cwd(), 'public', 'images');
 try { fs.mkdirSync(imagesDir, { recursive: true }); } catch (e) { /* ignore */ }
 app.use('/uploads', express.static(imagesDir));
 app.use('/images', express.static(imagesDir));
+
+// Upload a logo as a base64 data URL and persist URL in settings.logo_url
+app.post('/api/settings/upload-logo', authMiddleware, requireRole(['admin']), async (req, res) => {
+    try {
+        const { filename, data } = req.body || {};
+        if (!data) return res.status(400).json({ error: 'Missing data URL' });
+
+        // parse data URL: data:[<mediatype>][;base64],<data>
+        const match = String(data).match(/^data:(.+);base64,(.*)$/);
+        if (!match) return res.status(400).json({ error: 'Invalid data URL' });
+        const mime = match[1];
+        const b64 = match[2];
+
+        let ext = 'png';
+        if (/jpeg|jpg/i.test(mime)) ext = 'jpg';
+        else if (/svg/i.test(mime)) ext = 'svg';
+        else if (/gif/i.test(mime)) ext = 'gif';
+
+        const safeName = (filename || `logo`).replace(/[^a-z0-9\-_.]/gi, '_');
+        const name = `${Date.now()}-${safeName}.${ext}`;
+        const logosDir = path.join(imagesDir, 'logos');
+        fs.mkdirSync(logosDir, { recursive: true });
+        const outPath = path.join(logosDir, name);
+        fs.writeFileSync(outPath, Buffer.from(b64, 'base64'));
+
+        // Ensure settings table has logo_url column (safe to run repeatedly)
+        try {
+            const cols = await db.all(`PRAGMA table_info(settings)`);
+            const has = cols.some(c => c.name === 'logo_url');
+            if (!has) {
+                await db.run(`ALTER TABLE settings ADD COLUMN logo_url TEXT`);
+            }
+        } catch (err) {
+            console.warn('Failed to ensure logo_url column exists', err?.message || err);
+        }
+
+        const publicPath = `/uploads/logos/${name}`;
+        try {
+            await db.run('UPDATE settings SET logo_url = COALESCE(?, logo_url) WHERE id = 1', [publicPath]);
+            await cacheService.invalidateSettings();
+        } catch (err) {
+            console.warn('Failed to save logo_url in settings', err?.message || err);
+        }
+
+        res.json({ url: publicPath });
+    } catch (err) {
+        console.error('Logo upload failed', err);
+        res.status(500).json({ error: String(err) });
+    }
+});
 
 function sanitizeSegments(input, fallback = 'uncategorized') {
     if (!input) return [fallback];
@@ -3194,6 +3258,14 @@ app.get('/api/settings', async (req, res) => {
         const cachedSettings = await cacheService.getSettings();
         if (cachedSettings) {
             console.log('Serving settings from cache');
+            if (!cachedSettings.social_links) {
+                cachedSettings.social_links = {
+                    facebook: cachedSettings?.social_facebook || null,
+                    instagram: cachedSettings?.social_instagram || null,
+                    whatsapp: cachedSettings?.social_whatsapp || null,
+                    telegram: cachedSettings?.social_telegram || null,
+                };
+            }
             return res.json(cachedSettings);
         }
 
@@ -3217,7 +3289,13 @@ app.get('/api/settings', async (req, res) => {
         // also include email settings if present
     // include SMTP flags and friendly from/reply-to in the returned payload so frontend can render them
     const emailCfg = await db.get('SELECT provider, api_key, email_from, email_to, smtp_host, smtp_port, smtp_user, smtp_pass, smtp_secure, smtp_require_tls, smtp_from_name, smtp_reply_to FROM settings_email ORDER BY id DESC LIMIT 1');
-        const fullSettings = { ...settings, outlet, email: emailCfg || null };
+        const socialLinks = {
+            facebook: settings?.social_facebook || null,
+            instagram: settings?.social_instagram || null,
+            whatsapp: settings?.social_whatsapp || null,
+            telegram: settings?.social_telegram || null,
+        };
+        const fullSettings = { ...settings, outlet, email: emailCfg || null, social_links: socialLinks };
 
         // Cache the result for 10 minutes (settings change infrequently)
         await cacheService.setSettings(fullSettings, 600);
@@ -3231,10 +3309,12 @@ app.get('/api/settings', async (req, res) => {
 // Allow managers to edit a subset of settings. Admins can edit everything.
 app.put('/api/settings', authMiddleware, requireRole(['admin', 'manager']), async (req, res) => {
     try {
-        const { outlet_name, currency, gst_rate, store_address, invoice_template, current_outlet_id,
+        const { outlet_name, currency, gst_rate, store_address, invoice_template, current_outlet_id, logo_url,
             email_provider, email_api_key, email_from, email_to,
             smtp_host, smtp_port, smtp_user, smtp_pass, smtp_secure, smtp_require_tls, smtp_from_name, smtp_reply_to,
-            email_template_invoice, email_template_quote, email_template_quote_request } = req.body;
+            email_template_invoice, email_template_quote, email_template_quote_request, email_template_new_order_staff,
+            email_template_password_reset_subject, email_template_password_reset,
+            social_facebook, social_instagram, social_whatsapp, social_telegram } = req.body;
 
         // Define fields managers are allowed to update
         const managerAllowed = ['currency', 'gst_rate', 'store_address', 'invoice_template', 'current_outlet_id', 'outlet_name'];
@@ -3249,12 +3329,46 @@ app.put('/api/settings', authMiddleware, requireRole(['admin', 'manager']), asyn
         }
 
         await db.run(
-            `UPDATE settings SET outlet_name = COALESCE(?, outlet_name), currency = COALESCE(?, currency), gst_rate = COALESCE(?, gst_rate), store_address = COALESCE(?, store_address), invoice_template = COALESCE(?, invoice_template), email_template_invoice = COALESCE(?, email_template_invoice), email_template_quote = COALESCE(?, email_template_quote), email_template_quote_request = COALESCE(?, email_template_quote_request), current_outlet_id = COALESCE(?, current_outlet_id) WHERE id = 1`,
-            [outlet_name || null, currency || null, gst_rate || null, store_address || null, invoice_template || null, email_template_invoice || null, email_template_quote || null, email_template_quote_request || null, current_outlet_id || null]
+            `UPDATE settings SET outlet_name = COALESCE(?, outlet_name), currency = COALESCE(?, currency), gst_rate = COALESCE(?, gst_rate), store_address = COALESCE(?, store_address), invoice_template = COALESCE(?, invoice_template), email_template_invoice = COALESCE(?, email_template_invoice), email_template_quote = COALESCE(?, email_template_quote), email_template_quote_request = COALESCE(?, email_template_quote_request), email_template_new_order_staff = COALESCE(?, email_template_new_order_staff), email_template_password_reset_subject = COALESCE(?, email_template_password_reset_subject), email_template_password_reset = COALESCE(?, email_template_password_reset), logo_url = COALESCE(?, logo_url), current_outlet_id = COALESCE(?, current_outlet_id) WHERE id = 1`,
+            [
+                outlet_name || null,
+                currency || null,
+                gst_rate || null,
+                store_address || null,
+                invoice_template || null,
+                email_template_invoice || null,
+                email_template_quote || null,
+                email_template_quote_request || null,
+                email_template_new_order_staff || null,
+                email_template_password_reset_subject || null,
+                email_template_password_reset || null,
+                logo_url || null,
+                current_outlet_id || null,
+            ]
         );
 
+        const normalizeSocial = (value) => {
+            if (typeof value === 'undefined') return undefined;
+            if (typeof value !== 'string') return value === null ? null : value;
+            const trimmed = value.trim();
+            return trimmed.length ? trimmed : null;
+        };
+
+        const socialUpdates = [
+            { column: 'social_facebook', value: normalizeSocial(social_facebook) },
+            { column: 'social_instagram', value: normalizeSocial(social_instagram) },
+            { column: 'social_whatsapp', value: normalizeSocial(social_whatsapp) },
+            { column: 'social_telegram', value: normalizeSocial(social_telegram) },
+        ];
+
+        for (const { column, value } of socialUpdates) {
+            if (typeof value !== 'undefined') {
+                await db.run(`UPDATE settings SET ${column} = ? WHERE id = 1`, [value]);
+            }
+        }
+
         // Only admins may update email configuration and email templates
-        if (req.user && req.user.role !== 'admin' && (email_provider || email_api_key || email_from || email_to || smtp_host || smtp_port || smtp_user || smtp_pass || smtp_secure || smtp_require_tls || smtp_from_name || smtp_reply_to || email_template_invoice || email_template_quote || email_template_quote_request)) {
+        if (req.user && req.user.role !== 'admin' && (email_provider || email_api_key || email_from || email_to || smtp_host || smtp_port || smtp_user || smtp_pass || smtp_secure || smtp_require_tls || smtp_from_name || smtp_reply_to || email_template_invoice || email_template_quote || email_template_quote_request || email_template_password_reset_subject || email_template_password_reset)) {
             return res.status(403).json({ error: 'Only administrators may modify email/SMTP settings' });
         }
 
@@ -3296,12 +3410,18 @@ app.put('/api/settings', authMiddleware, requireRole(['admin', 'manager']), asyn
             );
         }
         const settings = await db.get('SELECT * FROM settings WHERE id = 1');
-    const emailCfg = await db.get('SELECT provider, api_key, email_from, email_to, smtp_host, smtp_port, smtp_user, smtp_pass, smtp_secure, smtp_require_tls, smtp_from_name, smtp_reply_to FROM settings_email ORDER BY id DESC LIMIT 1');
+        const emailCfg = await db.get('SELECT provider, api_key, email_from, email_to, smtp_host, smtp_port, smtp_user, smtp_pass, smtp_secure, smtp_require_tls, smtp_from_name, smtp_reply_to FROM settings_email ORDER BY id DESC LIMIT 1');
+        const socialLinks = {
+            facebook: settings?.social_facebook || null,
+            instagram: settings?.social_instagram || null,
+            whatsapp: settings?.social_whatsapp || null,
+            telegram: settings?.social_telegram || null,
+        };
 
         // Invalidate settings cache
         await cacheService.invalidateSettings();
 
-        res.json({ ...settings, email: emailCfg || null });
+    res.json({ ...settings, email: emailCfg || null, social_links: socialLinks });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
@@ -4127,6 +4247,7 @@ app.get('/api/invoices/:id/pdf', async (req, res) => {
         if (!invoice) {
             return res.status(404).send('Invoice not found');
         }
+        const settingsRow = await db.get('SELECT * FROM settings WHERE id = 1');
         const customer = await db.get('SELECT * FROM customers WHERE id = ?', [invoice.customer_id]);
         const items = await db.all(`
             SELECT p.name, ii.quantity, ii.price 
@@ -4143,13 +4264,13 @@ app.get('/api/invoices/:id/pdf', async (req, res) => {
             outlet = await db.get('SELECT * FROM outlets WHERE id = (SELECT current_outlet_id FROM settings WHERE id = 1)');
         }
         if (!outlet) {
-            const settingsRow = await db.get('SELECT * FROM settings WHERE id = 1');
             outlet = {
                 name: settingsRow?.outlet_name || 'My Outlet',
                 currency: settingsRow?.currency || 'MVR',
                 gst_rate: settingsRow?.gst_rate || 0,
                 store_address: settingsRow?.store_address || null,
                 invoice_template: settingsRow?.invoice_template || null,
+                logo_url: settingsRow?.logo_url ?? null,
             };
         }
 
@@ -4158,8 +4279,11 @@ app.get('/api/invoices/:id/pdf', async (req, res) => {
             'Content-Disposition': `attachment;filename=invoice-${invoice.id}.pdf`,
         });
 
+        // Ensure outlet passed to PDF generator includes logo_url (prefer outlet.logo_url, fallback to settings)
+        const pdfOutlet = { ...outlet, logo_url: outlet.logo_url ?? settingsRow?.logo_url ?? null };
+
         generateInvoicePdf(
-            { ...invoice, customer, items, outlet },
+            { ...invoice, customer, items, outlet: pdfOutlet },
             (chunk) => stream.write(chunk),
             () => stream.end()
         );
@@ -4542,10 +4666,10 @@ app.post('/api/orders', async (req, res) => {
                 try {
                     let templateRow;
                     try {
-                        templateRow = await db.get('SELECT email_template_invoice_customer AS customer_template, outlet_name FROM settings WHERE id = 1');
+                        templateRow = await db.get('SELECT COALESCE(email_template_invoice_customer, email_template_invoice, "") AS customer_template, outlet_name FROM settings WHERE id = 1');
                     } catch (tplErr) {
-                        console.debug('email_template_invoice_customer missing; using email_template_invoice fallback', tplErr?.message || tplErr);
-                        templateRow = await db.get('SELECT email_template_invoice AS customer_template, outlet_name FROM settings WHERE id = 1');
+                        console.debug('Invoice customer template column missing; falling back to legacy field', tplErr?.message || tplErr);
+                        templateRow = await db.get('SELECT COALESCE(email_template_invoice, "") AS customer_template, outlet_name FROM settings WHERE id = 1');
                     }
                     const customerItemsHtml = sanitizedCart.length
                         ? `<ul>${sanitizedCart.map((it) => `<li>${escapeHtml(it.name || 'Item')} &times; ${escapeHtml(it.quantity ?? '0')} - ${escapeHtml(it.price ?? '0')}</li>`).join('')}</ul>`
