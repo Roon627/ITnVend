@@ -41,7 +41,7 @@ export default function Modal({ open, onClose, labelledBy, children, className =
 
     return () => {
       document.removeEventListener('keydown', handleKey);
-      try { document.body.removeChild(el); } catch {}
+      try { document.body.removeChild(el); } catch { /* ignore */ }
       if (previouslyFocused.current && previouslyFocused.current.focus) previouslyFocused.current.focus();
     };
   }, [open, onClose]);

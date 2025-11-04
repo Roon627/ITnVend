@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef } from 'react';
 import { useWebSocket } from '../components/WebSocketContext';
 
 /**
@@ -7,13 +7,21 @@ import { useWebSocket } from '../components/WebSocketContext';
  * @param {function} callback - Callback function to handle the event
  * @param {Array} deps - Dependencies for the effect
  */
-export const useWebSocketEvent = (event, callback, deps = []) => {
-  const { on, off } = useWebSocket();
+export const useWebSocketEvent = (event, callback) => {
+  const { on } = useWebSocket();
+  const cbRef = useRef(callback);
+
+  // keep latest callback in ref to avoid re-subscribing on every render
+  useEffect(() => {
+    cbRef.current = callback;
+  }, [callback]);
 
   useEffect(() => {
-    const cleanup = on(event, callback);
+    // register a wrapper that calls the latest callback from ref
+    const handler = (...args) => cbRef.current && cbRef.current(...args);
+    const cleanup = on(event, handler);
     return cleanup;
-  }, [event, ...deps]);
+  }, [on, event]);
 };
 
 /**
@@ -93,5 +101,5 @@ export const useWebSocketRoom = (room, shouldJoin = true) => {
       joinRoom(room);
       return () => leaveRoom(room);
     }
-  }, [room, shouldJoin]);
+  }, [room, shouldJoin, joinRoom, leaveRoom]);
 };

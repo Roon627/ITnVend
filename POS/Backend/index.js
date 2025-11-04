@@ -15,6 +15,7 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
 import validateSlipRouter from './routes/validateSlip.js';
+import validateSlipPublicRouter from './routes/validateSlipPublic.js';
 
 const CERTS_DIR = path.join(process.cwd(), 'certs');
 const HTTPS_CERT_PATH = path.join(CERTS_DIR, 'pos-itnvend-com.pem');
@@ -93,6 +94,8 @@ app.use((req, res, next) => {
 });
 
 app.use('/api/validate-slip', authMiddleware, requireRole(['accounts', 'manager', 'admin']), validateSlipRouter);
+// Public endpoint for storefront slip pre-validation (accepts data URL JSON)
+app.use('/api/validate-slip-public', validateSlipPublicRouter);
 
 app.get('/', (req, res) => {
     res.send('ITnVend API is running...');
@@ -4205,7 +4208,11 @@ app.post('/api/orders', async (req, res) => {
     const paymentMethodRaw = payment?.method || 'cod';
     const paymentMethod = String(paymentMethodRaw).toLowerCase();
     const isTransferMethod = ['transfer', 'bank_transfer'].includes(paymentMethod);
-    const paymentReference = payment?.reference || null;
+    const paymentReference = typeof payment?.reference === 'string'
+        ? payment.reference.trim()
+        : payment?.reference != null
+            ? String(payment.reference).trim()
+            : null;
     const allowedBanks = ['bml', 'bank_of_maldives', 'maldives_islamic_bank', 'mib'];
     let paymentBank = payment?.bank ? payment.bank.toString().trim().toLowerCase() : null;
     if (paymentBank && !allowedBanks.includes(paymentBank)) {
@@ -4217,6 +4224,14 @@ app.post('/api/orders', async (req, res) => {
     let paymentSlipPath = null;
     let preorderId = null;
 
+    if (!customerPhone) {
+        return res.status(400).json({ error: 'Phone number is required.' });
+    }
+
+    if (isTransferMethod && !paymentReference) {
+        return res.status(400).json({ error: 'Transfer reference is required for bank transfer payments.' });
+    }
+
     if (payment?.slipPath) {
         const normalized = normalizeUploadPath(payment.slipPath);
         if (normalized) {
@@ -4226,21 +4241,31 @@ app.post('/api/orders', async (req, res) => {
 
     if (!paymentSlipPath && isTransferMethod && payment?.slip) {
         try {
-            let base64 = payment.slip;
+            const slipValue = typeof payment.slip === 'string' ? payment.slip : '';
+            const match = slipValue.match(/^data:(.+);base64,(.+)$/);
+            if (!match) {
+                return res.status(400).json({ error: 'Payment slip must be provided as an image.' });
+            }
+            const mime = match[1];
+            if (!/^image\//i.test(mime || '')) {
+                return res.status(400).json({ error: 'Payment slip must be an image file (JPEG, PNG, GIF, or WebP).' });
+            }
+            let base64 = match[2];
             let ext = 'png';
-            const match = String(base64).match(/^data:(.+);base64,(.+)$/);
-            if (match) {
-                const mime = match[1];
-                base64 = match[2];
-                const parts = mime.split('/');
-                ext = parts[1] ? parts[1].split('+')[0] : ext;
+            const parts = (mime || '').split('/');
+            if (parts[1]) {
+                ext = parts[1].split('+')[0];
             }
             const now = new Date();
             const slipCategory = ['payment_slips', String(now.getFullYear()), String(now.getMonth() + 1).padStart(2, '0')];
             const { dir } = ensureUploadDir(slipCategory, 'payment_slips');
             const fileName = `slip-${Date.now()}-${Math.random().toString(36).slice(2, 10)}.${ext || 'png'}`;
             const filePath = path.join(dir, fileName);
-            fs.writeFileSync(filePath, Buffer.from(base64, 'base64'));
+            const buffer = Buffer.from(base64, 'base64');
+            if (!buffer.length) {
+                return res.status(400).json({ error: 'Payment slip image appears to be empty.' });
+            }
+            fs.writeFileSync(filePath, buffer);
             const rel = path.relative(imagesDir, filePath).replace(/\\/g, '/');
             paymentSlipPath = `/uploads/${rel}`;
         } catch (err) {

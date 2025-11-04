@@ -11,7 +11,7 @@ export function parseJwt(token) {
     // atob is available in the browser environment used by this frontend
     const decoded = JSON.parse(atob(payload));
     return decoded;
-  } catch (_e) {
+  } catch {
     return null;
   }
 }
@@ -19,7 +19,7 @@ export function parseJwt(token) {
 export function getStoredToken() {
   try {
     return localStorage.getItem(LS_TOKEN_KEY);
-  } catch (_e) {
+  } catch {
     return null;
   }
 }

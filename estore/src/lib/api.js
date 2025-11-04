@@ -91,24 +91,20 @@ async function fetchWithRetry(path, options = {}, retries = 2, backoff = 200) {
         url.startsWith('/api') &&
         API_DIRECT_FALLBACK
       ) {
-        try {
-          const direct = `${API_DIRECT_FALLBACK}${url}`;
-          if (!options.headers) options.headers = {};
-          if (authToken) options.headers['Authorization'] = `Bearer ${authToken}`;
-          options.credentials = 'include';
-          const directRes = await fetch(direct, options);
-          if (!directRes.ok) {
-            const text2 = await directRes.text();
-            const err2 = new Error(text2 || directRes.statusText);
-            err2.status = directRes.status;
-            throw err2;
-          }
-          const ct = directRes.headers.get('content-type') || '';
-          if (ct.includes('application/json')) return directRes.json();
-          return directRes;
-        } catch (err2) {
+        const direct = `${API_DIRECT_FALLBACK}${url}`;
+        if (!options.headers) options.headers = {};
+        if (authToken) options.headers['Authorization'] = `Bearer ${authToken}`;
+        options.credentials = 'include';
+        const directRes = await fetch(direct, options);
+        if (!directRes.ok) {
+          const text2 = await directRes.text();
+          const err2 = new Error(text2 || directRes.statusText);
+          err2.status = directRes.status;
           throw err2;
         }
+        const ct = directRes.headers.get('content-type') || '';
+        if (ct.includes('application/json')) return directRes.json();
+        return directRes;
       }
       if (attempt === retries) throw err;
       await wait(backoff * Math.pow(2, attempt));

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { useLocation, useNavigate, Link } from 'react-router-dom';
 import { FaCheckCircle, FaHome, FaShoppingBag } from 'react-icons/fa';
 import { useSettings } from '../components/SettingsContext';
@@ -7,7 +7,7 @@ export default function OrderConfirmation() {
   const location = useLocation();
   const navigate = useNavigate();
   const { formatCurrency } = useSettings();
-  const state = location.state || {};
+  const state = useMemo(() => location.state || {}, [location.state]);
   const [confettiPieces, setConfettiPieces] = useState([]);
 
   useEffect(() => {
@@ -28,7 +28,7 @@ export default function OrderConfirmation() {
           JSON.stringify({ type: 'quote', cart: state.cart || null, total: state.total || 0, quote: state.quote || null, ts: Date.now() })
         );
       }
-    } catch (e) {
+    } catch {
       // ignore storage failures
     }
   }, [state]);

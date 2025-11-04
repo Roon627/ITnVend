@@ -1,3 +1,5 @@
+/* eslint-disable react-refresh/only-export-components */
+
 import { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import api from '../lib/api';
 
@@ -65,7 +67,7 @@ export function SettingsProvider({ children }) {
         maximumFractionDigits: fractionDigits,
         ...options,
       }).format(val);
-    } catch (err) {
+  } catch {
       // Fallback if Intl doesn't support the code
       const val = Number(amount ?? 0);
       const cents = Math.round(Math.abs((val - Math.trunc(val)) * 100));

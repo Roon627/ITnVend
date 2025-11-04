@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useCart } from '../components/CartContext';
 import { useToast } from '../components/ToastContext';
@@ -42,8 +42,23 @@ export default function Checkout() {
   const [paymentSlip, setPaymentSlip] = useState(null);
   const [paymentSlipName, setPaymentSlipName] = useState('');
   const [uploadError, setUploadError] = useState('');
+  const [paymentSlipPreview, setPaymentSlipPreview] = useState('');
+  const [slipValidation, setSlipValidation] = useState(null);
+  const paymentSlipInputRef = useRef(null);
 
   const requiresSlip = !isQuote && (paymentMethod === 'transfer' || cartHasPreorder);
+
+  const clearPaymentSlipState = (preserveError = false) => {
+    setPaymentSlip(null);
+    setPaymentSlipName('');
+    setPaymentSlipPreview('');
+    if (!preserveError) {
+      setUploadError('');
+    }
+    if (paymentSlipInputRef.current) {
+      paymentSlipInputRef.current.value = '';
+    }
+  };
 
   useEffect(() => {
     if (cartHasPreorder && paymentMethod !== 'transfer') {
@@ -69,36 +84,72 @@ export default function Checkout() {
     }
     setPaymentMethod(value);
     if (value !== 'transfer') {
-      setPaymentSlip(null);
-      setPaymentSlipName('');
       setPaymentReference('');
-      setUploadError('');
+      clearPaymentSlipState();
     }
   };
 
   const handleSlipChange = (event) => {
     const file = event.target.files?.[0];
     if (!file) {
-      setPaymentSlip(null);
-      setPaymentSlipName('');
-      setUploadError('');
+      clearPaymentSlipState();
+      return;
+    }
+    const allowedTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+    if (!allowedTypes.includes(file.type)) {
+      setUploadError('Only image files (JPG, PNG, GIF, or WebP) are accepted for payment slips.');
+      clearPaymentSlipState(true);
       return;
     }
     if (file.size > 6 * 1024 * 1024) {
       setUploadError('Payment slip must be smaller than 6MB.');
+      clearPaymentSlipState(true);
       return;
     }
     const reader = new FileReader();
     reader.onload = (e) => {
-      setPaymentSlip(e.target?.result || null);
-      setPaymentSlipName(file.name);
-      setUploadError('');
+      const dataUrl = e.target?.result;
+      if (!dataUrl || typeof dataUrl !== 'string') {
+        setUploadError('Failed to read file. Please try again.');
+        clearPaymentSlipState(true);
+        return;
+      }
+      const img = new Image();
+      img.onload = () => {
+        if (img.width < 200 || img.height < 200) {
+          setUploadError('Image is too small. Upload a clear photo or screenshot of the transfer slip.');
+          clearPaymentSlipState(true);
+          return;
+        }
+        setPaymentSlip(dataUrl);
+        setPaymentSlipName(file.name);
+        setPaymentSlipPreview(dataUrl);
+        setSlipValidation(null);
+        setUploadError('');
+      };
+      img.onerror = () => {
+        setUploadError('Unable to read image. Please upload a valid image file.');
+        clearPaymentSlipState(true);
+      };
+      img.src = dataUrl;
     };
     reader.onerror = () => {
       setUploadError('Failed to read file. Please try again.');
+      clearPaymentSlipState(true);
     };
     reader.readAsDataURL(file);
   };
+
+  async function validateSlipPublic(slipDataUrl, reference, expectedAmount) {
+    try {
+      const payload = { slip: slipDataUrl, transactionId: reference || '', expectedAmount };
+      const res = await api.post('/validate-slip-public', payload);
+      return res;
+    } catch (err) {
+      console.error('Slip validation failed', err);
+      return { error: err?.message || 'Validation failed' };
+    }
+  }
 
   const resetState = () => {
     clearCart();
@@ -113,9 +164,7 @@ export default function Checkout() {
     setQuoteType('individual');
     setPaymentMethod('cod');
     setPaymentReference('');
-    setPaymentSlip(null);
-    setPaymentSlipName('');
-    setUploadError('');
+    clearPaymentSlipState();
   };
 
   const handleSubmit = async (event) => {
@@ -124,8 +173,8 @@ export default function Checkout() {
       toast.push('Please fill in your name and email.', 'error');
       return;
     }
-    if (cartHasPreorder && !form.phone) {
-      toast.push('Preorder items require a contact phone number.', 'error');
+    if (!form.phone) {
+      toast.push('Please provide a contact phone number.', 'error');
       return;
     }
     if (isQuote) {
@@ -202,6 +251,32 @@ export default function Checkout() {
       toast.push('Please attach the payment slip for bank transfer.', 'error');
       return;
     }
+    if (paymentMethod === 'transfer' && !paymentReference.trim()) {
+      toast.push('Please enter the bank transfer reference.', 'error');
+      return;
+    }
+    // validate slip against reference before submitting
+    if (paymentMethod === 'transfer') {
+      if (!paymentSlip) {
+        toast.push('Please attach the payment slip for bank transfer.', 'error');
+        return;
+      }
+      const trimmedReference = paymentReference.trim();
+      const validation = await validateSlipPublic(paymentSlip, trimmedReference, cartTotal);
+      if (validation && validation.error) {
+        toast.push(validation.error || 'Slip validation failed', 'error');
+        return;
+      }
+      // if not a match, block submission and show OCR text
+      if (!validation || !validation.match) {
+        const extracted = validation?.extractedText || '';
+        toast.push('Payment slip does not match the provided reference. Please re-check your slip or reference.', 'error');
+        setSlipValidation(validation || { match: false, extractedText: extracted, confidence: validation?.confidence || 0 });
+        return;
+      }
+      // store validation result for UI
+      setSlipValidation(validation);
+    }
     try {
       const customerPayload = {
         name: form.name,
@@ -209,12 +284,13 @@ export default function Checkout() {
         phone: form.phone || null,
         company: form.companyName || null,
       };
+      const trimmedReference = paymentMethod === 'transfer' ? paymentReference.trim() : '';
       await api.post('/orders', {
         customer: customerPayload,
         cart,
         payment: {
           method: paymentMethod,
-          reference: paymentMethod === 'transfer' ? paymentReference || null : null,
+          reference: paymentMethod === 'transfer' ? trimmedReference : null,
           slip: paymentMethod === 'transfer' ? paymentSlip : null,
         },
         source: 'estore',
@@ -230,7 +306,7 @@ export default function Checkout() {
         })),
         total: cart.reduce((sum, item) => sum + item.price * item.quantity, 0),
         paymentMethod,
-        paymentReference: paymentMethod === 'transfer' ? paymentReference || null : null,
+        paymentReference: paymentMethod === 'transfer' ? trimmedReference || null : null,
       };
       resetState();
       navigate('/confirmation', { state: { type: 'order', order: orderSummary } });
@@ -315,7 +391,7 @@ export default function Checkout() {
               </div>
               <div>
                 <label htmlFor="phone" className="block text-gray-700 font-semibold mb-2">
-                  Phone {cartHasPreorder ? <span className="text-red-500">*</span> : <span className="text-xs text-gray-400">(optional)</span>}
+                  Phone <span className="text-red-500">*</span>
                 </label>
                 <input
                   type="tel"
@@ -324,7 +400,7 @@ export default function Checkout() {
                   value={form.phone}
                   onChange={handleFieldChange}
                   className="w-full p-2 border rounded-md"
-                  required={cartHasPreorder}
+                  required
                 />
               </div>
               <div>
@@ -409,7 +485,7 @@ export default function Checkout() {
                   <div className="space-y-4">
                     <div>
                       <label htmlFor="paymentReference" className="block text-gray-700 font-semibold mb-2">
-                        Transfer reference (optional)
+                        Transfer reference <span className="text-red-500">*</span>
                       </label>
                       <input
                         type="text"
@@ -419,33 +495,42 @@ export default function Checkout() {
                         onChange={(event) => setPaymentReference(event.target.value)}
                         className="w-full p-2 border rounded-md"
                         placeholder="Transaction ID or narration"
+                        required
                       />
                     </div>
                     <div>
                       <label className="block text-gray-700 font-semibold mb-2">
                         Payment slip <span className="text-red-500">*</span>
                       </label>
-                      <div className="flex flex-col gap-2">
-                        <input
-                          type="file"
-                          accept="image/*,application/pdf"
-                          onChange={handleSlipChange}
-                          className="w-full"
-                        />
-                        {paymentSlipName && <p className="text-xs text-gray-500">Selected: {paymentSlipName}</p>}
-                        {uploadError && <p className="text-xs text-red-500">{uploadError}</p>}
-                        {paymentSlip && (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setPaymentSlip(null);
-                              setPaymentSlipName('');
-                              setUploadError('');
-                            }}
-                            className="self-start text-xs text-blue-600 hover:underline"
-                          >
-                            Remove attachment
-                          </button>
+                      <div className="flex flex-col gap-3 md:flex-row">
+                        <div className="flex-1 space-y-2">
+                          <input
+                            type="file"
+                            accept="image/*"
+                            onChange={handleSlipChange}
+                            className="w-full"
+                            ref={paymentSlipInputRef}
+                          />
+                          {paymentSlipName && <p className="text-xs text-gray-500">Selected: {paymentSlipName}</p>}
+                          {uploadError && <p className="text-xs text-red-500">{uploadError}</p>}
+                          {paymentSlipPreview && (
+                            <button
+                              type="button"
+                              onClick={clearPaymentSlipState}
+                              className="inline-flex items-center gap-1 rounded border border-gray-300 bg-white px-3 py-1 text-xs font-semibold text-gray-600 hover:bg-gray-100"
+                            >
+                              Remove image
+                            </button>
+                          )}
+                        </div>
+                        {paymentSlipPreview && (
+                          <div className="flex-1 rounded-lg border border-gray-200 bg-gray-50 p-2 text-center">
+                            <p className="mb-2 text-xs font-semibold text-gray-600">Preview</p>
+                            <div className="flex h-48 items-center justify-center overflow-hidden rounded">
+                              <img src={paymentSlipPreview} alt="Payment slip preview" className="h-full w-full object-contain" />
+                            </div>
+                            <p className="mt-2 text-[11px] text-gray-400">Ensure the account number and reference are clearly visible.</p>
+                          </div>
                         )}
                       </div>
                     </div>
@@ -483,6 +568,30 @@ export default function Checkout() {
               <p className="text-xs text-gray-500">
                 Once we verify the payment slip we will confirm your order via email.
               </p>
+            )}
+            {paymentSlipPreview && (
+              <div className="mt-4 sm:mt-6">
+                <h3 className="text-sm font-semibold text-gray-700 mb-2">Slip preview</h3>
+                <div className="w-full rounded-lg border border-gray-200 bg-white p-2">
+                  <div className="mx-auto max-w-sm">
+                    <img src={paymentSlipPreview} alt="Slip preview" className="w-full h-auto object-contain rounded" />
+                  </div>
+                  {slipValidation && (
+                    <div className="mt-2 text-xs text-gray-600">
+                      <p><strong>OCR confidence:</strong> {Math.round((slipValidation.confidence || 0))}%</p>
+                      <p className={`mt-1 ${slipValidation.match ? 'text-green-600' : 'text-rose-600'}`}>
+                        {slipValidation.match ? 'Reference matches the slip.' : 'Reference not found in slip.'}
+                      </p>
+                      {!slipValidation.match && slipValidation.extractedText && (
+                        <details className="mt-1 text-[11px] text-gray-500">
+                          <summary className="cursor-pointer">View extracted text</summary>
+                          <div className="whitespace-pre-wrap break-words mt-1">{slipValidation.extractedText}</div>
+                        </details>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
             )}
           </div>
         </div>

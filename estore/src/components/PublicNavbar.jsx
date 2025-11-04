@@ -12,7 +12,6 @@ const NAV_LINKS = [
 ];
 
 export default function PublicNavbar() {
-  try {
     const cartContext = useCart();
     const cartCount = cartContext?.cartCount ?? 0;
     const location = useLocation();
@@ -211,8 +210,4 @@ export default function PublicNavbar() {
       </header>
     </>
   );
-  } catch (err) {
-    console.error('PublicNavbar failed to render', err);
-    return null;
-  }
 }
