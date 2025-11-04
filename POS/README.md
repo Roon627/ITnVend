@@ -39,7 +39,7 @@ Repository layout (what you'll care about)
 - `POS/Frontend/` - React (Vite) client for POS/admin
 	- `src/main.jsx` - app bootstrap
 	- `src/components/` - shared UI components (Header, Sidebar, SettingsContext, etc.)
-	- `src/pages/` - app pages (POS, Products, Customers, Invoices, Accounting, Settings)
+	- `src/pages/` - app pages (POS, Products, Customers, Invoices, Accounting, Settings, Validate Slip)
 	- `src/lib/api.js` - lightweight fetch wrapper that handles auth headers and fallbacks
 - `estore/` - standalone storefront/marketing site that consumes the POS API
 	- `src/` - Vite React source
@@ -152,6 +152,7 @@ Below are the most useful endpoints for development (see `POS/Backend/index.js` 
 - GET `/api/outlets` — list outlets
 - POST/PUT `/api/outlets` — manage outlets (protected)
 - GET `/api/storefront/preorders` — storefront-facing feed of preorderable products (requires `STOREFRONT_API_KEY` and `X-Storefront-Key` header).
+- POST `/api/validate-slip` — OCR-check a BML/MIB payment slip against an expected transaction ID (protected: accounts/manager/admin).
 
 Authentication & roles
 - The app seeds basic roles (`admin`, `manager`, `cashier`, `accounts`) and a default `admin` staff user if none exists.
@@ -163,6 +164,13 @@ Frontend notes — POS behavior, currency, and GST
 - GST calculation: the POS calculates GST (tax) using the active outlet's `gst_rate`. Both frontend and backend compute tax on the invoice subtotal. Important fix: the backend and frontend now explicitly ignore items with quantity <= 0 so GST is not added for zero-quantity lines.
 - Adding out-of-stock items: by default the POS UI prevents adding items with `stock <= 0`. If you need backorder/pre-order functionality I can add a toggle or confirmation.
 - Preorders: product editors now include an “Available for preorder” toggle with optional release date/notes. When enabled, the product surfaces in `/api/products?preorderOnly=true` and (if configured) the `/api/storefront/preorders` feed for the estore.
+
+Payment slip OCR validation
+---------------------------
+- Purpose: gives finance staff a one-click way to confirm BML/MIB transfer slips match a transaction ID before marking invoices as paid.
+- Usage: open **Validate Slip** in the POS sidebar, enter the expected ID, attach the slip image/PDF, submit, and review the match score plus extracted text.
+- Backend: `POST /api/validate-slip` preprocesses uploads with `sharp`, runs `tesseract.js`, and returns `{ match, confidence, extractedText }` based on fuzzy matching.
+- Setup: ensure `npm install` pulls the native deps; on Windows install the Visual C++ Build Tools if `sharp` fails to compile, then restart the backend server.
 
 Database reset & seed application (safe options)
 ----------------------------------------------
@@ -179,6 +187,7 @@ Developer scripts & useful locations
 -----------------------------------
 - `POS/Backend/database.js` - main place to update schema and seeds.
 - `POS/Backend/index.js` - API routes and server logic (search for `/api/products`, `/api/invoices` etc.)
+- `POS/Backend/routes/validateSlip.js` - OCR processing and fuzzy matching for payment slip verification.
 - `POS/Frontend/src/pages/POS.jsx` - POS UI and checkout flow (cart, totals, tax). The checkout now filters zero-quantity items before sending to the server.
 
 Testing & verification

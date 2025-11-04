@@ -12,6 +12,7 @@ import {
   FaClipboardList,
   FaTimes,
   FaInbox,
+  FaFileSignature,
 } from 'react-icons/fa';
 import { useAuth } from './AuthContext';
 import { useUI } from './UIContext';
@@ -22,6 +23,7 @@ export default function Sidebar() {
   const canViewAccounting = user && ['accounts', 'manager', 'admin'].includes(user.role);
   const canViewReports = user && ['manager', 'admin'].includes(user.role);
   const canManagePreorders = user && ['accounts', 'manager', 'admin'].includes(user.role);
+  const canValidateSlips = user && ['accounts', 'manager', 'admin'].includes(user.role);
   const canManageStaff = user && user.role === 'admin';
 
   const linkClass = ({ isActive }) =>
@@ -78,6 +80,11 @@ export default function Sidebar() {
         {canManagePreorders && (
           <NavLink to="/preorders" className={linkClass} onClick={handleNavClick}>
             <FaInbox /> {!collapsedLabelsHidden && 'Preorders'}
+          </NavLink>
+        )}
+        {canValidateSlips && (
+          <NavLink to="/validate-slip" className={linkClass} onClick={handleNavClick}>
+            <FaFileSignature /> {!collapsedLabelsHidden && 'Validate Slip'}
           </NavLink>
         )}
         {canViewAccounting && (

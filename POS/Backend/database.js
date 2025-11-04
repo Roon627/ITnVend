@@ -191,6 +191,7 @@ export async function setupDatabase() {
             outlet_name TEXT DEFAULT 'My Outlet',
             currency TEXT DEFAULT 'MVR',
             gst_rate REAL DEFAULT 0.0,
+            exchange_rate REAL,
             store_address TEXT,
             invoice_template TEXT,
             email_template_invoice TEXT,
@@ -809,7 +810,7 @@ export async function setupDatabase() {
     // ensure a default settings row exists with id = 1
     const existing = await db.get('SELECT id FROM settings WHERE id = 1');
     if (!existing) {
-        await db.run(`INSERT INTO settings (id, outlet_name, currency, gst_rate, email_template_password_reset_subject, email_template_password_reset, current_outlet_id) VALUES (1, 'My Outlet', 'MVR', 0, 'Reset your password', 'Hello {{name}},<br/><br/>Click the link below to reset your password:<br/><a href="{{reset_link}}">Reset password</a><br/><br/>If you did not request this, ignore this email.', 1)`);
+    await db.run(`INSERT INTO settings (id, outlet_name, currency, gst_rate, exchange_rate, email_template_password_reset_subject, email_template_password_reset, current_outlet_id) VALUES (1, 'My Outlet', 'MVR', 0, NULL, 'Reset your password', 'Hello {{name}},<br/><br/>Click the link below to reset your password:<br/><a href="{{reset_link}}">Reset password</a><br/><br/>If you did not request this, ignore this email.', 1)`);
     }
 
     // ensure at least one outlet exists; seed from settings values if needed
@@ -832,6 +833,11 @@ export async function setupDatabase() {
     const hasCurrentOutlet = settingsInfo.some(c => c.name === 'current_outlet_id');
     if (!hasCurrentOutlet) {
         await db.run('ALTER TABLE settings ADD COLUMN current_outlet_id INTEGER DEFAULT 1');
+    }
+
+    const hasExchangeRate = settingsInfo.some(c => c.name === 'exchange_rate');
+    if (!hasExchangeRate) {
+        try { await db.run('ALTER TABLE settings ADD COLUMN exchange_rate REAL'); } catch (e) { /* ignore */ }
     }
 
     // Add email template columns if missing

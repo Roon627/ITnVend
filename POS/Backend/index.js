@@ -14,6 +14,7 @@ import nodemailer from 'nodemailer';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
+import validateSlipRouter from './routes/validateSlip.js';
 
 const CERTS_DIR = path.join(process.cwd(), 'certs');
 const HTTPS_CERT_PATH = path.join(CERTS_DIR, 'pos-itnvend-com.pem');
@@ -90,6 +91,8 @@ app.use((req, res, next) => {
     console.log(`${new Date().toISOString()} - ${req.method} ${req.originalUrl} - ${req.ip}`);
     next();
 });
+
+app.use('/api/validate-slip', authMiddleware, requireRole(['accounts', 'manager', 'admin']), validateSlipRouter);
 
 app.get('/', (req, res) => {
     res.send('ITnVend API is running...');
@@ -383,6 +386,153 @@ async function sendNotificationEmail(subject, html, toOverride, throwOnError = f
         if (throwOnError) throw err;
         return { ok: false, error: err?.message || String(err) };
     }
+}
+
+function parseAmountValue(value) {
+    if (value === null || value === undefined || value === '') return null;
+    if (typeof value === 'number') {
+        return Number.isFinite(value) ? value : null;
+    }
+    if (typeof value === 'string') {
+        const normalized = value.replace(/[^0-9.-]/g, '');
+        if (!normalized) return null;
+        const parsed = Number.parseFloat(normalized);
+        return Number.isFinite(parsed) ? parsed : null;
+    }
+    const coerced = Number(value);
+    return Number.isFinite(coerced) ? coerced : null;
+}
+
+class OrderFinalizationError extends Error {
+    constructor(stage, message, meta = {}) {
+        super(message);
+        this.name = 'OrderFinalizationError';
+        this.stage = stage;
+        this.meta = meta;
+    }
+}
+
+async function createInvoiceAndJournal({ customerId, customerName, items, gstRate, outletId, invoiceStatus, orderId }) {
+    let stage = 'validate-items';
+    if (!customerId) {
+        throw new OrderFinalizationError(stage, 'Customer ID is required to create an invoice', { customerId });
+    }
+
+    const sourceItems = Array.isArray(items) ? items : [];
+    if (!sourceItems.length) {
+        throw new OrderFinalizationError(stage, 'Cannot create invoice without items', { itemsCount: sourceItems.length });
+    }
+
+    const normalizedItems = [];
+    let runningSubtotal = 0;
+    for (let index = 0; index < sourceItems.length; index += 1) {
+        const raw = sourceItems[index] || {};
+        const quantity = Number(raw.quantity);
+        if (!Number.isFinite(quantity) || quantity <= 0) {
+            throw new OrderFinalizationError('invoice_items', 'Invoice item has invalid quantity', { index, itemId: raw.id, quantity: raw.quantity });
+        }
+        const price = parseAmountValue(raw.price);
+        if (!Number.isFinite(price) || price < 0) {
+            throw new OrderFinalizationError('invoice_items', 'Invoice item has invalid price', { index, itemId: raw.id, price: raw.price });
+        }
+        normalizedItems.push({
+            productId: raw.id ?? raw.product_id ?? null,
+            quantity,
+            price,
+        });
+        runningSubtotal += price * quantity;
+    }
+
+    const subtotal = Number.isFinite(runningSubtotal) ? Number(runningSubtotal.toFixed(2)) : null;
+    if (!Number.isFinite(subtotal)) {
+        throw new OrderFinalizationError('totals', 'Failed to compute invoice subtotal', { runningSubtotal });
+    }
+    const rate = Number.isFinite(Number(gstRate)) ? Number(gstRate) : 0;
+    const tax = Number(((subtotal * rate) / 100).toFixed(2));
+    if (!Number.isFinite(tax)) {
+        throw new OrderFinalizationError('totals', 'Failed to compute invoice tax', { subtotal, gstRate: rate });
+    }
+    const total = Number((subtotal + tax).toFixed(2));
+    if (!Number.isFinite(total)) {
+        throw new OrderFinalizationError('totals', 'Failed to compute invoice total', { subtotal, tax });
+    }
+
+    stage = 'insert-invoice';
+    let invoiceId;
+    try {
+        const invoiceResult = await db.run(
+            'INSERT INTO invoices (customer_id, subtotal, tax_amount, total, outlet_id, type, status) VALUES (?, ?, ?, ?, ?, ?, ?)',
+            [customerId, subtotal, tax, total, outletId || null, 'invoice', invoiceStatus || 'issued']
+        );
+        invoiceId = invoiceResult.lastID;
+    } catch (err) {
+        throw new OrderFinalizationError(stage, err?.message || 'Failed to insert invoice', { customerId, orderId, cause: err?.message });
+    }
+
+    stage = 'insert-invoice-items';
+    let stmt;
+    try {
+        stmt = await db.prepare('INSERT INTO invoice_items (invoice_id, product_id, quantity, price) VALUES (?, ?, ?, ?)');
+        for (const item of normalizedItems) {
+            await stmt.run(invoiceId, item.productId, item.quantity, item.price);
+        }
+    } catch (err) {
+        throw new OrderFinalizationError(stage, err?.message || 'Failed to insert invoice items', { invoiceId, cause: err?.message });
+    } finally {
+        if (stmt) {
+            try {
+                await stmt.finalize();
+            } catch (finalizeErr) {
+                console.warn('Failed to finalize invoice_items statement', finalizeErr?.message || finalizeErr);
+            }
+        }
+    }
+
+    stage = 'journal-lookup';
+    const accountsReceivable = await db.get('SELECT id FROM chart_of_accounts WHERE account_code = ?', ['1200']);
+    const salesRevenue = await db.get('SELECT id FROM chart_of_accounts WHERE account_code = ?', ['4000']);
+    const taxesPayable = await db.get('SELECT id FROM chart_of_accounts WHERE account_code = ?', ['2200']);
+    if (!accountsReceivable) {
+        throw new OrderFinalizationError(stage, 'Accounts Receivable account (1200) not found', { accountCode: '1200' });
+    }
+    if (!salesRevenue) {
+        throw new OrderFinalizationError(stage, 'Sales Revenue account (4000) not found', { accountCode: '4000' });
+    }
+
+    stage = 'journal-insert';
+    let journalId = null;
+    try {
+        const jr = await db.run(
+            'INSERT INTO journal_entries (entry_date, description, reference, total_debit, total_credit, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+            [new Date().toISOString().split('T')[0], `Order #${orderId} invoice`, `ORDER-${orderId}`, total, total, 'posted', new Date().toISOString()]
+        );
+        journalId = jr.lastID;
+
+        await db.run(
+            'INSERT INTO journal_entry_lines (journal_entry_id, account_id, description, debit, credit) VALUES (?, ?, ?, ?, ?)',
+            [journalId, accountsReceivable.id, `Order #${orderId}${customerName ? ` - ${customerName}` : ''}`, total, 0]
+        );
+
+        await db.run(
+            'INSERT INTO journal_entry_lines (journal_entry_id, account_id, description, debit, credit) VALUES (?, ?, ?, ?, ?)',
+            [journalId, salesRevenue.id, `Sales from order #${orderId}`, 0, subtotal]
+        );
+
+        if (tax > 0 && taxesPayable) {
+            await db.run(
+                'INSERT INTO journal_entry_lines (journal_entry_id, account_id, description, debit, credit) VALUES (?, ?, ?, ?, ?)',
+                [journalId, taxesPayable.id, `Tax for order #${orderId}`, 0, tax]
+            );
+        }
+    } catch (err) {
+        throw new OrderFinalizationError(stage, err?.message || 'Failed to create journal entry', { invoiceId, journalId, cause: err?.message });
+    }
+
+    return {
+        invoiceId,
+        journalId,
+        totals: { subtotal, tax, total },
+    };
 }
 
 const preorderRateBuckets = new Map(); // key -> [timestamps]
@@ -4098,117 +4248,151 @@ app.post('/api/orders', async (req, res) => {
         }
     }
 
-    try {
-        const itemsWithDetails = [];
-        let hasPreorderItems = explicitPreorder === true || explicitPreorder === 1;
+    const itemsWithDetails = [];
+    let hasPreorderItems = explicitPreorder === true || explicitPreorder === 1;
 
-        for (const item of sanitizedCart) {
-            let productRow = null;
-            try {
-                productRow = await db.get('SELECT preorder_enabled, track_inventory FROM products WHERE id = ?', [item.id]);
-            } catch (err) {
-                console.warn('Failed to inspect product for preorder status', err?.message || err);
-            }
-            const quantity = Number(item.quantity) || 0;
-            const price = Number(item.price) || 0;
-            const itemPreorder = item.preorder === true || item.preorder === 1 || (productRow && productRow.preorder_enabled === 1);
-            if (itemPreorder) hasPreorderItems = true;
-            itemsWithDetails.push({
-                id: item.id,
-                quantity,
-                price,
-                isPreorder: itemPreorder,
-                trackInventory: productRow ? productRow.track_inventory : 1,
-            });
-        }
-
-        if (hasPreorderItems) {
-            if (!customerPhone) {
-                return res.status(400).json({ error: 'Phone number is required for preorder items.' });
-            }
-            if (!isTransferMethod) {
-                return res.status(400).json({ error: 'Preorder items must be paid via bank transfer.' });
-            }
-            if (!paymentSlipPath) {
-                return res.status(400).json({ error: 'Payment slip is required for preorder items.' });
-            }
-        }
-
-        const total = itemsWithDetails.reduce((sum, item) => sum + item.price * item.quantity, 0);
-        const orderStatus = hasPreorderItems ? 'preorder' : (isTransferMethod ? 'awaiting_verification' : 'pending');
-
-        const orderResult = await db.run(
-            'INSERT INTO orders (customer_name, customer_email, customer_phone, customer_company, total, status, payment_method, payment_reference, payment_slip, source, is_preorder) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-            [
-                customer.name,
-                customer.email,
-                customerPhone || null,
-                customer.company || null,
-                total,
-                orderStatus,
-                paymentMethod,
-                paymentReference || null,
-                paymentSlipPath,
-                normalizedSource,
-                hasPreorderItems ? 1 : 0
-            ]
-        );
-        const orderId = orderResult.lastID;
-
-        const stmt = await db.prepare('INSERT INTO order_items (order_id, product_id, quantity, price, is_preorder) VALUES (?, ?, ?, ?, ?)');
-        for (const item of itemsWithDetails) {
-            await stmt.run(orderId, item.id, item.quantity, item.price, item.isPreorder ? 1 : 0);
-            // Only decrement stock for non-preorder items where inventory is tracked
-            if (!item.isPreorder && item.trackInventory !== 0) {
-                await db.run('UPDATE products SET stock = stock - ? WHERE id = ?', [item.quantity, item.id]);
-            }
-        }
-        await stmt.finalize();
-        if (hasPreorderItems) {
-            await queueNotification({
-                staffId: null,
-                username: null,
-                title: 'New preorder received',
-                message: `Order #${orderId} from ${customer.name} includes preorder items`,
-                type: 'info',
-                metadata: { orderId, source: normalizedSource }
-            });
-        }
-        // ensure customer is persisted
+    for (const item of sanitizedCart) {
+        let productRow = null;
         try {
-            const existing = await db.get('SELECT * FROM customers WHERE email = ?', [customer.email]);
-            if (existing) {
-                await db.run('UPDATE customers SET name = ?, phone = COALESCE(?, phone) WHERE id = ?', [customer.name, customer.phone || existing.phone || null, existing.id]);
-            } else {
-                await db.run('INSERT INTO customers (name, email, phone) VALUES (?, ?, ?)', [customer.name, customer.email, customer.phone || null]);
-            }
+            productRow = await db.get('SELECT preorder_enabled, track_inventory FROM products WHERE id = ?', [item.id]);
         } catch (err) {
-            console.warn('Failed to persist customer for order', err?.message || err);
+            console.warn('Failed to inspect product for preorder status', err?.message || err);
         }
+        const quantity = Number(item.quantity) || 0;
+        const price = parseAmountValue(item.price);
+        if (!Number.isFinite(price)) {
+            console.warn('Invalid price provided for order item', { itemId: item.id, rawPrice: item.price });
+            return res.status(400).json({ error: `Invalid price value for item ${item.id}` });
+        }
+        const itemPreorder = item.preorder === true || item.preorder === 1 || (productRow && productRow.preorder_enabled === 1);
+        if (itemPreorder) hasPreorderItems = true;
+        itemsWithDetails.push({
+            id: item.id,
+            quantity,
+            price,
+            isPreorder: itemPreorder,
+            trackInventory: productRow ? productRow.track_inventory : 1,
+        });
+    }
 
-        // Create an invoice for this order and create journal entries so sales appear in accounting
+    if (hasPreorderItems) {
+        if (!customerPhone) {
+            return res.status(400).json({ error: 'Phone number is required for preorder items.' });
+        }
+        if (!isTransferMethod) {
+            return res.status(400).json({ error: 'Preorder items must be paid via bank transfer.' });
+        }
+        if (!paymentSlipPath) {
+            return res.status(400).json({ error: 'Payment slip is required for preorder items.' });
+        }
+    }
+
+    const total = itemsWithDetails.reduce((sum, item) => sum + item.price * item.quantity, 0);
+    const orderStatus = hasPreorderItems ? 'preorder' : (isTransferMethod ? 'awaiting_verification' : 'pending');
+
+    let orderId = null;
+    let invoiceId = null;
+    let invoiceTotals = null;
+    let invSubtotal = 0;
+    let invTax = 0;
+    let invTotal = 0;
+    const invoiceStatus = hasPreorderItems ? 'preorder' : 'issued';
+    const context = { stage: 'init', orderId: null, invoiceId: null, journalId: null };
+
+    let settingsRow = null;
+
+    try {
+        settingsRow = await db.get('SELECT gst_rate, current_outlet_id, outlet_name, currency, exchange_rate FROM settings WHERE id = 1');
+        const gstRate = parseFloat(settingsRow?.gst_rate || 0);
+        const outletId = settingsRow?.current_outlet_id || null;
+
+        let transactionActive = false;
         try {
-            // compute subtotal/tax using current settings/outlet
-            const settingsRow = await db.get('SELECT gst_rate, current_outlet_id, outlet_name, currency, exchange_rate FROM settings WHERE id = 1');
-            const gstRate = parseFloat(settingsRow?.gst_rate || 0);
-            const outletId = settingsRow?.current_outlet_id || null;
-
-            const invoiceStatus = hasPreorderItems ? 'preorder' : 'issued';
-            const invResult = await db.run('INSERT INTO invoices (customer_id, subtotal, tax_amount, total, outlet_id, type, status) VALUES (?, ?, ?, ?, ?, ?, ?)', [null, 0, 0, 0, outletId, 'invoice', invoiceStatus]);
-            const invoiceId = invResult.lastID;
-
-            // persist invoice_items and compute subtotal
-            let invSubtotal = 0;
-            const invStmt = await db.prepare('INSERT INTO invoice_items (invoice_id, product_id, quantity, price) VALUES (?, ?, ?, ?)');
-            for (const item of itemsWithDetails) {
-                await invStmt.run(invoiceId, item.id, item.quantity, item.price);
-                invSubtotal += item.price * item.quantity;
+            try {
+                await db.exec('BEGIN TRANSACTION');
+                transactionActive = true;
+            } catch (beginErr) {
+                throw new OrderFinalizationError('transaction.begin', beginErr?.message || 'Failed to begin transaction', { cause: beginErr?.message });
             }
-            await invStmt.finalize();
+            context.stage = 'customer.upsert';
+            let customerRow = await db.get('SELECT id, phone FROM customers WHERE email = ?', [customer.email]);
+            let customerId;
+            if (customerRow) {
+                customerId = customerRow.id;
+                await db.run('UPDATE customers SET name = ?, phone = COALESCE(?, phone) WHERE id = ?', [customer.name, customerPhone || customerRow.phone || null, customerId]);
+            } else {
+                const insertCustomer = await db.run('INSERT INTO customers (name, email, phone) VALUES (?, ?, ?)', [customer.name, customer.email, customerPhone || null]);
+                customerId = insertCustomer.lastID;
+            }
 
-            const invTax = +(invSubtotal * (gstRate / 100));
-            const invTotal = +(invSubtotal + invTax);
-            await db.run('UPDATE invoices SET customer_id = (SELECT id FROM customers WHERE email = ? LIMIT 1), subtotal = ?, tax_amount = ?, total = ? WHERE id = ?', [customer.email, invSubtotal, invTax, invTotal, invoiceId]);
+            context.stage = 'order.insert';
+            const orderResult = await db.run(
+                'INSERT INTO orders (customer_name, customer_email, customer_phone, customer_company, total, status, payment_method, payment_reference, payment_slip, source, is_preorder) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                [
+                    customer.name,
+                    customer.email,
+                    customerPhone || null,
+                    customer.company || null,
+                    total,
+                    orderStatus,
+                    paymentMethod,
+                    paymentReference || null,
+                    paymentSlipPath,
+                    normalizedSource,
+                    hasPreorderItems ? 1 : 0
+                ]
+            );
+            orderId = orderResult.lastID;
+            context.orderId = orderId;
+
+            context.stage = 'order.items';
+            let orderItemsStmt;
+            try {
+                orderItemsStmt = await db.prepare('INSERT INTO order_items (order_id, product_id, quantity, price, is_preorder) VALUES (?, ?, ?, ?, ?)');
+                for (const item of itemsWithDetails) {
+                    await orderItemsStmt.run(orderId, item.id, item.quantity, item.price, item.isPreorder ? 1 : 0);
+                    if (!item.isPreorder && item.trackInventory !== 0) {
+                        await db.run('UPDATE products SET stock = stock - ? WHERE id = ?', [item.quantity, item.id]);
+                    }
+                }
+            } finally {
+                if (orderItemsStmt) {
+                    try {
+                        await orderItemsStmt.finalize();
+                    } catch (stmtErr) {
+                        console.warn('Failed to finalize order_items statement', stmtErr?.message || stmtErr);
+                    }
+                }
+            }
+
+            if (hasPreorderItems) {
+                await queueNotification({
+                    staffId: null,
+                    username: null,
+                    title: 'New preorder received',
+                    message: `Order #${orderId} from ${customer.name} includes preorder items`,
+                    type: 'info',
+                    metadata: { orderId, source: normalizedSource }
+                });
+            }
+
+            context.stage = 'invoice.create';
+            const invoiceResult = await createInvoiceAndJournal({
+                customerId,
+                customerName: customer.name,
+                items: itemsWithDetails,
+                gstRate,
+                outletId,
+                invoiceStatus,
+                orderId,
+            });
+            invoiceTotals = invoiceResult.totals;
+            invSubtotal = invoiceTotals.subtotal;
+            invTax = invoiceTotals.tax;
+            invTotal = invoiceTotals.total;
+            invoiceId = invoiceResult.invoiceId;
+            context.invoiceId = invoiceId;
+            context.journalId = invoiceResult.journalId;
 
             if (hasPreorderItems) {
                 const nowIso = new Date().toISOString();
@@ -4225,7 +4409,7 @@ app.post('/api/orders', async (req, res) => {
                     productId: item.id ?? item.product_id ?? null,
                     productName: item.name ?? item.product_name ?? null,
                     quantity: Number(item.quantity) || 0,
-                    price: Number(item.price) || 0,
+                    price: parseAmountValue(item.price) || 0,
                 }));
                 const currency = settingsRow?.currency || 'MVR';
                 const exchangeRateSetting = Number(settingsRow?.exchange_rate);
@@ -4296,39 +4480,26 @@ app.post('/api/orders', async (req, res) => {
                 });
             }
 
-            // Create accounting journal entries (debit AR, credit sales, credit taxes)
-            const accountsReceivable = await db.get('SELECT id FROM chart_of_accounts WHERE account_code = ?', ['1200']);
-            const salesRevenue = await db.get('SELECT id FROM chart_of_accounts WHERE account_code = ?', ['4000']);
-            const taxesPayable = await db.get('SELECT id FROM chart_of_accounts WHERE account_code = ?', ['2200']);
-
-            if (accountsReceivable && salesRevenue) {
-                const jr = await db.run('INSERT INTO journal_entries (entry_date, description, reference, total_debit, total_credit, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)', [new Date().toISOString().split('T')[0], `Order #${orderId}`, `ORDER-${orderId}`, invTotal, invTotal, 'posted', new Date().toISOString()]);
-                const journalId = jr.lastID;
-
-                await db.run('INSERT INTO journal_entry_lines (journal_entry_id, account_id, description, debit, credit) VALUES (?, ?, ?, ?, ?)', [journalId, accountsReceivable.id, `Order #${orderId}`, invTotal, 0]);
-                await db.run('INSERT INTO journal_entry_lines (journal_entry_id, account_id, description, debit, credit) VALUES (?, ?, ?, ?, ?)', [journalId, salesRevenue.id, `Sales from order #${orderId}`, 0, invSubtotal]);
-                if (invTax > 0 && taxesPayable) {
-                    await db.run('INSERT INTO journal_entry_lines (journal_entry_id, account_id, description, debit, credit) VALUES (?, ?, ?, ?, ?)', [journalId, taxesPayable.id, `Tax for order #${orderId}`, 0, invTax]);
+            await db.exec('COMMIT');
+            transactionActive = false;
+        } catch (err) {
+            if (transactionActive) {
+                try {
+                    await db.exec('ROLLBACK');
+                } catch (rollbackErr) {
+                    console.error('Order transaction rollback failed', rollbackErr?.message || rollbackErr);
                 }
+                transactionActive = false;
             }
+            throw err;
+        }
 
-            // ensure customer is persisted
-            try {
-                const existing = await db.get('SELECT * FROM customers WHERE email = ?', [customer.email]);
-                if (existing) {
-                    await db.run('UPDATE customers SET name = ? WHERE id = ?', [customer.name, existing.id]);
-                } else {
-                    await db.run('INSERT INTO customers (name, email) VALUES (?, ?)', [customer.name, customer.email]);
-                }
-            } catch (err) {
-                console.warn('Failed to persist customer for order', err?.message || err);
-            }
-
-            // send admin notification about new order and create in-app notification
-            try {
-                const subject = `New order placed by ${customer.name}`;
-                const staffItemsHtml = sanitizedCart.map((it) => `<li>${escapeHtml(it.name || 'Item')} &times; ${escapeHtml(it.quantity ?? '0')} - ${escapeHtml(it.price ?? '0')}</li>`).join('');
-                const staffBodyHtml = `
+        try {
+            const subject = `New order placed by ${customer.name}`;
+            const staffItemsHtml = sanitizedCart
+                .map((it) => `<li>${escapeHtml(it.name || 'Item')} &times; ${escapeHtml(it.quantity ?? '0')} - ${escapeHtml(it.price ?? '0')}</li>`)
+                .join('');
+            const staffBodyHtml = `
 <p>A new order was placed:</p>
 <ul>
   <li><strong>Name:</strong> ${escapeHtml(customer.name || '-')}</li>
@@ -4340,34 +4511,34 @@ app.post('/api/orders', async (req, res) => {
 <p>Order ID: ${escapeHtml(orderId)}</p>
 <p>Invoice ID: ${escapeHtml(invoiceId)}</p>
 `.trim();
-                await sendNotificationEmail(subject, staffBodyHtml);
+            await sendNotificationEmail(subject, staffBodyHtml);
 
-                if (customer.email) {
+            if (customer.email) {
+                try {
+                    let templateRow;
                     try {
-                        let templateRow;
-                        try {
-                            templateRow = await db.get('SELECT email_template_invoice_customer AS customer_template, outlet_name FROM settings WHERE id = 1');
-                        } catch (tplErr) {
-                            console.debug('email_template_invoice_customer missing; using email_template_invoice fallback', tplErr?.message || tplErr);
-                            templateRow = await db.get('SELECT email_template_invoice AS customer_template, outlet_name FROM settings WHERE id = 1');
-                        }
-                        const customerItemsHtml = sanitizedCart.length
-                            ? `<ul>${sanitizedCart.map((it) => `<li>${escapeHtml(it.name || 'Item')} &times; ${escapeHtml(it.quantity ?? '0')} - ${escapeHtml(it.price ?? '0')}</li>`).join('')}</ul>`
-                            : '<p>No individual items were provided.</p>';
-                        const customerTemplateVars = {
-                            customer_name: escapeHtml(customer.name || 'Customer'),
-                            order_id: escapeHtml(orderId),
-                            invoice_id: escapeHtml(invoiceId),
-                            subtotal: escapeHtml(invSubtotal.toFixed(2)),
-                            tax_amount: escapeHtml(invTax.toFixed(2)),
-                            total: escapeHtml(invTotal.toFixed(2)),
-                            payment_method: escapeHtml(paymentMethod || '-'),
-                            status: escapeHtml(orderStatus),
-                            preorder_flag: escapeHtml(hasPreorderItems ? 'Yes' : 'No'),
-                            items_html: customerItemsHtml,
-                            outlet_name: escapeHtml(templateRow?.outlet_name || settingsRow?.outlet_name || ''),
-                        };
-                        const customerFallback = `
+                        templateRow = await db.get('SELECT email_template_invoice_customer AS customer_template, outlet_name FROM settings WHERE id = 1');
+                    } catch (tplErr) {
+                        console.debug('email_template_invoice_customer missing; using email_template_invoice fallback', tplErr?.message || tplErr);
+                        templateRow = await db.get('SELECT email_template_invoice AS customer_template, outlet_name FROM settings WHERE id = 1');
+                    }
+                    const customerItemsHtml = sanitizedCart.length
+                        ? `<ul>${sanitizedCart.map((it) => `<li>${escapeHtml(it.name || 'Item')} &times; ${escapeHtml(it.quantity ?? '0')} - ${escapeHtml(it.price ?? '0')}</li>`).join('')}</ul>`
+                        : '<p>No individual items were provided.</p>';
+                    const customerTemplateVars = {
+                        customer_name: escapeHtml(customer.name || 'Customer'),
+                        order_id: escapeHtml(orderId),
+                        invoice_id: escapeHtml(invoiceId),
+                        subtotal: escapeHtml(invSubtotal.toFixed(2)),
+                        tax_amount: escapeHtml(invTax.toFixed(2)),
+                        total: escapeHtml(invTotal.toFixed(2)),
+                        payment_method: escapeHtml(paymentMethod || '-'),
+                        status: escapeHtml(orderStatus),
+                        preorder_flag: escapeHtml(hasPreorderItems ? 'Yes' : 'No'),
+                        items_html: customerItemsHtml,
+                        outlet_name: escapeHtml(templateRow?.outlet_name || settingsRow?.outlet_name || ''),
+                    };
+                    const customerFallback = `
 <p>Hi {{customer_name}},</p>
 <p>Thank you for your order! We've created invoice #{{invoice_id}} and will process it shortly.</p>
 <ul>
@@ -4379,17 +4550,18 @@ app.post('/api/orders', async (req, res) => {
 {{items_html}}
 <p>If you have any questions just reply to this message.</p>
 `.trim();
-                        const customerBody = renderEmailTemplate(templateRow?.customer_template, customerFallback, customerTemplateVars);
-                        const customerSubject = renderEmailTemplate(null, 'Your order #{{order_id}} has been received', { order_id: customerTemplateVars.order_id });
-                        await sendNotificationEmail(customerSubject, customerBody, customer.email);
-                    } catch (customerEmailErr) {
-                        console.warn('Failed to send customer order confirmation', customerEmailErr?.message || customerEmailErr);
-                    }
+                    const customerBody = renderEmailTemplate(templateRow?.customer_template, customerFallback, customerTemplateVars);
+                    const customerSubject = renderEmailTemplate(null, 'Your order #{{order_id}} has been received', { order_id: customerTemplateVars.order_id });
+                    await sendNotificationEmail(customerSubject, customerBody, customer.email);
+                } catch (customerEmailErr) {
+                    console.warn('Failed to send customer order confirmation', customerEmailErr?.message || customerEmailErr);
                 }
-            } catch (err) {
-                console.warn('Failed to send order notification', err?.message || err);
             }
+        } catch (err) {
+            console.warn('Failed to send order notification', err?.message || err);
+        }
 
+        try {
             await queueNotification({
                 staffId: null,
                 username: null,
@@ -4399,46 +4571,77 @@ app.post('/api/orders', async (req, res) => {
                 link: `/invoices/${invoiceId}`,
                 metadata: { orderId, invoiceId, preorderId: preorderId || null, total: invTotal }
             });
-            res.status(201).json({ message: 'Order created successfully', orderId, invoiceId, preorderId });
+        } catch (notifyErr) {
+            console.warn('Failed to queue order notification', notifyErr?.message || notifyErr);
+        }
 
-            // WebSocket broadcast for real-time updates
-            try {
-                const wsService = getWebSocketService();
-                const orderData = {
-                    orderId,
-                    invoiceId,
-                    preorderId: preorderId || null,
-                    customer: {
-                        name: customer.name,
-                        email: customer.email,
-                        phone: customer.phone
-                    },
-                    total: invTotal,
-                    items: sanitizedCart,
-                    paymentMethod,
-                    status: hasPreorderItems ? 'preorder' : (isTransferMethod ? 'awaiting_verification' : 'pending'),
-                    timestamp: new Date()
-                };
-                wsService.notifyNewOrder(orderData);
-                wsService.notifyInvoiceCreated({
-                    id: invoiceId,
-                    customer: customer.name,
-                    total: invTotal,
-                    type: 'invoice',
-                    status: invoiceStatus,
-                    timestamp: new Date(),
-                    preorderId: preorderId || null
-                });
-            } catch (wsErr) {
-                console.warn('WebSocket broadcast failed:', wsErr.message);
-            }
-        } catch (err) {
-            console.error('Order creation failed (invoice/journal step):', err);
-            return res.status(500).json({ error: 'Order created but failed to create invoice/journal' });
+        res.status(201).json({ message: 'Order created successfully', orderId, invoiceId, preorderId });
+
+        try {
+            const wsService = getWebSocketService();
+            const orderData = {
+                orderId,
+                invoiceId,
+                preorderId: preorderId || null,
+                customer: {
+                    name: customer.name,
+                    email: customer.email,
+                    phone: customer.phone
+                },
+                total: invTotal,
+                items: sanitizedCart,
+                paymentMethod,
+                status: hasPreorderItems ? 'preorder' : (isTransferMethod ? 'awaiting_verification' : 'pending'),
+                timestamp: new Date()
+            };
+            wsService.notifyNewOrder(orderData);
+            wsService.notifyInvoiceCreated({
+                id: invoiceId,
+                customer: customer.name,
+                total: invTotal,
+                type: 'invoice',
+                status: invoiceStatus,
+                timestamp: new Date(),
+                preorderId: preorderId || null
+            });
+        } catch (wsErr) {
+            console.warn('WebSocket broadcast failed:', wsErr.message);
         }
     } catch (err) {
+        if (err instanceof OrderFinalizationError) {
+            console.error('Order finalization failed', {
+                stage: err.stage,
+                orderId: context.orderId,
+                invoiceId: context.invoiceId,
+                journalId: context.journalId,
+                meta: err.meta,
+                message: err.message,
+                stack: err.stack,
+            });
+            return res.status(500).json({
+                error: 'Failed to finalize order',
+                details: {
+                    stage: err.stage,
+                    message: err.message,
+                    orderId: context.orderId,
+                    invoiceId: context.invoiceId,
+                    journalId: context.journalId,
+                    meta: err.meta || null,
+                },
+            });
+        }
         console.error('Order creation failed:', err);
-        res.status(500).json({ error: 'Failed to create order' });
+        res.status(500).json({
+            error: 'Failed to create order',
+            details: {
+                message: err?.message || null,
+                stack: err?.stack || null,
+                stage: context.stage,
+                orderId: context.orderId,
+                invoiceId: context.invoiceId,
+                journalId: context.journalId,
+            },
+        });
     }
 });
 

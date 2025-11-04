@@ -18,6 +18,7 @@ import Preorders from './pages/Preorders';
 import Profile from './pages/Profile';
 import Help from './pages/Help';
 import ManageLookups from './pages/ManageLookups';
+import ValidateSlip from './pages/ValidateSlip';
 import { AuthProvider, useAuth } from './components/AuthContext';
 import { UIProvider, useUI } from './components/UIContext';
 import { NotificationsProvider } from './components/NotificationsContext';
@@ -75,6 +76,7 @@ function App() {
       <Route path="/reports" element={<RoleGuard minRole="manager"><Reports /></RoleGuard>} />
       <Route path="/operations" element={<RoleGuard minRole="manager"><Operations /></RoleGuard>} />
       <Route path="/preorders" element={<RoleGuard minRole="accounts"><Preorders /></RoleGuard>} />
+  <Route path="/validate-slip" element={<RoleGuard minRole="accounts"><ValidateSlip /></RoleGuard>} />
       <Route path="/settings" element={<RoleGuard minRole="manager"><Settings /></RoleGuard>} />
       <Route path="/manage-lookups" element={<RoleGuard minRole="admin"><ManageLookups /></RoleGuard>} />
       <Route path="*" element={<Navigate to="/" replace />} />
