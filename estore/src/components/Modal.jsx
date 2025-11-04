@@ -49,17 +49,20 @@ export default function Modal({ open, onClose, labelledBy, children, className =
   if (!open) return null;
 
   const modal = (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => onClose && onClose()} />
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-2">
+      <div
+        className="absolute inset-0 bg-black/30"
+        onClick={() => onClose && onClose()}
+        aria-hidden="true"
+      />
       <div
         role="dialog"
         aria-modal="true"
         aria-labelledby={labelledBy}
-        className={`relative z-10 w-full max-w-4xl transform overflow-hidden rounded-2xl bg-white shadow-xl transition-all duration-200 ease-out scale-95 opacity-0 animate-open ${className}`}
+        className={`relative z-10 w-full max-w-lg transform overflow-hidden rounded-xl bg-white shadow-md ${className}`}
       >
         {children}
       </div>
-      <style>{`@keyframes open { from { transform: translateY(6px) scale(.98); opacity: 0 } to { transform: translateY(0) scale(1); opacity: 1 } } .animate-open { animation: open 180ms cubic-bezier(.2,.9,.3,1) forwards }`}</style>
     </div>
   );
 

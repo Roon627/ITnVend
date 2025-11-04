@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { createPortal } from 'react-dom';
+import Modal from '../components/Modal';
 import { Link } from 'react-router-dom';
 import { FaEdit, FaTrash, FaUpload, FaTimes, FaPlus, FaFileImport, FaExternalLinkAlt } from 'react-icons/fa';
 import api from '../lib/api';
@@ -397,9 +397,9 @@ function ProductModal({ open, draft, onClose, onChange, onSave, onUploadImage, u
     onChange(key, event);
   };
 
-  return createPortal(
-    <div onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }} className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center px-4 py-4" role="dialog" aria-modal="true" aria-labelledby="product-modal-title">
-      <div ref={modalRef} className={`bg-white rounded-xl shadow-2xl w-full max-w-6xl max-h-[92vh] overflow-hidden flex flex-col transform transition-all duration-300 ease-out ${modalVisible ? 'translate-y-0 opacity-100' : 'translate-y-6 opacity-0'}`} style={{outline: 'none'}} tabIndex={-1}>
+  return (
+    <Modal open={open} onClose={onClose} labelledBy="product-modal">
+      <div ref={modalRef} className={`bg-white rounded-xl shadow-2xl w-full max-w-6xl max-h-[92vh] overflow-hidden flex flex-col transform transition-all duration-300 ease-out ${modalVisible ? 'translate-y-0 opacity-100' : 'translate-y-6 opacity-0'}`} style={{outline: 'none'}} tabIndex={-1} onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
         <header className="flex items-center justify-between px-6 py-4 border-b">
           <div>
             <h2 id="product-modal-title" className="text-xl font-semibold text-slate-800">{draft.id ? 'Edit product' : 'Add product'}</h2>
@@ -456,8 +456,8 @@ function ProductModal({ open, draft, onClose, onChange, onSave, onUploadImage, u
             </div>
 
             <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-              <label className="text-sm font-medium text-slate-600">
-                Price
+        <label className="text-sm font-medium text-slate-600">
+          Price
                 <input
                   value={draft.price}
                   onChange={handleFieldChange('price')}
@@ -675,9 +675,7 @@ function ProductModal({ open, draft, onClose, onChange, onSave, onUploadImage, u
           </div>
         </footer>
       </div>
-    </div>,
-    // render overlay directly into document.body so it's not affected by parent layout transforms
-    typeof document !== 'undefined' ? document.body : null
+    </Modal>
   );
 }
 

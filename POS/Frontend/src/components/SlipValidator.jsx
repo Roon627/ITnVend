@@ -1,6 +1,7 @@
-import { useState } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import api from '../lib/api';
 import { useToast } from './ToastContext';
+import InlineValidationCard from './InlineValidationCard';
 
 export default function SlipValidator() {
   const toast = useToast();
@@ -16,6 +17,103 @@ export default function SlipValidator() {
     setFile(selected);
     setFileName(selected ? selected.name : '');
     setResult(null);
+  };
+
+  const fileUrl = useMemo(() => (file ? URL.createObjectURL(file) : null), [file]);
+
+  useEffect(() => {
+    // revoke object URL when file changes or component unmounts to avoid memory leaks
+    return () => {
+      if (fileUrl) URL.revokeObjectURL(fileUrl);
+    };
+  }, [fileUrl]);
+
+  const detectReferenceFromText = (text, entered) => {
+    if (!text) return null;
+    // Normalize: uppercase and remove punctuation except alphanumerics
+    const tokens = (text || '')
+      .replace(/[\r\n]+/g, ' ')
+      .split(/\s+/)
+      .map((t) => t.replace(/[^A-Za-z0-9-]/g, ''))
+      .filter(Boolean);
+
+    if (entered) {
+      const normalized = entered.replace(/[^A-Za-z0-9-]/g, '').toUpperCase();
+      // find exact or close token
+      let best = null;
+      for (const t of tokens) {
+        const tNorm = t.toUpperCase();
+        if (!tNorm) continue;
+        if (tNorm.includes(normalized) || normalized.includes(tNorm)) {
+          best = t;
+          break;
+        }
+      }
+      if (best) return best;
+    }
+
+    // fallback: longest alphanumeric token (likely a ref)
+    let longest = '';
+    for (const t of tokens) {
+      if (t.length > longest.length) longest = t;
+    }
+    return longest || null;
+  };
+
+  const detectSlipType = (text, confidence = null) => {
+    // If OCR confidence is very low, consider it not a slip
+    if (typeof confidence === 'number' && confidence < 60) return false;
+    if (!text || !text.trim()) return false;
+    const s = text.toLowerCase();
+
+    // explicit negative indicators produced by OCR or our other heuristics
+    const negativePhrases = [
+      'does not contain',
+      'no text',
+      'no visible',
+      'not contain any visible',
+      'unable to read',
+      'could not',
+    ];
+    for (const np of negativePhrases) if (s.includes(np)) return false;
+
+    const mustHave = ['deposit', 'transfer', 'transaction', 'amount', 'mvr', 'bank', 'account', 'reference'];
+    const negative = ['invoice', 'note', 'photo', 'random'];
+
+    for (const n of negative) if (s.includes(n)) return false;
+
+    // if contains any must-have keywords, consider it a slip
+    for (const k of mustHave) {
+      if (s.includes(k)) return true;
+    }
+
+    // check that OCR produced a reasonable proportion of alphanumeric characters
+    const chars = text.replace(/\s+/g, '');
+    const alnum = (chars.match(/[A-Za-z0-9]/g) || []).length;
+    const ratio = chars.length > 0 ? alnum / chars.length : 0;
+    if (chars.length < 20 || ratio < 0.35) return false;
+
+    // number-like pattern detection (amounts) as fallback
+    const numberPattern = /\b\d{1,3}(?:[,\s]\d{3})*(?:\.\d{1,2})?\b/;
+    if (numberPattern.test(s)) return true;
+
+    return false;
+  };
+
+  const parseAmount = (v) => {
+    if (v === null || v === undefined) return null;
+    const str = String(v).replace(/[,\s]/g, '').replace(/[^0-9.\-]/g, '');
+    const n = Number(str);
+    return Number.isFinite(n) ? n : null;
+  };
+
+  const checkAmountMatch = (detectedAmount, expectedAmountValue) => {
+    const da = parseAmount(detectedAmount);
+    const ea = parseAmount(expectedAmountValue);
+    if (da === null || ea === null) return null;
+    // consider match if within 1.0 of expected (allow small rounding)
+    if (Math.abs(da - ea) <= 1.0) return true;
+    return false;
   };
 
   const handleSubmit = async (event) => {
@@ -36,7 +134,29 @@ export default function SlipValidator() {
     setResult(null);
     try {
       const response = await api.validateSlip(transactionId.trim(), expectedAmount.toString().trim(), file);
+      // basic slip-type detection using OCR text
+  const looksLikeSlip = detectSlipType(response?.extractedText || '', response?.confidence);
+      if (!looksLikeSlip) {
+        // non-blocking toast for non-slip images instead of a blocking alert/modal
+        toast.push("Hmm, this doesn't look like a payment slip. Please upload the correct transfer receipt.", 'warning');
+        setResult(null);
+        setProcessing(false);
+        return;
+      }
+
       setResult(response);
+
+      if (response && response.match === false) {
+        toast.push('Payment slip does not match the provided reference. Please re-check your slip or reference.', 'error');
+      }
+
+      // frontend double-check of amount in addition to backend
+      const amountOk = checkAmountMatch(response?.detectedAmount, expectedAmount);
+      if (amountOk === false) {
+        // non-blocking toast notifying manual review will follow
+        toast.push("Amount doesn't match, but we'll double-check it manually.", 'info');
+      }
+
       const overallMatch = response.match && (response.amountMatch !== false);
       toast.push(overallMatch ? 'Slip checked successfully.' : 'Slip checked. Review the details.', overallMatch ? 'success' : 'info');
     } catch (err) {
@@ -67,6 +187,7 @@ export default function SlipValidator() {
           <label htmlFor="transactionId" className="block text-sm font-semibold text-slate-600">
             Transaction ID
           </label>
+          <p className="text-xs text-slate-400">Ensure the uploaded image clearly shows this reference number.</p>
           <input
             id="transactionId"
             name="transactionId"
@@ -119,6 +240,71 @@ export default function SlipValidator() {
         </button>
       </form>
 
+      {file && (
+        <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+          <div className="flex flex-col md:flex-row gap-4 items-start">
+            <div className="w-full md:w-2/3 rounded-lg overflow-hidden bg-slate-50 flex items-center justify-center p-3">
+              {file.type?.startsWith('image/') ? (
+                <img src={fileUrl} alt="Payment slip preview" className="max-h-48 w-full object-contain" />
+              ) : (
+                <div className="text-sm text-slate-500">Preview not available for this file type.</div>
+              )}
+            </div>
+
+            <div className="w-full md:w-1/3 rounded-lg bg-rose-50/50 border border-rose-100 p-3">
+              <h4 className="text-sm font-semibold text-rose-600 mb-2">Reference Test</h4>
+              <div className="text-sm text-slate-700 space-y-2">
+                <div>
+                  <div className="text-xs text-slate-500">Entered</div>
+                  <div className="font-mono font-semibold">{transactionId || '—'}</div>
+                </div>
+                <div>
+                  <div className="text-xs text-slate-500">Detected</div>
+                  <div className="font-mono font-semibold">
+                    {result?.detectedReference || detectReferenceFromText(result?.extractedText, transactionId) || '—'}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-xs text-slate-500">Result</div>
+                  <div className={`font-semibold ${result?.match ? 'text-emerald-600' : 'text-rose-600'}`}>
+                    {result ? (result.match ? '✅ Match' : '❌ Mismatch') : '—'}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {result && (!result.match || !detectSlipType(result?.extractedText || '', result?.confidence)) && (
+        <div className="mt-3">
+          <InlineValidationCard
+            status={!result.match ? 'mismatch' : 'not-slip'}
+            confidence={result.confidence}
+            extractedText={result.extractedText}
+            onReplace={() => {
+              // trigger file input replacement
+              const input = document.querySelector('input[type=file]');
+              if (input) input.click();
+            }}
+            onRetry={async () => {
+              setProcessing(true);
+              try {
+                const resp = await api.validateSlip(transactionId.trim(), expectedAmount.toString().trim(), file);
+                setResult(resp);
+              } catch (e) {
+                toast.push(e?.message || 'Retry failed', 'error');
+              } finally {
+                setProcessing(false);
+              }
+            }}
+            onRequestReview={() => toast.push('We will double-check this slip and follow up.', 'info')}
+            allowContinue={true}
+            onContinue={() => setResult((r) => ({ ...r, overrideContinue: true }))}
+          />
+        </div>
+      )}
+
       {result && (
         <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
           <div className="mb-3 space-y-1 text-sm font-semibold">
@@ -157,6 +343,16 @@ export default function SlipValidator() {
               </dd>
             </div>
           </dl>
+        </div>
+      )}
+
+      {/* analyzing overlay */}
+      {processing && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="rounded-xl bg-white/90 p-6 flex flex-col items-center gap-4">
+            <div className="h-12 w-12 rounded-full border-4 border-rose-300 border-t-rose-500 animate-spin" />
+            <div className="text-sm font-medium">Analyzing slip, please wait…</div>
+          </div>
         </div>
       )}
     </div>

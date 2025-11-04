@@ -4,6 +4,7 @@ import { useCart } from '../components/CartContext';
 import { useToast } from '../components/ToastContext';
 import { useSettings } from '../components/SettingsContext';
 import api from '../lib/api';
+import InlineValidationCard from '../components/InlineValidationCard';
 
 const QUOTE_TYPES = [
   { value: 'individual', label: 'I am an individual', helper: 'We will treat this as a one-off quotation.' },
@@ -151,6 +152,31 @@ export default function Checkout() {
     }
   }
 
+  const detectSlipType = (text, confidence = null) => {
+    if (typeof confidence === 'number' && confidence < 35) return false;
+    if (!text || !text.trim()) return false;
+    const s = text.toLowerCase();
+
+    const negativePhrases = ['does not contain', 'no text', 'no visible', 'not contain any visible', 'unable to read', 'could not'];
+    for (const np of negativePhrases) if (s.includes(np)) return false;
+
+    const mustHave = ['deposit', 'transfer', 'transaction', 'amount', 'mvr', 'bank', 'account', 'reference'];
+    const negative = ['invoice', 'note', 'photo', 'random'];
+    for (const n of negative) if (s.includes(n)) return false;
+
+    for (const k of mustHave) if (s.includes(k)) return true;
+
+    const chars = text.replace(/\s+/g, '');
+    const alnum = (chars.match(/[A-Za-z0-9]/g) || []).length;
+    const ratio = chars.length > 0 ? alnum / chars.length : 0;
+    if (chars.length < 20 || ratio < 0.35) return false;
+
+    const numberPattern = /\b\d{1,3}(?:[,\s]\d{3})*(?:\.\d{1,2})?\b/;
+    if (numberPattern.test(s)) return true;
+
+    return false;
+  };
+
   const resetState = () => {
     clearCart();
     setForm({
@@ -265,6 +291,13 @@ export default function Checkout() {
       const validation = await validateSlipPublic(paymentSlip, trimmedReference, cartTotal);
       if (validation && validation.error) {
         toast.push(validation.error || 'Slip validation failed', 'error');
+        return;
+      }
+      // guard against non-slip uploads even when OCR may find tokens — be conservative
+      const looksLikeSlip = detectSlipType(validation?.extractedText || '', validation?.confidence);
+      if (!looksLikeSlip) {
+        toast.push("Hmm, this doesn't look like a payment slip. Please upload the correct transfer receipt.", 'warning');
+        setSlipValidation(validation || null);
         return;
       }
       // if not a match, block submission and show OCR text
@@ -497,6 +530,7 @@ export default function Checkout() {
                         placeholder="Transaction ID or narration"
                         required
                       />
+                      <p className="text-xs text-gray-400 mt-1">Upload an image that clearly shows this reference number.</p>
                     </div>
                     <div>
                       <label className="block text-gray-700 font-semibold mb-2">
@@ -523,15 +557,7 @@ export default function Checkout() {
                             </button>
                           )}
                         </div>
-                        {paymentSlipPreview && (
-                          <div className="flex-1 rounded-lg border border-gray-200 bg-gray-50 p-2 text-center">
-                            <p className="mb-2 text-xs font-semibold text-gray-600">Preview</p>
-                            <div className="flex h-48 items-center justify-center overflow-hidden rounded">
-                              <img src={paymentSlipPreview} alt="Payment slip preview" className="h-full w-full object-contain" />
-                            </div>
-                            <p className="mt-2 text-[11px] text-gray-400">Ensure the account number and reference are clearly visible.</p>
-                          </div>
-                        )}
+                        {/** preview removed here — kept only in Order Summary to avoid duplicate previews */}
                       </div>
                     </div>
                   </div>
@@ -574,20 +600,18 @@ export default function Checkout() {
                 <h3 className="text-sm font-semibold text-gray-700 mb-2">Slip preview</h3>
                 <div className="w-full rounded-lg border border-gray-200 bg-white p-2">
                   <div className="mx-auto max-w-sm">
-                    <img src={paymentSlipPreview} alt="Slip preview" className="w-full h-auto object-contain rounded" />
+                    <img src={paymentSlipPreview} alt="Slip preview" className="w-full h-auto max-h-48 object-contain rounded" />
                   </div>
                   {slipValidation && (
-                    <div className="mt-2 text-xs text-gray-600">
-                      <p><strong>OCR confidence:</strong> {Math.round((slipValidation.confidence || 0))}%</p>
-                      <p className={`mt-1 ${slipValidation.match ? 'text-green-600' : 'text-rose-600'}`}>
-                        {slipValidation.match ? 'Reference matches the slip.' : 'Reference not found in slip.'}
-                      </p>
-                      {!slipValidation.match && slipValidation.extractedText && (
-                        <details className="mt-1 text-[11px] text-gray-500">
-                          <summary className="cursor-pointer">View extracted text</summary>
-                          <div className="whitespace-pre-wrap break-words mt-1">{slipValidation.extractedText}</div>
-                        </details>
-                      )}
+                    <div className="mt-2">
+                      <InlineValidationCard
+                        status={slipValidation.match ? 'ok' : 'mismatch'}
+                        confidence={slipValidation.confidence}
+                        extractedText={slipValidation.extractedText}
+                        onReplace={() => {
+                          if (paymentSlipInputRef.current) paymentSlipInputRef.current.click();
+                        }}
+                      />
                     </div>
                   )}
                 </div>
