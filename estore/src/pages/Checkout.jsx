@@ -45,6 +45,7 @@ export default function Checkout() {
   const [uploadError, setUploadError] = useState('');
   const [paymentSlipPreview, setPaymentSlipPreview] = useState('');
   const [slipValidation, setSlipValidation] = useState(null);
+  const [submitting, setSubmitting] = useState(false);
   const paymentSlipInputRef = useRef(null);
 
   const requiresSlip = !isQuote && (paymentMethod === 'transfer' || cartHasPreorder);
@@ -222,6 +223,7 @@ export default function Checkout() {
       ].filter(Boolean);
 
       try {
+        setSubmitting(true);
         await api.post('/quotes', {
           company_name: form.companyName || null,
           contact_name: form.name,
@@ -264,6 +266,8 @@ export default function Checkout() {
       } catch (err) {
         console.error('Quote request failed', err);
         toast.push(err?.message || 'Failed to send quote request.', 'error');
+      } finally {
+        setSubmitting(false);
       }
       return;
     }
@@ -311,6 +315,7 @@ export default function Checkout() {
       setSlipValidation(validation);
     }
     try {
+      setSubmitting(true);
       const customerPayload = {
         name: form.name,
         email: form.email,
@@ -346,6 +351,8 @@ export default function Checkout() {
     } catch (err) {
       console.error('Order submission failed', err);
       toast.push(err?.message || 'Failed to place order.', 'error');
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -567,9 +574,10 @@ export default function Checkout() {
 
             <button
               type="submit"
-              className="w-full bg-blue-600 text-white py-3 rounded-md hover:bg-blue-700 transition-colors"
+              className="w-full bg-blue-600 text-white py-3 rounded-md transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+              disabled={submitting}
             >
-              {isQuote ? 'Submit Quote Request' : 'Place Order'}
+              {submitting ? (isQuote ? 'Sending…' : 'Submitting…') : isQuote ? 'Submit Quote Request' : 'Place Order'}
             </button>
           </form>
         </div>
@@ -620,6 +628,25 @@ export default function Checkout() {
           </div>
         </div>
       </div>
+      {submitting && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm">
+          <div className="relative flex flex-col items-center gap-4 rounded-2xl bg-white/95 px-8 py-6 shadow-2xl">
+            <div className="relative h-20 w-20">
+              <div className="absolute inset-0 animate-ping rounded-full border-4 border-blue-200" />
+              <div className="absolute inset-2 rounded-full border-4 border-transparent border-t-blue-500 border-l-blue-400 animate-spin" />
+              <div className="relative flex h-full w-full items-center justify-center rounded-full bg-blue-600 text-white font-semibold text-lg">
+                {isQuote ? 'QR' : 'OR'}
+              </div>
+            </div>
+            <div className="text-sm font-medium text-slate-700">
+              {isQuote ? 'Sending your quote request…' : 'Submitting your order…'}
+            </div>
+            <div className="text-xs text-slate-500 text-center max-w-xs">
+              We’re locking in your items and syncing with the team. Hang tight for a moment.
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
