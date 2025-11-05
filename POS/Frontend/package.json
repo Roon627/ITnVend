@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "postinstall": "node scripts/fetch-fonts.js || true",
     "build": "vite build",
     "lint": "eslint .",
     "preview": "vite preview"

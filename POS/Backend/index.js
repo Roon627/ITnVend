@@ -3283,7 +3283,10 @@ app.get('/api/settings', async (req, res) => {
                 currency: settings.currency,
                 gst_rate: settings.gst_rate,
                 store_address: settings.store_address,
-                invoice_template: settings.invoice_template
+                invoice_template: settings.invoice_template,
+                payment_instructions: settings.payment_instructions || null,
+                footer_note: settings.footer_note || null,
+                logo_url: settings.logo_url || null,
             };
         }
         // also include email settings if present
@@ -3309,15 +3312,15 @@ app.get('/api/settings', async (req, res) => {
 // Allow managers to edit a subset of settings. Admins can edit everything.
 app.put('/api/settings', authMiddleware, requireRole(['admin', 'manager']), async (req, res) => {
     try {
-        const { outlet_name, currency, gst_rate, store_address, invoice_template, current_outlet_id, logo_url,
+        const { outlet_name, currency, gst_rate, store_address, invoice_template, current_outlet_id, logo_url, footer_note,
             email_provider, email_api_key, email_from, email_to,
             smtp_host, smtp_port, smtp_user, smtp_pass, smtp_secure, smtp_require_tls, smtp_from_name, smtp_reply_to,
             email_template_invoice, email_template_quote, email_template_quote_request, email_template_new_order_staff,
             email_template_password_reset_subject, email_template_password_reset,
             social_facebook, social_instagram, social_whatsapp, social_telegram } = req.body;
 
-        // Define fields managers are allowed to update
-        const managerAllowed = ['currency', 'gst_rate', 'store_address', 'invoice_template', 'current_outlet_id', 'outlet_name'];
+    // Define fields managers are allowed to update
+    const managerAllowed = ['currency', 'gst_rate', 'store_address', 'invoice_template', 'current_outlet_id', 'outlet_name', 'payment_instructions', 'footer_note'];
 
         // If caller is manager, ensure they only change allowed fields
         if (req.user && req.user.role === 'manager') {
@@ -3329,13 +3332,14 @@ app.put('/api/settings', authMiddleware, requireRole(['admin', 'manager']), asyn
         }
 
         await db.run(
-            `UPDATE settings SET outlet_name = COALESCE(?, outlet_name), currency = COALESCE(?, currency), gst_rate = COALESCE(?, gst_rate), store_address = COALESCE(?, store_address), invoice_template = COALESCE(?, invoice_template), email_template_invoice = COALESCE(?, email_template_invoice), email_template_quote = COALESCE(?, email_template_quote), email_template_quote_request = COALESCE(?, email_template_quote_request), email_template_new_order_staff = COALESCE(?, email_template_new_order_staff), email_template_password_reset_subject = COALESCE(?, email_template_password_reset_subject), email_template_password_reset = COALESCE(?, email_template_password_reset), logo_url = COALESCE(?, logo_url), current_outlet_id = COALESCE(?, current_outlet_id) WHERE id = 1`,
+            `UPDATE settings SET outlet_name = COALESCE(?, outlet_name), currency = COALESCE(?, currency), gst_rate = COALESCE(?, gst_rate), store_address = COALESCE(?, store_address), invoice_template = COALESCE(?, invoice_template), footer_note = COALESCE(?, footer_note), email_template_invoice = COALESCE(?, email_template_invoice), email_template_quote = COALESCE(?, email_template_quote), email_template_quote_request = COALESCE(?, email_template_quote_request), email_template_new_order_staff = COALESCE(?, email_template_new_order_staff), email_template_password_reset_subject = COALESCE(?, email_template_password_reset_subject), email_template_password_reset = COALESCE(?, email_template_password_reset), logo_url = COALESCE(?, logo_url), current_outlet_id = COALESCE(?, current_outlet_id) WHERE id = 1`,
             [
                 outlet_name || null,
                 currency || null,
                 gst_rate || null,
                 store_address || null,
                 invoice_template || null,
+                footer_note || null,
                 email_template_invoice || null,
                 email_template_quote || null,
                 email_template_quote_request || null,
@@ -3650,9 +3654,9 @@ app.get('/api/outlets', async (req, res) => {
 
 app.post('/api/outlets', authMiddleware, requireRole('admin'), async (req, res) => {
     try {
-        const { name, currency, gst_rate, store_address, invoice_template } = req.body;
+        const { name, currency, gst_rate, store_address, invoice_template, payment_instructions, footer_note } = req.body;
         if (!name) return res.status(400).json({ error: 'Missing outlet name' });
-        const result = await db.run('INSERT INTO outlets (name, currency, gst_rate, store_address, invoice_template) VALUES (?, ?, ?, ?, ?)', [name, currency || 'MVR', gst_rate || 0, store_address || null, invoice_template || null]);
+        const result = await db.run('INSERT INTO outlets (name, currency, gst_rate, store_address, invoice_template, payment_instructions, footer_note) VALUES (?, ?, ?, ?, ?, ?, ?)', [name, currency || 'MVR', gst_rate || 0, store_address || null, invoice_template || null, payment_instructions || null, footer_note || null]);
         const outlet = await db.get('SELECT * FROM outlets WHERE id = ?', [result.lastID]);
         res.status(201).json(outlet);
     } catch (err) {
@@ -3663,8 +3667,8 @@ app.post('/api/outlets', authMiddleware, requireRole('admin'), async (req, res) 
 app.put('/api/outlets/:id', authMiddleware, requireRole('admin'), async (req, res) => {
     try {
         const { id } = req.params;
-        const { name, currency, gst_rate, store_address, invoice_template } = req.body;
-        await db.run('UPDATE outlets SET name = ?, currency = ?, gst_rate = ?, store_address = ?, invoice_template = ? WHERE id = ?', [name, currency, gst_rate || 0, store_address || null, invoice_template || null, id]);
+        const { name, currency, gst_rate, store_address, invoice_template, payment_instructions, footer_note } = req.body;
+        await db.run('UPDATE outlets SET name = ?, currency = ?, gst_rate = ?, store_address = ?, invoice_template = ?, payment_instructions = ?, footer_note = ? WHERE id = ?', [name, currency, gst_rate || 0, store_address || null, invoice_template || null, payment_instructions || null, footer_note || null, id]);
         const outlet = await db.get('SELECT * FROM outlets WHERE id = ?', [id]);
         res.json(outlet);
     } catch (err) {
@@ -4282,11 +4286,19 @@ app.get('/api/invoices/:id/pdf', async (req, res) => {
         // Ensure outlet passed to PDF generator includes logo_url (prefer outlet.logo_url, fallback to settings)
         const pdfOutlet = { ...outlet, logo_url: outlet.logo_url ?? settingsRow?.logo_url ?? null };
 
-        generateInvoicePdf(
-            { ...invoice, customer, items, outlet: pdfOutlet },
-            (chunk) => stream.write(chunk),
-            () => stream.end()
-        );
+        try {
+            // await the async PDF generator so errors can be caught
+            await generateInvoicePdf(
+                { ...invoice, customer, items, outlet: pdfOutlet },
+                (chunk) => stream.write(chunk),
+                () => stream.end()
+            );
+        } catch (err) {
+            // If generation fails mid-stream, ensure stream is closed and log error
+            try { stream.end(); } catch (e) {}
+            console.error('Invoice PDF generation failed', err);
+            // Can't send JSON here because headers are already sent; just end the response
+        }
 
     } catch (error) {
         res.status(500).json({ error: error.message });

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { FaHandshake, FaShieldAlt, FaTruck, FaUserTie } from 'react-icons/fa';
+import { FaHandshake, FaShieldAlt, FaTruck, FaUserTie, FaUpload } from 'react-icons/fa';
 import api from '../lib/api';
 import { useToast } from '../components/ToastContext';
 
@@ -11,7 +11,7 @@ const initialForm = {
   phone: '',
   address: '',
   website: '',
-  capabilities: '',
+  capabilities: [],
   notes: '',
 };
 
@@ -26,6 +26,8 @@ const capabilitiesHints = [
 export default function VendorOnboarding() {
   const [formData, setFormData] = useState(initialForm);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [logoData, setLogoData] = useState(null);
+  const [documents, setDocuments] = useState([]);
   const toast = useToast();
   const navigate = useNavigate();
 
@@ -34,22 +36,53 @@ export default function VendorOnboarding() {
     setFormData((prev) => ({ ...prev, [name]: value }));
   };
 
+  const toggleCapability = (cap) => {
+    setFormData((prev) => {
+      const list = new Set(prev.capabilities || []);
+      if (list.has(cap)) list.delete(cap); else list.add(cap);
+      return { ...prev, capabilities: Array.from(list) };
+    });
+  };
+
+  const handleLogo = (e) => {
+    const f = e.target.files && e.target.files[0];
+    if (!f) return;
+    const reader = new FileReader();
+    reader.onload = () => setLogoData({ name: f.name, data: reader.result });
+    reader.readAsDataURL(f);
+  };
+
+  const handleDocs = (e) => {
+    const list = Array.from(e.target.files || []);
+    for (const f of list) {
+      const reader = new FileReader();
+      reader.onload = () => setDocuments((prev) => [...prev, { name: f.name, data: reader.result }]);
+      reader.readAsDataURL(f);
+    }
+  };
+
   const handleSubmit = async (event) => {
     event.preventDefault();
     setIsSubmitting(true);
     try {
-      await api.post('/vendors', {
+      const payload = {
         legal_name: formData.legalName,
         contact_person: formData.contactPerson,
         email: formData.email,
         phone: formData.phone,
         address: formData.address,
         website: formData.website,
-        capabilities: formData.capabilities,
+        capabilities: formData.capabilities.join(', '),
         notes: formData.notes,
-      });
+        logo_data: logoData?.data || null,
+        documents: documents.map(d => ({ name: d.name, data: d.data })),
+      };
+
+      await api.post('/vendors', payload);
       toast.push('Thanks! Our procurement team will contact you shortly.', 'success');
       setFormData(initialForm);
+      setLogoData(null);
+      setDocuments([]);
       navigate('/');
     } catch (error) {
       toast.push(error.response?.data?.error || 'Something went wrong. Please try again.', 'error');
@@ -58,163 +91,97 @@ export default function VendorOnboarding() {
   };
 
   return (
-    <div className="bg-gray-50 min-h-screen">
-      <section className="bg-gradient-to-br from-slate-900 via-slate-800 to-blue-800 text-white">
-        <div className="container mx-auto px-6 py-16 flex flex-col lg:flex-row gap-12">
-          <div className="flex-1 space-y-6">
-            <span className="inline-flex items-center gap-2 bg-white/10 px-4 py-1 rounded-full text-sm font-medium backdrop-blur">
-              <FaHandshake className="text-emerald-300" /> Partner with ITnVend
-            </span>
-            <h1 className="text-4xl lg:text-5xl font-extrabold leading-tight">
-              Join our vendor network powering IT infrastructure, digital media, and smart retail experiences.
-            </h1>
-            <p className="text-slate-200 text-lg">
-              We partner with specialists across the region—from hardware distributors and certified installers to creative studios and
-              vending innovators. Provide your details below and we’ll align the right opportunities.
-            </p>
-            <div className="grid gap-4 sm:grid-cols-3 text-sm text-slate-200">
-              <Feature icon={<FaShieldAlt className="text-teal-300" />} title="Curated engagements" text="Opportunities scoped by our delivery teams." />
-              <Feature icon={<FaTruck className="text-blue-300" />} title="Regional deployments" text="Support projects across Maldives & beyond." />
-              <Feature icon={<FaUserTie className="text-indigo-300" />} title="Strategic partnership" text="Access quarterly planning & enablement." />
+    <div className="bg-gradient-to-b from-white to-slate-50 min-h-screen">
+      <section className="container mx-auto px-6 py-14">
+        <div className="grid lg:grid-cols-2 gap-10 items-start">
+          <div className="space-y-6">
+            <div className="inline-flex items-center gap-3 px-4 py-2 rounded-full bg-blue-50 text-blue-700 w-max">
+              <FaHandshake className="text-blue-600" /> Become a partner
+            </div>
+            <h1 className="text-3xl lg:text-4xl font-bold text-slate-900">Join our vendor network</h1>
+            <p className="text-slate-600">We work with suppliers, integrators and creative partners. Fill this short form and our procurement team will review your submission.</p>
+
+            <div className="grid sm:grid-cols-3 gap-4 mt-6">
+              <InfoCard icon={<FaShieldAlt className="text-emerald-500" />} title="Trusted partners" body="We vet and onboard suppliers for secure, compliant engagements." />
+              <InfoCard icon={<FaTruck className="text-sky-500" />} title="Regional deliveries" body="Support available across Maldives and neighbouring markets." />
+              <InfoCard icon={<FaUserTie className="text-indigo-500" />} title="Strategic access" body="Approved vendors get access to opportunity briefs and planning." />
             </div>
           </div>
-          <div className="w-full max-w-md bg-white text-slate-900 rounded-2xl shadow-xl p-6 self-start">
-            <p className="text-sm font-semibold text-slate-500 uppercase tracking-wide mb-3">What to expect</p>
-            <ul className="space-y-3 text-sm text-slate-600">
-              <li>• A procurement specialist will review your capabilities within 3 business days.</li>
-              <li>• We may request additional credentials or references for regulated categories.</li>
-              <li>• Approved partners gain access to our shared planning portal and opportunity briefings.</li>
-            </ul>
-            <p className="text-sm text-slate-400 mt-4">
-              Already work with us? Email <a href="mailto:partners@itnvend.com" className="text-blue-600">partners@itnvend.com</a> to update your profile.
-            </p>
-          </div>
-        </div>
-      </section>
 
-      <section className="container mx-auto px-6 py-12">
-        <div className="max-w-5xl mx-auto bg-white border border-gray-100 rounded-2xl shadow-sm p-8">
-          <h2 className="text-2xl font-semibold text-gray-900 mb-6">Tell us about your organisation</h2>
-          <form onSubmit={handleSubmit} className="space-y-8">
-            <div className="grid gap-6 md:grid-cols-2">
-              <FormField
-                label="Legal entity name"
-                name="legalName"
-                value={formData.legalName}
-                onChange={handleChange}
-                required
-              />
-              <FormField
-                label="Website"
-                name="website"
-                type="url"
-                placeholder="https://"
-                value={formData.website}
-                onChange={handleChange}
-              />
-            </div>
-
-            <div>
-              <h3 className="text-lg font-semibold text-gray-800 mb-4">Primary contact</h3>
-              <div className="grid gap-6 md:grid-cols-2">
-                <FormField
-                  label="Contact person"
-                  name="contactPerson"
-                  value={formData.contactPerson}
-                  onChange={handleChange}
-                  placeholder="Full name"
-                  required
-                />
-                <FormField
-                  label="Email"
-                  name="email"
-                  type="email"
-                  value={formData.email}
-                  onChange={handleChange}
-                  required
-                />
-                <FormField
-                  label="Phone"
-                  name="phone"
-                  type="tel"
-                  value={formData.phone}
-                  onChange={handleChange}
-                  placeholder="+960 ..."
-                />
-                <FormField
-                  label="Head office address"
-                  name="address"
-                  value={formData.address}
-                  onChange={handleChange}
-                />
+          <div className="bg-white border border-gray-100 rounded-2xl shadow-sm p-8">
+            <h2 className="text-lg font-semibold text-slate-900 mb-4">Tell us about your organisation</h2>
+            <form onSubmit={handleSubmit} className="space-y-6">
+              <div className="grid gap-4 md:grid-cols-2">
+                <label className="block text-sm">
+                  <div className="text-sm font-medium text-slate-700">Legal entity name</div>
+                  <input name="legalName" value={formData.legalName} onChange={handleChange} required className="mt-1 block w-full border rounded px-3 py-2" />
+                </label>
+                <label className="block text-sm">
+                  <div className="text-sm font-medium text-slate-700">Website</div>
+                  <input name="website" value={formData.website} onChange={handleChange} placeholder="https://" className="mt-1 block w-full border rounded px-3 py-2" />
+                </label>
               </div>
-            </div>
 
-            <div>
-              <h3 className="text-lg font-semibold text-gray-800 mb-4">Capabilities & scope</h3>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Core services (<span className="text-gray-500">select or describe the work you can deliver</span>)
-              </label>
-              <textarea
-                name="capabilities"
-                rows={4}
-                value={formData.capabilities}
-                onChange={handleChange}
-                className="w-full border rounded-md px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
-                placeholder={capabilitiesHints.join(', ')}
-                required
-              />
-              <label className="block text-sm font-medium text-gray-700 mt-4 mb-2">
-                Supporting notes <span className="text-gray-500">(references, key certifications, service regions)</span>
-              </label>
-              <textarea
-                name="notes"
-                rows={3}
-                value={formData.notes}
-                onChange={handleChange}
-                className="w-full border rounded-md px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
-              />
-            </div>
+              <div>
+                <h3 className="text-sm font-medium text-slate-700">Primary contact</h3>
+                <div className="grid gap-4 md:grid-cols-2 mt-3">
+                  <input name="contactPerson" value={formData.contactPerson} onChange={handleChange} placeholder="Full name" className="block w-full border rounded px-3 py-2" required />
+                  <input name="email" type="email" value={formData.email} onChange={handleChange} placeholder="email@example.com" className="block w-full border rounded px-3 py-2" required />
+                  <input name="phone" value={formData.phone} onChange={handleChange} placeholder="+960 ..." className="block w-full border rounded px-3 py-2" />
+                  <input name="address" value={formData.address} onChange={handleChange} placeholder="Head office address" className="block w-full border rounded px-3 py-2" />
+                </div>
+              </div>
 
-            <div className="flex justify-end">
-              <button
-                type="submit"
-                disabled={isSubmitting}
-                className="inline-flex items-center gap-2 rounded-md bg-blue-600 px-6 py-2 text-white font-semibold shadow hover:bg-blue-700 disabled:bg-gray-400"
-              >
-                {isSubmitting ? 'Submitting...' : 'Submit application'}
-              </button>
-            </div>
-          </form>
+              <div>
+                <h3 className="text-sm font-medium text-slate-700">Capabilities & scope</h3>
+                <div className="mt-3 grid gap-2">
+                  {capabilitiesHints.map((c) => (
+                    <label key={c} className="inline-flex items-center gap-2 text-sm">
+                      <input type="checkbox" checked={(formData.capabilities || []).includes(c)} onChange={() => toggleCapability(c)} />
+                      <span>{c}</span>
+                    </label>
+                  ))}
+                  <textarea name="notes" rows={3} value={formData.notes} onChange={handleChange} className="mt-2 block w-full border rounded px-3 py-2" placeholder="Additional notes, certifications, regions served" />
+                </div>
+              </div>
+
+              <div>
+                <h3 className="text-sm font-medium text-slate-700">Uploads</h3>
+                <div className="mt-2 grid gap-3">
+                  <label className="flex items-center gap-3 p-3 border rounded-md">
+                    <FaUpload />
+                    <span className="text-sm">Company logo (optional)</span>
+                    <input type="file" accept="image/*" onChange={handleLogo} className="ml-auto" />
+                  </label>
+                  <label className="flex items-center gap-3 p-3 border rounded-md">
+                    <FaUpload />
+                    <span className="text-sm">Supporting documents (certificates, reference letters)</span>
+                    <input type="file" multiple onChange={handleDocs} className="ml-auto" />
+                  </label>
+                  {logoData && <div className="text-xs text-slate-500">Logo uploaded: {logoData.name}</div>}
+                  {documents.length > 0 && <div className="text-xs text-slate-500">Documents: {documents.map(d => d.name).join(', ')}</div>}
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end gap-3">
+                <button type="button" onClick={() => navigate('/')} className="px-4 py-2 border rounded">Cancel</button>
+                <button type="submit" disabled={isSubmitting} className="px-6 py-2 rounded bg-blue-600 text-white">{isSubmitting ? 'Submitting...' : 'Submit application'}</button>
+              </div>
+            </form>
+          </div>
         </div>
       </section>
     </div>
   );
 }
 
-function FormField({ label, name, value, onChange, type = 'text', placeholder, required = false }) {
+function InfoCard({ icon, title, body }) {
   return (
-    <label className="block text-sm font-medium text-gray-700">
-      {label} {required && <span className="text-red-500">*</span>}
-      <input
-        type={type}
-        name={name}
-        value={value}
-        onChange={onChange}
-        placeholder={placeholder}
-        required={required}
-        className="mt-1 w-full border rounded-md px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
-      />
-    </label>
-  );
-}
-
-function Feature({ icon, title, text }) {
-  return (
-    <div className="bg-white/10 rounded-lg p-4 space-y-2">
-      <div className="text-2xl">{icon}</div>
-      <div className="text-sm font-semibold tracking-wide uppercase">{title}</div>
-      <p className="text-xs text-slate-200 leading-relaxed">{text}</p>
+    <div className="bg-white border rounded-lg p-4 text-sm">
+      <div className="text-2xl mb-2">{icon}</div>
+      <div className="font-semibold">{title}</div>
+      <div className="text-xs text-slate-600 mt-1">{body}</div>
     </div>
   );
 }
+

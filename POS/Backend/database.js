@@ -707,6 +707,11 @@ export async function setupDatabase() {
     await ensureColumn(db, 'shifts', 'notes', 'TEXT');
 
     await db.run("UPDATE shifts SET opened_at = started_at WHERE opened_at IS NULL AND started_at IS NOT NULL");
+    
+    // Ensure outlets can store payment instructions shown on invoices
+    await ensureColumn(db, 'outlets', 'payment_instructions', 'TEXT');
+    await ensureColumn(db, 'outlets', 'footer_note', 'TEXT');
+    await ensureColumn(db, 'settings', 'footer_note', 'TEXT');
     await db.run("UPDATE shifts SET opened_by = COALESCE(opened_by, CAST(started_by AS TEXT)) WHERE started_by IS NOT NULL");
     await db.run("UPDATE shifts SET closed_at = ended_at WHERE closed_at IS NULL AND ended_at IS NOT NULL");
     await db.run("UPDATE shifts SET starting_cash = COALESCE(starting_cash, starting_balance) WHERE starting_balance IS NOT NULL");

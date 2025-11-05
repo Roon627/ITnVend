@@ -1,6 +1,13 @@
 import PDFDocument from 'pdfkit';
 import fs from 'fs';
 import path from 'path';
+import https from 'https';
+import twemoji from 'twemoji';
+
+// Twemoji cache settings
+const TWEMOJI_CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
+const TWEMOJI_CACHE_CLEAN_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 hours
+let _lastTwemojiCacheCleanup = 0;
 
 const CURRENCY_SYMBOLS = {
     USD: '$',
@@ -14,7 +21,7 @@ const CURRENCY_SYMBOLS = {
     INR: '\u20B9',
 };
 
-export function generateInvoicePdf(invoice, dataCallback, endCallback) {
+export async function generateInvoicePdf(invoice, dataCallback, endCallback) {
     const doc = new PDFDocument({ margin: 50, size: 'A4' });
     doc.on('data', dataCallback);
     doc.on('end', endCallback);
@@ -62,6 +69,64 @@ export function generateInvoicePdf(invoice, dataCallback, endCallback) {
         }
         return null;
     };
+
+    const fetchImageBuffer = (url) => new Promise((resolve, reject) => {
+        try {
+            // Simple caching: store twemoji images under public/images/twemoji/<basename>
+            const cacheDir = path.join(process.cwd(), 'public', 'images', 'twemoji');
+            try { fs.mkdirSync(cacheDir, { recursive: true }); } catch (e) {}
+            // perform periodic cleanup of old cached files
+            try {
+                const now = Date.now();
+                if (!_lastTwemojiCacheCleanup || (now - _lastTwemojiCacheCleanup) > TWEMOJI_CACHE_CLEAN_INTERVAL_MS) {
+                    _lastTwemojiCacheCleanup = now;
+                    // cleanup function: remove files older than TTL
+                    try {
+                        const files = fs.readdirSync(cacheDir || '.');
+                        for (const f of files) {
+                            try {
+                                const p = path.join(cacheDir, f);
+                                const stat = fs.statSync(p);
+                                if (Date.now() - stat.mtimeMs > TWEMOJI_CACHE_TTL_MS) {
+                                    try { fs.unlinkSync(p); } catch (e) {}
+                                }
+                            } catch (e) { /* ignore per-file errors */ }
+                        }
+                    } catch (e) { /* ignore cleanup errors */ }
+                }
+            } catch (e) { /* ignore */ }
+            let key = null;
+            try {
+                const u = new URL(url);
+                key = path.basename(u.pathname);
+            } catch (err) {
+                // fallback to sanitized name
+                key = url.replace(/[^a-z0-9\.\-]/gi, '_');
+            }
+            const cachedPath = path.join(cacheDir, key);
+            try {
+                if (fs.existsSync(cachedPath)) {
+                    return resolve(fs.readFileSync(cachedPath));
+                }
+            } catch (err) {}
+
+            const parts = new URL(url);
+            const get = parts.protocol === 'https:' ? https.get : https.get;
+            get(url, (res) => {
+                if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+                    return fetchImageBuffer(res.headers.location).then(resolve).catch(reject);
+                }
+                if (res.statusCode !== 200) return reject(new Error(`Failed to fetch ${url}: ${res.statusCode}`));
+                const chunks = [];
+                res.on('data', (c) => chunks.push(c));
+                res.on('end', () => {
+                    const buf = Buffer.concat(chunks);
+                    try { fs.writeFileSync(cachedPath, buf); } catch (err) { /* ignore write errors */ }
+                    resolve(buf);
+                });
+            }).on('error', reject);
+        } catch (err) { reject(err); }
+    });
 
     const outlet = invoice.outlet || {};
     const outletName = outlet.name || invoice.outlet_name || 'My Outlet';
@@ -157,9 +222,31 @@ export function generateInvoicePdf(invoice, dataCallback, endCallback) {
     doc.fontSize(14).text(`${currencySymbol}${total.toFixed(2)}`, 470, y + 50, { width: 80, align: 'right' });
 
     // Optional invoice note / footer - strip HTML for PDF and attempt to render inline images
-    if (outlet.invoice_template) {
+    const footerParts = [];
+    if (outlet.invoice_template) footerParts.push(String(outlet.invoice_template || ''));
+    if (outlet.payment_instructions) footerParts.push(String(outlet.payment_instructions || ''));
+
+    // Append a small final footer note after payment instructions
+    const finalFooterNote = outlet.footer_note || 'Please keep this invoice as proof of payment.';
+    if (finalFooterNote && String(finalFooterNote).trim()) {
+        footerParts.push(String(finalFooterNote));
+    }
+
+    if (footerParts.length) {
         try {
-            const raw = String(outlet.invoice_template || '');
+            let raw = footerParts.join('\n\n');
+
+            // Use twemoji to convert emoji characters into <img src> tags (pointing to twemoji CDN)
+            try {
+                raw = twemoji.parse(raw, {
+                    folder: '72x72',
+                    ext: '.png',
+                    base: 'https://twemoji.maxcdn.com/v/latest/'
+                });
+            } catch (err) {
+                // if twemoji parsing fails, continue with raw
+            }
+
             // find image srcs
             const imgSrcs = [];
             let m;
@@ -169,30 +256,117 @@ export function generateInvoicePdf(invoice, dataCallback, endCallback) {
             }
 
             // strip html but preserve line breaks
-            const text = raw.replace(/<br\s*\/?>/gi, '\n').replace(/<[^>]+>/g, '');
-            doc.moveDown(2);
-            doc.fontSize(9).fillColor('#444').text(text, 50, y + 100, { width: 500 });
+            const text = raw.replace(/<br\s*\/?/gi, '\\n').replace(/<[^>]+>/g, '');
 
-            // render any inline images referenced (attempt to resolve local /images paths)
-            if (imgSrcs.length) {
-                let imgX = 60;
-                const imgY = doc.y + 8;
-                for (const src of imgSrcs) {
+            // render text and images inline (handle wrapping)
+            doc.moveDown(2);
+            doc.fontSize(9).fillColor('#444');
+
+            const renderX = 50;
+            const renderYStart = y + 100;
+            const maxWidth = 500;
+
+            // Normalize various <br> forms and encoded variants to newlines for layout
+            raw = raw.replace(/&lt;br\s*\/?&gt;/gi, "\n");
+            raw = raw.replace(/<br\s*\/?/gi, "\n");
+            // also handle stray 'br/>' or 'br>' fragments that may appear after earlier sanitization
+            raw = raw.replace(/br\s*\/?\>/gi, "\n");
+
+            // Build ordered segments from the raw HTML (either text or <img ...>)
+            const segments = [];
+            const segRe = /(<img[^>]*src=["']?([^"' >]+)["']?[^>]*>)|([^<]+)/gi;
+            let sm;
+            while ((sm = segRe.exec(raw)) !== null) {
+                if (sm[1]) {
+                    segments.push({ type: 'img', src: sm[2] });
+                } else if (sm[3]) {
+                    // text: preserve newlines
+                    segments.push({ type: 'text', text: sm[3] });
+                }
+            }
+
+            // Prefetch image buffers into a map
+            const imgBufferMap = {};
+            for (const s of segments) {
+                if (s.type === 'img' && s.src) {
                     try {
-                        const imgPath = resolveLocalImagePath(src);
-                        if (imgPath) {
-                            doc.image(imgPath, imgX, imgY, { width: 24, height: 24, fit: [24, 24] });
-                            imgX += 34;
+                        const localPath = resolveLocalImagePath(s.src);
+                        if (localPath) {
+                            imgBufferMap[s.src] = fs.readFileSync(localPath);
+                        } else {
+                            try {
+                                imgBufferMap[s.src] = await fetchImageBuffer(s.src);
+                            } catch (err) {
+                                imgBufferMap[s.src] = null;
+                            }
                         }
                     } catch (err) {
-                        // ignore image rendering errors
+                        imgBufferMap[s.src] = null;
                     }
+                }
+            }
+
+            // Layout: render tokens inline, measuring widths to wrap as needed
+            let curX = renderX;
+            let curY = renderYStart;
+            // emoji sizing & layout tweaks
+            const imgW = 14;
+            const imgH = 14;
+            const gapAfterImg = 6;
+            const lineHeight = 16; // increased line height for footer to avoid crowding
+
+            for (const s of segments) {
+                if (s.type === 'text') {
+                    // split by lines then by words to preserve newlines
+                    const lines = s.text.split('\n');
+                    for (let li = 0; li < lines.length; li++) {
+                        const line = lines[li];
+                        const parts = line.split(/(\s+)/).filter(p => p !== '');
+                        for (const part of parts) {
+                            const word = part;
+                            const w = doc.widthOfString(word);
+                            const remaining = renderX + maxWidth - curX;
+                            if (w > remaining) {
+                                // move to next line
+                                curY += lineHeight;
+                                curX = renderX;
+                            }
+                            // draw the word at curX, curY
+                            try {
+                                doc.text(word, curX, curY, { width: Math.max(0, renderX + maxWidth - curX) });
+                            } catch (err) {
+                                // ignore
+                            }
+                            curX += w;
+                            // add a space after word if not end of line
+                            curX += doc.widthOfString(' ');
+                        }
+                        // after each explicit newline, move to next line
+                        if (li < lines.length - 1) {
+                            curY += lineHeight;
+                            curX = renderX;
+                        }
+                    }
+                } else if (s.type === 'img') {
+                    const buf = imgBufferMap[s.src];
+                    if (!buf) continue;
+                    const remaining = renderX + maxWidth - curX;
+                    if (imgW > remaining) {
+                        curY += lineHeight;
+                        curX = renderX;
+                    }
+                    try {
+                        // draw image slightly adjusted vertically to align with text baseline
+                        const imgY = curY - Math.floor(imgH / 3);
+                        doc.image(buf, curX, imgY, { width: imgW, height: imgH, fit: [imgW, imgH] });
+                    } catch (err) {}
+                    curX += imgW + gapAfterImg;
                 }
             }
         } catch (err) {
             // safe fallback: print raw text
             doc.moveDown(2);
-            doc.fontSize(9).fillColor('#444').text(String(outlet.invoice_template), 50, y + 100, { width: 500 });
+            doc.fontSize(9).fillColor('#444').text(String(footerParts.join('\n\n')), 50, y + 100, { width: 500 });
         }
     }
 

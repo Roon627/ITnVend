@@ -113,6 +113,17 @@ export default function OutletsPanel({
                 </div>
 
                 <div>
+                  <label className="block text-sm font-medium">Invoice footer note</label>
+                  <textarea
+                    value={formState.footer_note || ''}
+                    onChange={(e) => updateField('footer_note', e.target.value)}
+                    className="mt-2 block w-full border rounded-md px-3 py-2 shadow-sm"
+                    rows={3}
+                  />
+                  <p className="mt-1 text-xs text-slate-500">A short closing note to appear after payment instructions on invoices (e.g. "Please keep this invoice as proof of payment.").</p>
+                </div>
+
+                <div>
                   <label className="block text-sm font-medium">Brand Logo</label>
                   <div className="mt-2 flex items-center gap-3">
                     {formState.logo_url ? (

@@ -58,6 +58,8 @@ const DEFAULT_FORM = {
   social_instagram: '',
   social_whatsapp: '',
   social_telegram: '',
+  payment_instructions: '',
+  footer_note: '',
 };
 
 const DEFAULT_NEW_OUTLET = {
@@ -67,6 +69,7 @@ const DEFAULT_NEW_OUTLET = {
   store_address: '',
   invoice_template: FRIENDLY_INVOICE_NOTE,
   logo_url: '',
+  footer_note: '',
 };
 
 const withFallback = (value, fallback) => {
@@ -185,6 +188,8 @@ export default function Settings() {
   email_template_password_reset: withFallback(globalSettings.email_template_password_reset, FRIENDLY_PASSWORD_TEMPLATE),
       email_template_new_order_staff: withFallback(globalSettings.email_template_new_order_staff, FRIENDLY_STAFF_ORDER_TEMPLATE),
   logo_url: globalSettings.logo_url ?? '',
+  payment_instructions: (activeOutletId ? (globalSettings.outlet?.payment_instructions ?? '') : (globalSettings.payment_instructions ?? '')) ,
+  footer_note: (activeOutletId ? (globalSettings.outlet?.footer_note ?? '') : (globalSettings.footer_note ?? '')) ,
   social_facebook: globalSettings.social_links?.facebook ?? globalSettings.social_facebook ?? '',
       social_instagram: globalSettings.social_links?.instagram ?? globalSettings.social_instagram ?? '',
       social_whatsapp: globalSettings.social_links?.whatsapp ?? globalSettings.social_whatsapp ?? '',
@@ -236,6 +241,8 @@ export default function Settings() {
           gst_rate: formState.gst_rate,
           store_address: formState.store_address,
           invoice_template: formState.invoice_template,
+          payment_instructions: formState.payment_instructions,
+          footer_note: formState.footer_note,
         });
       }
 
@@ -269,6 +276,7 @@ export default function Settings() {
           email_template_password_reset: formState.email_template_password_reset,
           email_template_new_order_staff: formState.email_template_new_order_staff,
           logo_url: formState.logo_url,
+          footer_note: formState.footer_note,
           social_facebook: formState.social_facebook,
           social_instagram: formState.social_instagram,
           social_whatsapp: formState.social_whatsapp,
