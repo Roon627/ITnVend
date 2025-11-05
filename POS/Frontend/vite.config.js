@@ -1,7 +1,9 @@
+/* eslint-env node */
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import fs from 'fs';
 import path from 'path';
+import process from 'node:process';
 
 const DEV_HOST = process.env.VITE_DEV_HOST || true;
 const DEV_PORT = Number.parseInt(process.env.VITE_DEV_PORT || '5173', 10);
@@ -48,10 +50,10 @@ export default defineConfig({
             console.log('proxy error', err);
           });
           proxy.on('proxyReq', (proxyReq) => {
-            try { console.log('Sending Request to the Target:', proxyReq.method, proxyReq.path); } catch {}
+            console.log('Sending Request to the Target:', proxyReq.method, proxyReq.path);
           });
           proxy.on('proxyRes', (proxyRes) => {
-            try { console.log('Received Response from the Target:', proxyRes.statusCode); } catch {}
+            console.log('Received Response from the Target:', proxyRes.statusCode);
           });
         },
       },

@@ -201,6 +201,7 @@ export default function ManageLookups() {
       setLookups(lu || { brands: [], materials: [], colors: [], tags: [] });
       setCategories(cats || []);
     } catch (err) {
+      console.error('Failed to load lookup data', err);
       toast.push('Failed to load lookup data', 'error');
     } finally {
       setLoading(false);
@@ -217,6 +218,7 @@ export default function ManageLookups() {
       toast.push(`${type.slice(0, -1)} updated`, 'success');
       fetchLookups();
     } catch (err) {
+      console.error(`Failed to update ${type.slice(0, -1)}`, err);
       toast.push(`Failed to update ${type.slice(0, -1)}`, 'error');
     }
   };
@@ -228,6 +230,7 @@ export default function ManageLookups() {
       toast.push(`${type.slice(0, -1)} deleted`, 'success');
       fetchLookups();
     } catch (err) {
+      console.error(`Failed to delete ${type.slice(0, -1)}`, err);
       toast.push(`Failed to delete ${type.slice(0, -1)}`, 'error');
     }
   };
@@ -238,6 +241,7 @@ export default function ManageLookups() {
       toast.push(`${type.slice(0, -1)} added`, 'success');
       fetchLookups();
     } catch (err) {
+      console.error(`Failed to add ${type.slice(0, -1)}`, err);
       toast.push(`Failed to add ${type.slice(0, -1)}`, 'error');
     }
   };

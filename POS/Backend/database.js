@@ -147,6 +147,14 @@ export async function setupDatabase() {
             is_business INTEGER DEFAULT 0
         );
 
+        -- optional customer_type to distinguish vendors/sellers/regular
+        `);
+
+        // add customer_type column non-destructively
+        await ensureColumn(db, 'customers', 'customer_type', "TEXT DEFAULT 'regular'");
+
+        await db.exec(`
+
         -- Invoices & items
         CREATE TABLE IF NOT EXISTS invoices (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -712,6 +720,63 @@ export async function setupDatabase() {
     await ensureColumn(db, 'outlets', 'payment_instructions', 'TEXT');
     await ensureColumn(db, 'outlets', 'footer_note', 'TEXT');
     await ensureColumn(db, 'settings', 'footer_note', 'TEXT');
+
+    // Vendor extensions: commission rate (default 10%), bank/payment details and logo
+    await ensureColumn(db, 'vendors', 'commission_rate', 'REAL DEFAULT 0.10');
+    await ensureColumn(db, 'vendors', 'bank_details', 'TEXT');
+    await ensureColumn(db, 'vendors', 'logo_url', 'TEXT');
+    await ensureColumn(db, 'vendors', 'status', "TEXT DEFAULT 'pending'");
+    // optional link to customers table when vendor is approved
+    await ensureColumn(db, 'vendors', 'customer_id', 'INTEGER');
+
+    // Casual sellers / one-time listings (lightweight flow)
+    await db.exec(`
+        CREATE TABLE IF NOT EXISTS casual_sellers (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            email TEXT,
+            phone TEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE TABLE IF NOT EXISTS casual_items (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            casual_seller_id INTEGER,
+            title TEXT NOT NULL,
+            description TEXT,
+            condition TEXT,
+            asking_price REAL,
+            featured INTEGER DEFAULT 0,
+            listing_fee REAL DEFAULT 0,
+            product_id INTEGER,
+            invoice_id INTEGER,
+            status TEXT DEFAULT 'pending_payment',
+            -- user provided category/subcategory and tag to help admins triage
+            user_category TEXT,
+            user_subcategory TEXT,
+            user_tag TEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (casual_seller_id) REFERENCES casual_sellers(id),
+            FOREIGN KEY (product_id) REFERENCES products(id),
+            FOREIGN KEY (invoice_id) REFERENCES invoices(id)
+        );
+
+        CREATE TABLE IF NOT EXISTS casual_item_photos (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            casual_item_id INTEGER,
+            path TEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (casual_item_id) REFERENCES casual_items(id)
+        );
+    `);
+    // link casual sellers to customers when approved
+    await ensureColumn(db, 'casual_sellers', 'customer_id', 'INTEGER');
+    // Ensure casual_items has product_id column for approvals that set product_id
+    await ensureColumn(db, 'casual_items', 'product_id', 'INTEGER');
+    // Ensure casual_items has user-provided category/subcategory/tag fields
+    await ensureColumn(db, 'casual_items', 'user_category', "TEXT");
+    await ensureColumn(db, 'casual_items', 'user_subcategory', "TEXT");
+    await ensureColumn(db, 'casual_items', 'user_tag', "TEXT");
     await db.run("UPDATE shifts SET opened_by = COALESCE(opened_by, CAST(started_by AS TEXT)) WHERE started_by IS NOT NULL");
     await db.run("UPDATE shifts SET closed_at = ended_at WHERE closed_at IS NULL AND ended_at IS NOT NULL");
     await db.run("UPDATE shifts SET starting_cash = COALESCE(starting_cash, starting_balance) WHERE starting_balance IS NOT NULL");
@@ -1064,5 +1129,28 @@ export async function setupDatabase() {
     }
 
     // return the opened sqlite database instance
+    // Ensure essential Chart of Accounts entries exist (idempotent).
+    // These are required by the commission & vendor payable posting logic.
+    // We prefer not to auto-create many accounts, only the minimal ones used in code paths.
+    try {
+        const ensureCoa = async (code, name, type = 'Revenue', category = 'Revenue') => {
+            const existing = await db.get('SELECT id FROM chart_of_accounts WHERE account_code = ?', [code]);
+            if (!existing) {
+                await db.run('INSERT INTO chart_of_accounts (account_code, account_name, account_type, category) VALUES (?, ?, ?, ?)', [code, name, type, category]);
+                console.log(`Created missing chart_of_accounts entry ${code} - ${name}`);
+            }
+        };
+
+        // Accounts Payable (current liabilities) - used for vendor payable GL lines (code 2000 seeded normally)
+        await ensureCoa('2000', 'Accounts Payable', 'Liability', 'Current Liabilities');
+
+        // Commission revenue (company's share) - if the seeded 4200 doesn't exist create a commission revenue account
+        // Note: the seed normally includes 4200 as Other Income; here we ensure an appropriate revenue account exists
+        await ensureCoa('4200', 'Commission Revenue', 'Revenue', 'Revenue');
+    } catch (err) {
+        // Do not throw - logging only so DB initialization continues in case of transient issues
+        console.warn('Failed to ensure minimal chart_of_accounts entries:', err?.message || err);
+    }
+
     return db;
 }

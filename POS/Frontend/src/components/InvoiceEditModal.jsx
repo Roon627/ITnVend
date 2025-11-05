@@ -30,7 +30,8 @@ export default function InvoiceEditModal({ invoiceId, onClose, onSaved }) {
           stock: it.product_stock ?? 0,
           image: it.product_image || null
         })));
-      } catch {
+      } catch (err) {
+        console.error('Failed to load invoice for edit', err);
         toast.push('Failed to load invoice for edit', 'error');
         onClose && onClose();
       } finally {
@@ -38,7 +39,7 @@ export default function InvoiceEditModal({ invoiceId, onClose, onSaved }) {
       }
     })();
     return () => { mounted = false; };
-  }, [invoiceId]);
+  }, [invoiceId, onClose, toast]);
 
   // debounced server-side product search
   useEffect(() => {
@@ -49,8 +50,8 @@ export default function InvoiceEditModal({ invoiceId, onClose, onSaved }) {
         const res = await api.get(`/products?search=${encodeURIComponent(productSearch)}`);
         if (!active) return;
         setProductResults((res || []).slice(0, 10));
-      } catch {
-        // ignore
+      } catch (err) {
+        console.warn('Product search failed', err);
       }
     }, 300);
     return () => { active = false; clearTimeout(t); };

@@ -224,3 +224,54 @@ Tell me which of the follow-up items you'd like me to implement next and I will 
 - Add `POS/Backend/.env.example` and `README` sections with explicit env var descriptions
 
 -- End of README --
+
+Recent updates (2025-11-05)
+---------------------------------------
+NOTE: The following changes were implemented on 2025-11-05 as part of the Vendor & Casual Seller feature work. These are non-destructive, additive changes that extend existing behavior while preserving backward compatibility with older API routes.
+
+Backend
+- Database schema additions (safe migrations via `ensureColumn` / `CREATE TABLE IF NOT EXISTS`):
+	- `vendors.commission_rate` (REAL, default 0.10)
+	- `vendors.bank_details` (TEXT)
+	- `vendors.logo_url` (TEXT)
+	- `vendors.status` (TEXT, default 'pending')
+	- New tables: `casual_sellers`, `casual_items`, `casual_item_photos` used for one-time seller listings.
+
+- New API endpoints (POS Backend `index.js`):
+	- POST `/api/vendors/register` — richer vendor registration (stores bank details, logo_url, commission_rate). Uses DB transactions and returns `{ id, message, commission_rate }`.
+	- POST `/api/sellers/submit-item` — casual seller lightweight submission. Creates a `casual_sellers` row and `casual_items` row, persists photos (supports multipart upload path or base64 data URLs), creates a POS invoice for the listing fee (100 MVR) and optional feature fee (20 MVR), and records corresponding journal entries. The created invoice id is returned in the response.
+
+- Invoice/accounting changes:
+	- When invoices are created via the existing POST `/api/invoices` route, the server now aggregates item sales by `products.supplier_id` and creates `accounts_payable` entries for each vendor with the vendor net amount after deducting the vendor's `commission_rate` (defaults to 10% if not set). This processing is best-effort and wrapped in try/catch so it does not block invoice creation on edge cases.
+	- Accounting GL updates: in addition to creating `accounts_payable` rows, the invoice posting now also attempts to write corresponding general ledger journal lines to reflect vendor payables and commission revenue. The code will debit `Sales Revenue` to remove vendor-supplied gross sales, credit `Accounts Payable` for the vendor net (uses account code `2000` if present), and credit `Commission Revenue` (uses account code `4200` / Other Income). This is best-effort: if the expected chart-of-accounts codes are not found the AP rows are still created and a warning is logged.
+
+Frontend
+- New pages added to the POS frontend (`POS/Frontend/src/pages`):
+	- `VendorRegister.jsx` — step-based vendor registration UI that uploads an optional logo and POSTs to `/api/vendors/register`.
+	- `CasualSeller.jsx` — one-time seller UI that uploads photos (to `/api/uploads`) and POSTs the submission payload to `/api/sellers/submit-item`; shows invoice summary on success.
+	- `Vendors.jsx` — admin list to review vendor applications (Pending / Active / Rejected) and approve or reject submissions. Available to manager+ roles at `/vendors`.
+	- `OneTimeSellers.jsx` — admin page to review one-time seller submissions, preview photos, and approve/reject listings. Available to manager/accounts roles at `/casual-items`.
+
+- Routes wired (POS frontend `App.jsx`):
+	- `/vendors/register` protected for `manager` role
+	- `/casual-seller` protected for `cashier`+ role
+
+Notes & testing
+- All new DB changes were made using `ensureColumn` and `CREATE TABLE IF NOT EXISTS` so existing SQLite files will upgrade automatically on server restart.
+- Uploads use the existing `/api/uploads` endpoint; if `multer` isn't present on your runtime, the backend has a base64 fallback that will still work.
+- To test casual seller flow:
+	1. Open POS UI as a cashier (or higher).
+	2. Navigate to `/casual-seller` and submit an item with or without photos.
+	3. Confirm response includes `invoiceId` and check `invoices` and `casual_items` tables.
+
+Migration & safety
+- Backup recommendation before production migration:
+	1. Backup the SQLite DB file: `copy POS\Backend\database.db POS\Backend\backups\database.db.%DATE:~0,10%`. For Postgres, take a DB dump.
+	2. Restart the POS backend — `setupDatabase()` will apply the non-destructive schema changes.
+
+Next steps (I can implement)
+- Frontend polish: client-side validation, file-size limits, thumbnails for logo/photo uploads, and a link in the sidebar for quick access to the new pages.
+- Accounting polish: explicit GL posting of commission revenue and vendor liabilities (double-entry reflecting commission split). Currently AP rows for vendor net are created; we can add journal lines to show commission revenue if desired.
+- Tests: integration tests that create casual submissions and assert invoice + AP rows exist.
+
+-- End of README --

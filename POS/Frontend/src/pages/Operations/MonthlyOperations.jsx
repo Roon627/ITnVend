@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { FaDownload, FaPrint, FaCheckCircle, FaExclamationTriangle, FaCalculator } from 'react-icons/fa';
 import api from '../../lib/api';
 import { useToast } from '../../components/ToastContext';
@@ -16,12 +16,7 @@ const MonthlyOperations = () => {
   const [loading, setLoading] = useState(false);
   const [processing, setProcessing] = useState(false);
 
-  // Load monthly data when month changes
-  useEffect(() => {
-    loadMonthlyData();
-  }, [selectedMonth]);
-
-  const loadMonthlyData = async () => {
+  const loadMonthlyData = useCallback(async () => {
     setLoading(true);
     try {
       const response = await api.get('/api/operations/monthly', {
@@ -35,7 +30,12 @@ const MonthlyOperations = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [selectedMonth, toast]);
+
+  // Load monthly data when month changes
+  useEffect(() => {
+    loadMonthlyData();
+  }, [loadMonthlyData]);
 
   const processMonthlyClose = async () => {
     if (!window.confirm(`Process monthly close for ${selectedMonth}? This will finalize the month's transactions and prepare for the next month.`)) {
@@ -44,7 +44,7 @@ const MonthlyOperations = () => {
 
     setProcessing(true);
     try {
-      const response = await api.post('/api/operations/monthly/process', {
+      await api.post('/api/operations/monthly/process', {
         month: selectedMonth
       });
 

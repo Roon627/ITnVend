@@ -19,6 +19,7 @@ export default function Login() {
       toast.push('Logged in', 'success');
       navigate(POS_PATH, { replace: true });
     } catch (err) {
+      console.error('Login failed', err);
       toast.push('Login failed — check your credentials', 'error');
     }
   }

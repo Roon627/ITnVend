@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { FaDownload, FaPrint, FaCheckCircle, FaExclamationTriangle, FaSignature, FaUser } from 'react-icons/fa';
 import api from '../../lib/api';
 import { useToast } from '../../components/ToastContext';
@@ -13,12 +13,7 @@ const DayEnd = () => {
   const [loading, setLoading] = useState(false);
   const [processing, setProcessing] = useState(false);
 
-  // Load day end data when date changes
-  useEffect(() => {
-    loadDayEndData();
-  }, [selectedDate]);
-
-  const loadDayEndData = async () => {
+  const loadDayEndData = useCallback(async () => {
     setLoading(true);
     try {
       const response = await api.get('/api/operations/day-end', {
@@ -32,7 +27,12 @@ const DayEnd = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [selectedDate, toast]);
+
+  // Load day end data when date changes
+  useEffect(() => {
+    loadDayEndData();
+  }, [loadDayEndData]);
 
   const processDayEnd = async () => {
     if (!window.confirm(`Process day end for ${selectedDate}? This will finalize the day's transactions.`)) {
@@ -41,7 +41,7 @@ const DayEnd = () => {
 
     setProcessing(true);
     try {
-      const response = await api.post('/api/operations/day-end/process', {
+      await api.post('/api/operations/day-end/process', {
         date: selectedDate
       });
 

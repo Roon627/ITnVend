@@ -6,6 +6,11 @@ import Customers from './pages/Customers';
 import Invoices from './pages/Invoices';
 import CustomerDetail from './pages/CustomerDetail';
 import Settings from './pages/Settings/Settings';
+import VendorRegister from './pages/VendorRegister';
+import CasualSeller from './pages/CasualSeller';
+import Vendors from './pages/Vendors';
+import OneTimeSellers from './pages/OneTimeSellers';
+import Submissions from './pages/Submissions';
 import Staff from './pages/Staff';
 import Login from './pages/Login';
 import ForgotPassword from './pages/ForgotPassword';
@@ -67,6 +72,11 @@ function App() {
       <Route path="/pos" element={<POS />} />
       <Route path="/products" element={<Products />} />
       <Route path="/invoices" element={<Invoices />} />
+  <Route path="/vendors" element={<RoleGuard minRole="manager"><Vendors /></RoleGuard>} />
+  <Route path="/vendors/register" element={<RoleGuard minRole="manager"><VendorRegister /></RoleGuard>} />
+  <Route path="/casual-seller" element={<RoleGuard minRole="cashier"><CasualSeller /></RoleGuard>} />
+  <Route path="/casual-items" element={<RoleGuard minRole="manager"><OneTimeSellers /></RoleGuard>} />
+  <Route path="/submissions" element={<RoleGuard minRole="cashier"><Submissions /></RoleGuard>} />
       <Route path="/customers" element={<Customers />} />
       <Route path="/customers/:id" element={<CustomerDetail />} />
       <Route path="/profile" element={<Profile />} />

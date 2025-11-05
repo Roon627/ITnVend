@@ -1,8 +1,14 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { FaBuilding, FaSearch, FaTrashAlt, FaUser, FaUsers, FaArrowRight } from 'react-icons/fa';
+import { useNavigate, useLocation } from 'react-router-dom';
+import { useAuth } from '../components/AuthContext';
+import { useSettings } from '../components/SettingsContext';
+import { FaBuilding, FaUsers, FaInbox, FaUserTie } from 'react-icons/fa';
 import api from '../lib/api';
 import { useToast } from '../components/ToastContext';
+import StatCard from '../components/StatCard';
+import TableToolbar from '../components/TableToolbar';
+import CustomerTable from '../components/CustomerTable';
+import CustomerDetailModal from '../components/CustomerDetailModal';
 
 const initialForm = {
   name: '',
@@ -13,6 +19,30 @@ const initialForm = {
   registration_number: '',
   is_business: false,
 };
+
+function ActionCard({ title, desc, to, requiredRole }) {
+  const navigate = useNavigate();
+  const { user } = useAuth();
+  const allowed = !requiredRole || (user && (['admin','manager','accounts','cashier'].includes(user.role) && (function(){
+    // role hierarchy: cashier < accounts < manager < admin
+    const rank = { cashier:1, accounts:2, manager:3, admin:4 };
+    return rank[user.role] >= (rank[requiredRole] || 0);
+  })()));
+
+  return (
+    <div className="bg-white border rounded-lg p-4 shadow-sm flex flex-col justify-between">
+      <div>
+        <div className="text-lg font-semibold">{title}</div>
+        <div className="text-sm text-gray-500 mt-2">{desc}</div>
+      </div>
+      <div className="mt-4 flex items-center justify-end">
+        <button onClick={() => navigate(to)} disabled={!allowed} className={`px-4 py-2 rounded ${allowed ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-400 cursor-not-allowed'}`}>
+          Open
+        </button>
+      </div>
+    </div>
+  );
+}
 
 function CustomerModal({ open, form, onClose, onChange, onSave, saving }) {
   if (!open) return null;
@@ -75,38 +105,225 @@ function CustomerModal({ open, form, onClose, onChange, onSave, saving }) {
 
 export default function Customers() {
   const [customers, setCustomers] = useState([]);
+  const [stats, setStats] = useState({
+    total: 0,
+    vendors: 0,
+    sellers: 0,
+    pending: 0,
+    business: 0,
+    individuals: 0,
+    outstandingCustomers: 0,
+    outstandingTotal: 0,
+  });
+  const [custTab, setCustTab] = useState('all');
   const [searchTerm, setSearchTerm] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [segmentFilter, setSegmentFilter] = useState('all');
   const [form, setForm] = useState(initialForm);
   const [customerModalOpen, setCustomerModalOpen] = useState(false);
   const [customerSaving, setCustomerSaving] = useState(false);
+  const [selectedCustomer, setSelectedCustomer] = useState(null);
+  const [detailOpen, setDetailOpen] = useState(false);
+  const [loadingCustomers, setLoadingCustomers] = useState(false);
+  const [loadingSummary, setLoadingSummary] = useState(false);
+  const [error, setError] = useState(null);
   const toast = useToast();
   const navigate = useNavigate();
+  const location = useLocation();
+  const { formatCurrency } = useSettings();
+  const [submissionCounts, setSubmissionCounts] = useState({ pendingVendors: 0, pendingCasual: 0 });
+
+  useEffect(() => {
+    const handle = setTimeout(() => {
+      setDebouncedSearch(searchTerm.trim());
+    }, 300);
+    return () => clearTimeout(handle);
+  }, [searchTerm]);
+
+  const fetchSummary = useCallback(async () => {
+    setLoadingSummary(true);
+    try {
+      const data = await api.get('/customers/summary');
+      if (data) {
+        setStats({
+          total: data.totalCustomers || 0,
+          vendors: data.activeVendors || 0,
+          sellers: data.oneTimeSellers || 0,
+          pending: data.pendingSubmissions || 0,
+          business: data.businessCustomers || 0,
+          individuals: data.individualCustomers || 0,
+          outstandingCustomers: data.customersWithOutstanding || 0,
+          outstandingTotal: data.totalOutstandingBalance || 0,
+        });
+        setSubmissionCounts({
+          pendingVendors: data.pendingVendors || 0,
+          pendingCasual: data.pendingCasualItems || 0,
+        });
+      }
+    } catch (err) {
+      console.error('Failed to load customer summary', err);
+    } finally {
+      setLoadingSummary(false);
+    }
+  }, []);
 
   const fetchCustomers = useCallback(async () => {
+    setLoadingCustomers(true);
+    setError(null);
     try {
-      const res = await api.get('/customers');
-      setCustomers(res || []);
+      let rows = [];
+
+      if (custTab === 'vendors') {
+        const vendors = await api.get('/vendors', { params: { status: 'active' } });
+        rows = (vendors || []).map((v) => ({
+          id: `vendor-${v.id}`,
+          name: v.legal_name || v.contact_person || `Vendor ${v.id}`,
+          email: v.email || null,
+          phone: v.phone || null,
+          address: v.address || null,
+          is_business: 1,
+          customer_type: 'vendor',
+          vendor_id: v.id,
+          status: v.status,
+          total_invoices: 0,
+          total_spent: 0,
+          outstanding_balance: 0,
+          last_activity: null,
+          raw: v,
+        }));
+      } else if (custTab === 'vendor-requests') {
+        const pending = await api.get('/vendors', { params: { status: 'pending' } });
+        rows = (pending || []).map((v) => ({
+          id: `vendor-${v.id}`,
+          name: v.legal_name || v.contact_person || `Vendor ${v.id}`,
+          email: v.email || null,
+          phone: v.phone || null,
+          address: v.address || null,
+          is_business: 1,
+          customer_type: 'vendor',
+          vendor_id: v.id,
+          status: v.status,
+          total_invoices: 0,
+          total_spent: 0,
+          outstanding_balance: 0,
+          last_activity: null,
+          raw: v,
+        }));
+      } else if (custTab === 'one-time-requests') {
+        const casual = await api.get('/casual-items', { params: { status: 'pending' } });
+        rows = (casual || []).map((c) => ({
+          id: `casual-${c.id}`,
+          name: c.title,
+          email: c.seller_email || null,
+          phone: c.seller_phone || null,
+          address: null,
+          is_business: 0,
+          customer_type: 'one-time-seller',
+          casual_item_id: c.id,
+          status: c.status,
+          total_invoices: 0,
+          total_spent: 0,
+          outstanding_balance: 0,
+          last_activity: null,
+          raw: c,
+        }));
+      } else {
+        const params = { includeMetrics: true };
+        if (custTab === 'one-time-seller') params.type = 'one-time-seller';
+        if (segmentFilter !== 'all') params.segment = segmentFilter;
+        if (debouncedSearch) params.search = debouncedSearch;
+
+        const res = await api.get('/customers', { params });
+        rows = Array.isArray(res) ? res : [];
+
+        if (custTab === 'all') {
+          try {
+            const vendorRows = await api.get('/vendors', { params: { status: 'active' } });
+            const emails = new Set(rows.map((c) => (c.email || '').toString().toLowerCase()));
+            const names = new Set(rows.map((c) => (c.name || '').toString().toLowerCase()));
+            for (const v of vendorRows || []) {
+              const vEmail = (v.email || '').toString().toLowerCase();
+              const vName = (v.legal_name || v.contact_person || '').toString().toLowerCase();
+              if ((vEmail && emails.has(vEmail)) || (vName && names.has(vName))) continue;
+              rows.push({
+                id: `vendor-${v.id}`,
+                name: v.legal_name || v.contact_person || `Vendor ${v.id}`,
+                email: v.email || null,
+                phone: v.phone || null,
+                address: v.address || null,
+                is_business: 1,
+                customer_type: 'vendor',
+                vendor_id: v.id,
+                total_invoices: 0,
+                total_spent: 0,
+                outstanding_balance: 0,
+                last_activity: null,
+                _synthetic: true,
+              });
+            }
+          } catch (mergeErr) {
+            console.debug('Could not merge vendor rows into customers list', mergeErr?.message || mergeErr);
+          }
+        }
+      }
+
+      setCustomers(rows);
     } catch (err) {
       console.error('Failed to load customers', err);
+      setError(err?.message || 'Failed to load customers');
       toast.push('Failed to load customers', 'error');
+    } finally {
+      setLoadingCustomers(false);
     }
-  }, [toast]);
+  }, [custTab, debouncedSearch, segmentFilter, toast]);
+
+  useEffect(() => {
+    fetchSummary();
+  }, [fetchSummary]);
 
   useEffect(() => {
     fetchCustomers();
   }, [fetchCustomers]);
 
-  const metrics = useMemo(() => {
-    const total = customers.length;
-    const business = customers.filter((c) => c.is_business).length;
-    const individuals = total - business;
-    const withOutstanding = customers.filter((c) => Number(c.outstanding_balance) > 0).length;
-    return { total, business, individuals, withOutstanding };
-  }, [customers]);
+  // pick tab from URL query param if present (e.g. /customers?tab=vendors)
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const urlTab = params.get('tab');
+    if (urlTab && ['all', 'vendors', 'one-time-seller', 'vendor-requests', 'one-time-requests', 'pending'].includes(urlTab)) {
+      setCustTab(urlTab);
+    }
+  }, [location.search]);
+
+  useEffect(() => {
+    if (!['all', 'one-time-seller'].includes(custTab) && segmentFilter !== 'all') {
+      setSegmentFilter('all');
+    }
+  }, [custTab, segmentFilter]);
+
+  const metrics = useMemo(() => ({
+    total: stats.total || 0,
+    business: stats.business || 0,
+    individuals: stats.individuals || 0,
+    withOutstanding: stats.outstandingCustomers || 0,
+  }), [stats]);
+
+  const emptyMessage = useMemo(() => {
+    switch (custTab) {
+      case 'vendors':
+        return 'No active vendors found.';
+      case 'vendor-requests':
+        return 'No vendor submissions pending review.';
+      case 'one-time-seller':
+        return 'No one-time sellers found.';
+      case 'one-time-requests':
+        return 'No one-time seller submissions pending review.';
+      default:
+        return 'No customers match your filters right now.';
+    }
+  }, [custTab]);
 
   const filteredCustomers = useMemo(() => {
-    const term = searchTerm.trim().toLowerCase();
+    const term = debouncedSearch.trim().toLowerCase();
     return customers
       .filter((c) => {
         if (segmentFilter === 'business' && !c.is_business) return false;
@@ -120,19 +337,58 @@ export default function Customers() {
           (c.registration_number && c.registration_number.toLowerCase().includes(term))
         );
       })
-      .sort((a, b) => a.name.localeCompare(b.name));
-  }, [customers, searchTerm, segmentFilter]);
+      .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+  }, [customers, debouncedSearch, segmentFilter]);
 
-  const handleDelete = async (id, event) => {
+  const handleEdit = (customer, event) => {
     event?.stopPropagation();
-    if (!window.confirm('Delete this customer?')) return;
+    setSelectedCustomer(customer);
+    setDetailOpen(true);
+  };
+
+  const handleView = (customer, event) => {
+    event?.stopPropagation();
+    setSelectedCustomer(customer);
+    setDetailOpen(true);
+  };
+
+  const handleCreateBill = (customer, event) => {
+    event?.stopPropagation();
+    navigate(`/invoices/create?customer_id=${customer.id}`);
+  };
+
+  // Approve / reject handlers for vendor and casual item requests
+  const handleApprove = async (id) => {
     try {
-      await api.del(`/customers/${id}`);
-      toast.push('Customer deleted', 'info');
-      fetchCustomers();
+      if (custTab === 'vendor-requests') {
+        await api.put(`/vendors/${id}/status`, { status: 'active' });
+        toast.push('Vendor approved', 'success');
+      } else if (custTab === 'one-time-requests') {
+        await api.put(`/casual-items/${id}/approve`);
+        toast.push('One-time item approved and published', 'success');
+      }
+      await fetchCustomers();
+      await fetchSummary();
     } catch (err) {
-      console.error('Failed to delete customer', err);
-      toast.push('Failed to delete customer', 'error');
+      console.error('Approve failed', err);
+      toast.push(err?.response?.data?.error || 'Failed to approve', 'error');
+    }
+  };
+
+  const handleReject = async (id) => {
+    try {
+      if (custTab === 'vendor-requests') {
+        await api.put(`/vendors/${id}/status`, { status: 'rejected' });
+        toast.push('Vendor rejected', 'info');
+      } else if (custTab === 'one-time-requests') {
+        await api.put(`/casual-items/${id}/reject`, { reason: 'Rejected by staff' });
+        toast.push('One-time item rejected', 'info');
+      }
+      await fetchCustomers();
+      await fetchSummary();
+    } catch (err) {
+      console.error('Reject failed', err);
+      toast.push(err?.response?.data?.error || 'Failed to reject', 'error');
     }
   };
 
@@ -140,6 +396,14 @@ export default function Customers() {
     { value: 'all', label: 'All', count: metrics.total },
     { value: 'business', label: 'Business', count: metrics.business },
     { value: 'individual', label: 'Individuals', count: metrics.individuals },
+  ];
+
+  const custTabs = [
+    { key: 'all', label: 'All Customers' },
+    { key: 'vendors', label: 'Vendors (Active)' },
+    { key: 'one-time-seller', label: 'One-time Sellers (Active)' },
+    { key: 'vendor-requests', label: 'Vendor Requests' },
+    { key: 'one-time-requests', label: 'One-Time Requests' },
   ];
 
   return (
@@ -151,44 +415,51 @@ export default function Customers() {
             Maintain a clean CRM across business clients and individual buyers. Track registration details and jump into profiles quickly.
           </p>
         </div>
-        <button
-          onClick={() => setCustomerModalOpen(true)}
-          className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-md font-semibold shadow hover:bg-blue-700"
-        >
-          <FaUsers /> New Customer
-        </button>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => setCustomerModalOpen(true)}
+            className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-md font-semibold shadow hover:bg-blue-700"
+          >
+            <FaUsers /> New Customer
+          </button>
+        </div>
       </header>
 
-      <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <div className="bg-white border border-gray-100 rounded-lg p-4 shadow-sm">
-          <div className="text-xs uppercase tracking-wide text-gray-500 font-semibold">Total customers</div>
-          <div className="mt-2 text-2xl font-bold text-gray-900">{metrics.total}</div>
-          <div className="text-xs text-gray-400 mt-1">Across all segments</div>
-        </div>
-        <div className="bg-white border border-gray-100 rounded-lg p-4 shadow-sm">
-          <div className="text-xs uppercase tracking-wide text-gray-500 font-semibold">Business accounts</div>
-          <div className="mt-2 text-2xl font-bold text-gray-900 flex items-center gap-2">
-            <FaBuilding className="text-blue-500" /> {metrics.business}
-          </div>
-          <div className="text-xs text-gray-400 mt-1">
-            {metrics.total ? Math.round((metrics.business / metrics.total) * 100) : 0}% of customer base
-          </div>
-        </div>
-        <div className="bg-white border border-gray-100 rounded-lg p-4 shadow-sm">
-          <div className="text-xs uppercase tracking-wide text-gray-500 font-semibold">Individuals</div>
-          <div className="mt-2 text-2xl font-bold text-gray-900 flex items-center gap-2">
-            <FaUser className="text-pink-500" /> {metrics.individuals}
-          </div>
-          <div className="text-xs text-gray-400 mt-1">Ideal for POS or B2C workflows</div>
-        </div>
-        <div className="bg-white border border-gray-100 rounded-lg p-4 shadow-sm">
-          <div className="text-xs uppercase tracking-wide text-gray-500 font-semibold">Outstanding balances</div>
-          <div className="mt-2 text-2xl font-bold text-gray-900">{metrics.withOutstanding}</div>
-          <div className="text-xs text-gray-400 mt-1">With open invoices</div>
-        </div>
+      {/* Top stats cards - unified overview */}
+      <section className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <StatCard icon={<FaUsers />} title="Total Customers" value={stats.total} link="/customers" bgColor="bg-indigo-50" textColor="text-indigo-800" />
+        <StatCard icon={<FaBuilding />} title="Vendors" value={stats.vendors} link="/customers?tab=vendors" bgColor="bg-green-50" textColor="text-green-800" />
+        <StatCard icon={<FaUserTie />} title="One-Time Sellers" value={stats.sellers} link="/customers?tab=one-time-seller" bgColor="bg-yellow-50" textColor="text-yellow-800" />
+        <StatCard
+          icon={<FaInbox />}
+          title="Pending Submissions"
+          value={`${stats.pending} (${submissionCounts.pendingVendors} vendor / ${submissionCounts.pendingCasual} casual)`}
+          link="/submissions"
+          bgColor="bg-pink-50"
+          textColor="text-pink-800"
+        />
       </section>
 
-      {/* Customer creation moved to modal to keep the page clean */}
+      <section className="mt-6 bg-white border rounded p-3">
+        <nav className="flex gap-2">
+          {custTabs.map((t) => (
+            <button
+              key={t.key}
+              onClick={() => {
+                setCustTab(t.key);
+                // attach route so the tab is linkable and bookmarkable
+                navigate(`/customers?tab=${t.key}`);
+              }}
+              className={`px-3 py-1 rounded ${custTab===t.key ? 'bg-blue-600 text-white' : 'bg-gray-100'}`}>
+              {t.label}
+            </button>
+          ))}
+        </nav>
+      </section>
+
+      {/* legacy metrics area is replaced by the StatCard grid above */}
+
+  {/* Customer creation moved to modal to keep the page clean */}
       {customerModalOpen && (
         <CustomerModal
           open={customerModalOpen}
@@ -207,7 +478,8 @@ export default function Customers() {
               toast.push('Customer added', 'info');
               setForm(initialForm);
               setCustomerModalOpen(false);
-              fetchCustomers();
+              await fetchCustomers();
+              await fetchSummary();
             } catch (err) {
               toast.push(err?.response?.data?.error || 'Failed to add customer', 'error');
             } finally {
@@ -218,108 +490,77 @@ export default function Customers() {
         />
       )}
 
-      <section className="bg-white border border-gray-100 rounded-lg shadow-sm p-6 space-y-4">
-        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-          <div className="flex items-center gap-2 flex-1">
-            <FaSearch className="text-gray-400" />
-            <input
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              placeholder="Search name, email, GST, registration..."
-              className="w-full border rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
-            />
-          </div>
-          <div className="flex items-center gap-2">
-            {segmentChips.map((chip) => (
-              <button
-                key={chip.value}
-                onClick={() => setSegmentFilter(chip.value)}
-                className={`px-3 py-1.5 rounded-full text-xs font-semibold border transition ${
-                  segmentFilter === chip.value ? 'bg-blue-600 text-white border-blue-600' : 'border-gray-200 text-gray-600 hover:border-blue-400'
-                }`}
-              >
-                {chip.label}
-                <span className={`ml-2 text-[10px] font-semibold ${segmentFilter === chip.value ? 'text-blue-100' : 'text-gray-400'}`}>
-                  {chip.count}
-                </span>
-              </button>
-            ))}
-          </div>
-        </div>
+      <section className="bg-white border border-gray-100 rounded-lg shadow-sm p-6">
+        <TableToolbar
+          onSearch={(v) => setSearchTerm(v)}
+          onAddCustomer={() => setCustomerModalOpen(true)}
+          searchTerm={searchTerm}
+          loading={loadingCustomers || loadingSummary}
+        />
 
-        <div className="border rounded-lg overflow-hidden">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-100">
-              <tr>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Customer</th>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Contact</th>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Tax / Reg</th>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Type</th>
-                <th className="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              {filteredCustomers.map((customer) => (
-                <tr
-                  key={customer.id}
-                  className="hover:bg-gray-50 cursor-pointer"
-                  onClick={() => navigate(`/customers/${customer.id}`)}
+        {error && (
+          <div className="mt-3 rounded-md border border-red-100 bg-red-50 px-4 py-2 text-sm text-red-600">
+            {error}
+          </div>
+        )}
+
+        {['all', 'one-time-seller'].includes(custTab) && (
+          <div className="mt-3 flex flex-wrap gap-2">
+            {segmentChips.map((chip) => {
+              const active = segmentFilter === chip.value;
+              return (
+                <button
+                  key={chip.value}
+                  type="button"
+                  onClick={() => setSegmentFilter(chip.value)}
+                  aria-pressed={active}
+                  className={`flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-semibold transition ${
+                    active
+                      ? 'border-blue-500 bg-blue-50 text-blue-700 shadow-sm'
+                      : 'border-gray-200 text-gray-600 hover:border-gray-300 hover:text-gray-800'
+                  }`}
                 >
-                  <td className="px-4 py-3">
-                    <div className="font-semibold text-gray-900">{customer.name}</div>
-                    {customer.address && <div className="text-xs text-gray-500 mt-1">{customer.address}</div>}
-                  </td>
-                  <td className="px-4 py-3 text-sm text-gray-600">
-                    <div>{customer.email || '—'}</div>
-                    <div className="text-xs text-gray-400">{customer.phone || 'No phone'}</div>
-                  </td>
-                  <td className="px-4 py-3 text-sm text-gray-600">
-                    <div>{customer.gst_number || '—'}</div>
-                    <div className="text-xs text-gray-400">{customer.registration_number || ''}</div>
-                  </td>
-                  <td className="px-4 py-3">
-                    <span
-                      className={`inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-semibold ${
-                        customer.is_business ? 'bg-blue-50 text-blue-700' : 'bg-emerald-50 text-emerald-700'
-                      }`}
-                    >
-                      {customer.is_business ? <FaBuilding /> : <FaUser />}
-                      {customer.is_business ? 'Business' : 'Individual'}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 text-right text-sm">
-                    <div className="flex justify-end gap-3">
-                      <button
-                        onClick={(e) => handleDelete(customer.id, e)}
-                        className="text-red-500 hover:text-red-700"
-                        aria-label={`Delete ${customer.name}`}
-                      >
-                        <FaTrashAlt />
-                      </button>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          navigate(`/customers/${customer.id}`);
-                        }}
-                        className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-700"
-                      >
-                        View <FaArrowRight />
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-              {filteredCustomers.length === 0 && (
-                <tr>
-                  <td colSpan={5} className="px-4 py-6 text-center text-gray-500 text-sm">
-                    No customers match your filters.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
+                  <span>{chip.label}</span>
+                  <span className={`rounded-full px-2 py-0.5 text-[0.7rem] font-bold ${active ? 'bg-white text-blue-700' : 'bg-gray-100 text-gray-500'}`}>
+                    {chip.count}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        )}
+
+        <div className="mt-4">
+          <CustomerTable
+            customers={filteredCustomers}
+            onEdit={(c) => handleEdit(c)}
+            onView={(c) => handleView(c)}
+            onCreateBill={(c) => handleCreateBill(c)}
+            tab={custTab}
+            onApprove={handleApprove}
+            onReject={handleReject}
+            loading={loadingCustomers}
+            emptyMessage={emptyMessage}
+            formatCurrency={formatCurrency}
+          />
         </div>
       </section>
+
+      {/* Detail modal for viewing/editing an existing customer */}
+      {selectedCustomer && (
+        <CustomerDetailModal
+          customer={selectedCustomer}
+          isOpen={detailOpen}
+          onClose={() => setDetailOpen(false)}
+          onSave={(updated) => {
+            // merge into current list
+            setCustomers((prev) => prev.map((p) => (p.id === updated.id ? { ...p, ...updated } : p)));
+            setDetailOpen(false);
+            toast.push('Customer updated', 'info');
+            fetchSummary();
+          }}
+        />
+      )}
     </div>
   );
 }

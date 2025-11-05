@@ -102,7 +102,7 @@ export default function SlipValidator() {
 
   const parseAmount = (v) => {
     if (v === null || v === undefined) return null;
-    const str = String(v).replace(/[,\s]/g, '').replace(/[^0-9.\-]/g, '');
+    const str = String(v).replace(/[\s,]/g, '').replace(/[^0-9.-]/g, '');
     const n = Number(str);
     return Number.isFinite(n) ? n : null;
   };
@@ -135,7 +135,7 @@ export default function SlipValidator() {
     try {
       const response = await api.validateSlip(transactionId.trim(), expectedAmount.toString().trim(), file);
       // basic slip-type detection using OCR text
-  const looksLikeSlip = detectSlipType(response?.extractedText || '', response?.confidence);
+      const looksLikeSlip = detectSlipType(response?.extractedText || '', response?.confidence);
       if (!looksLikeSlip) {
         // non-blocking toast for non-slip images instead of a blocking alert/modal
         toast.push("Hmm, this doesn't look like a payment slip. Please upload the correct transfer receipt.", 'warning');
@@ -293,6 +293,7 @@ export default function SlipValidator() {
                 const resp = await api.validateSlip(transactionId.trim(), expectedAmount.toString().trim(), file);
                 setResult(resp);
               } catch (e) {
+                console.error('Slip retry failed', e);
                 toast.push(e?.message || 'Retry failed', 'error');
               } finally {
                 setProcessing(false);

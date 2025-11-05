@@ -16,8 +16,8 @@ export function AuthProvider({ children }) {
         setAuthToken(t);
         return { token: t, role: role || null, username: username || null };
       }
-    } catch {
-      // ignore
+    } catch (storageErr) {
+      console.warn('Failed to bootstrap auth state from storage', storageErr);
     }
     return null;
   });
@@ -56,7 +56,9 @@ export function AuthProvider({ children }) {
         try {
           const body = await err?.response?.json?.();
           console.warn('Refresh response body:', body);
-        } catch { /* ignore */ }
+        } catch (parseErr) {
+          console.debug('No JSON body available for refresh failure', parseErr);
+        }
       }
     }
     setReauthRequired(true);
@@ -97,8 +99,8 @@ export function AuthProvider({ children }) {
       refreshTimerRef.current = setTimeout(() => {
         attemptRefresh();
       }, when);
-    } catch {
-      // ignore
+    } catch (scheduleErr) {
+      console.warn('Failed to schedule auth token refresh', scheduleErr);
       setReauthRequired(true);
     }
   }
@@ -132,14 +134,15 @@ export function AuthProvider({ children }) {
     localStorage.removeItem(LS_ROLE_KEY);
     localStorage.removeItem(LS_USERNAME_KEY);
     // clear refresh token cookie server-side
-    try { api.post('/token/logout'); } catch { /* ignore */ }
+    try { api.post('/token/logout'); } catch (logoutErr) { console.warn('Failed to revoke refresh token cookie', logoutErr); }
     setUser(null);
   }
 
   // expose switch helper on window for quick invocation from other pages
   useEffect(() => {
     window.__ITNVEND_SWITCH_USER__ = switchUser;
-    return () => { try { delete window.__ITNVEND_SWITCH_USER__; } catch { /* ignore */ } };
+    return () => { try { delete window.__ITNVEND_SWITCH_USER__; } catch (cleanupErr) { console.debug('Failed to cleanup switch helper', cleanupErr); } };
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- switchUser identity is stable enough and reassigning every render is unnecessary
   }, []);
 
   // schedule refresh when AuthProvider mounts
@@ -158,6 +161,7 @@ export function AuthProvider({ children }) {
     }
 
     return () => { if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- scheduleRefresh/attemptRefresh references would cause unnecessary re-runs that reset timers constantly
   }, []);
 
   return (

@@ -27,7 +27,6 @@ export function resolveMediaUrl(value) {
     if (!normalizedUploadBase) return value;
     try {
       const url = new URL(value);
-      const baseUrl = new URL(normalizedUploadBase);
 
       const shouldRewrite =
         LOCAL_HOSTS.has(url.hostname.toLowerCase()) ||
@@ -39,6 +38,7 @@ export function resolveMediaUrl(value) {
         return buildAbsolute(url.pathname, url.search, url.hash);
       }
     } catch (err) {
+      console.debug('resolveMediaUrl failed to parse URL', err);
       return value;
     }
     return value;

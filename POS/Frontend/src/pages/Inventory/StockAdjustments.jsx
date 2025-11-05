@@ -1,14 +1,13 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { api } from '../../lib/api';
 import { useToast } from '../../components/ToastContext';
-import { useSettings } from '../../components/SettingsContext';
+
+const PAGE_SIZE = 50;
 
 export default function StockAdjustments() {
   const toast = useToast();
-  const { formatCurrency } = useSettings();
   const [items, setItems] = useState([]);
   const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(50);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
   const [productId, setProductId] = useState('');
@@ -26,10 +25,10 @@ export default function StockAdjustments() {
     }
   };
 
-  const load = async () => {
+  const load = useCallback(async () => {
     setLoading(true);
     try {
-      const params = { page, pageSize };
+      const params = { page, pageSize: PAGE_SIZE };
       if (productId) params.productId = productId;
       if (username) params.username = username;
       if (startDate) params.startDate = startDate;
@@ -42,10 +41,10 @@ export default function StockAdjustments() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [page, productId, username, startDate, endDate, toast]);
 
   useEffect(() => { fetchProducts(); }, []);
-  useEffect(() => { load(); }, [page, pageSize]);
+  useEffect(() => { load(); }, [load]);
 
   const exportCsv = () => {
     const params = new URLSearchParams();
@@ -118,18 +117,21 @@ export default function StockAdjustments() {
             <button
               onClick={() => { setPage(1); load(); }}
               className="px-4 py-2 rounded bg-green-600 text-white hover:bg-green-700 transition"
+              disabled={loading}
             >
-              Filter
+              {loading ? 'Loading…' : 'Filter'}
             </button>
             <button
               onClick={() => { setProductId(''); setUsername(''); setStartDate(''); setEndDate(''); setPage(1); load(); }}
               className="px-4 py-2 rounded bg-gray-200 hover:bg-gray-300 text-gray-800 transition"
+              disabled={loading}
             >
               Clear
             </button>
             <button
               onClick={exportCsv}
               className="px-4 py-2 rounded bg-emerald-600 text-white hover:bg-emerald-700 transition"
+              disabled={loading}
             >
               Export CSV
             </button>
@@ -170,9 +172,9 @@ export default function StockAdjustments() {
         <div className="p-4 flex items-center justify-between">
           <div className="text-sm text-gray-600">Total: {total}</div>
           <div className="flex items-center gap-2">
-            <button disabled={page<=1} onClick={() => setPage((p) => Math.max(1, p-1))} className="btn-muted px-3 py-1">Prev</button>
+            <button disabled={page<=1 || loading} onClick={() => setPage((p) => Math.max(1, p-1))} className="btn-muted px-3 py-1">Prev</button>
             <span className="text-sm">Page {page}</span>
-            <button disabled={page*pageSize >= total} onClick={() => setPage((p) => p+1)} className="btn-muted px-3 py-1">Next</button>
+            <button disabled={page*PAGE_SIZE >= total || loading} onClick={() => setPage((p) => p+1)} className="btn-muted px-3 py-1">Next</button>
           </div>
         </div>
       </div>

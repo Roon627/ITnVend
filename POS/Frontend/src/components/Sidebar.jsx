@@ -3,6 +3,8 @@ import {
   FaFileInvoice,
   FaBoxOpen,
   FaUsers,
+  FaUserPlus,
+  FaTags,
   FaCog,
   FaCashRegister,
   FaUserCog,
@@ -76,11 +78,17 @@ export default function Sidebar() {
         <NavLink to="/customers" className={linkClass} onClick={handleNavClick}>
           <FaUsers /> {!collapsedLabelsHidden && 'Customers'}
         </NavLink>
+        {user && ['cashier', 'accounts', 'manager', 'admin'].includes(user.role) && (
+          <NavLink to="/submissions" className={linkClass} onClick={handleNavClick}>
+            <FaInbox /> {!collapsedLabelsHidden && 'Submissions'}
+          </NavLink>
+        )}
         {canManagePreorders && (
           <NavLink to="/preorders" className={linkClass} onClick={handleNavClick}>
             <FaInbox /> {!collapsedLabelsHidden && 'Preorders'}
           </NavLink>
         )}
+  {/* Vendor and one-time-seller direct links removed — managed inside Customers/Submissions */}
         {canValidateSlips && (
           <NavLink to="/validate-slip" className={linkClass} onClick={handleNavClick}>
             <FaFileSignature /> {!collapsedLabelsHidden && 'Validate Slip'}

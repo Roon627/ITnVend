@@ -93,6 +93,42 @@ app.use((req, res, next) => {
     next();
 });
 
+// Lightweight in-memory rate limiter for public submission endpoints
+const rateLimits = new Map(); // key -> { count, resetAt }
+function createRateLimiter({ windowMs = 60 * 60 * 1000, max = 20, keyFn = (req) => req.ip }) {
+    // cleanup interval
+    setInterval(() => {
+        const now = Date.now();
+        for (const [k, v] of rateLimits.entries()) {
+            if (v.resetAt <= now) rateLimits.delete(k);
+        }
+    }, Math.min(windowMs, 60 * 1000));
+
+    return (req, res, next) => {
+        try {
+            const key = keyFn(req) || req.ip;
+            const now = Date.now();
+            const entry = rateLimits.get(key);
+            if (!entry || entry.resetAt <= now) {
+                rateLimits.set(key, { count: 1, resetAt: now + windowMs });
+                return next();
+            }
+            if (entry.count >= max) {
+                const retryAfter = Math.ceil((entry.resetAt - now) / 1000);
+                res.set('Retry-After', String(retryAfter));
+                return res.status(429).json({ error: `Rate limit exceeded. Try again in ${retryAfter} seconds.` });
+            }
+            entry.count += 1;
+            rateLimits.set(key, entry);
+            return next();
+        } catch (err) {
+            // On error, allow the request rather than block by mistake
+            console.warn('Rate limiter error', err?.message || err);
+            return next();
+        }
+    };
+}
+
 app.use('/api/validate-slip', authMiddleware, requireRole(['accounts', 'manager', 'admin']), validateSlipRouter);
 // Public endpoint for storefront slip pre-validation (accepts data URL JSON)
 app.use('/api/validate-slip-public', validateSlipPublicRouter);
@@ -3158,6 +3194,407 @@ app.post('/api/vendors', async (req, res) => {
     }
 });
 
+// Vendor Registration (more complete) - stores commission rate and bank details
+app.post('/api/vendors/register', async (req, res) => {
+    const {
+        legal_name,
+        contact_person,
+        email,
+        phone,
+        address,
+        website,
+        capabilities,
+        notes,
+        bank_details,
+        logo_url,
+        commission_rate,
+        approve
+    } = req.body;
+
+    if (!legal_name || !email) return res.status(400).json({ error: 'legal_name and email required' });
+
+    const comm = Number.isFinite(Number(commission_rate)) ? Number(commission_rate) : 0.10;
+    const status = approve ? 'active' : 'pending';
+
+    try {
+        await db.run('BEGIN TRANSACTION');
+        const result = await db.run(
+            `INSERT INTO vendors (legal_name, contact_person, email, phone, address, website, capabilities, notes, bank_details, logo_url, commission_rate, status)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [legal_name, contact_person || null, email, phone || null, address || null, website || null, capabilities || null, notes || null, bank_details || null, logo_url || null, comm, status]
+        );
+        const vendorId = result.lastID;
+        await db.run('COMMIT');
+        await logActivity('vendors', vendorId, 'register', req.user?.username || null, JSON.stringify({ email }));
+        res.status(201).json({ id: vendorId, message: 'Vendor registered', commission_rate: comm });
+    } catch (err) {
+        await db.run('ROLLBACK');
+        if (String(err?.message || '').includes('UNIQUE constraint failed')) {
+            return res.status(409).json({ error: 'A vendor with this email already exists.' });
+        }
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// List vendors (supports optional ?status=pending|active|rejected)
+app.get('/api/vendors', authMiddleware, requireRole('cashier'), async (req, res) => {
+    try {
+        const status = req.query.status;
+        let rows;
+        if (status) {
+            rows = await db.all('SELECT * FROM vendors WHERE status = ? ORDER BY created_at DESC', [status]);
+        } else {
+            rows = await db.all('SELECT * FROM vendors ORDER BY created_at DESC');
+        }
+        res.json(rows);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Update vendor status (approve/reject)
+app.put('/api/vendors/:id/status', authMiddleware, requireRole(['manager','admin']), async (req, res) => {
+    const { id } = req.params;
+    const { status } = req.body;
+    if (!['pending', 'active', 'rejected'].includes(status)) return res.status(400).json({ error: 'Invalid status' });
+    try {
+        await db.run('BEGIN TRANSACTION');
+        await db.run('UPDATE vendors SET status = ? WHERE id = ?', [status, id]);
+        const vendor = await db.get('SELECT * FROM vendors WHERE id = ?', [id]);
+
+        // When vendor becomes active, create or link a customer record so vendors appear in Customers
+        if (status === 'active') {
+            // If vendor already linked to customer, skip
+            if (!vendor.customer_id) {
+                // Create a business customer using vendor details
+                const custRes = await db.run(
+                    'INSERT INTO customers (name, email, phone, address, is_business, customer_type) VALUES (?, ?, ?, ?, ?, ?)',
+                    [vendor.legal_name || vendor.contact_person || `Vendor ${id}`, vendor.email || null, vendor.phone || null, vendor.address || null, 1, 'vendor']
+                );
+                const customerId = custRes.lastID;
+                await db.run('UPDATE vendors SET customer_id = ? WHERE id = ?', [customerId, id]);
+                // Invalidate customers cache if available
+                try { await cacheService.invalidateCustomers(); } catch {}
+            }
+        }
+
+        await db.run('COMMIT');
+        await logActivity('vendors', id, 'status_update', req.user?.username || null, `Status set to ${status}`);
+        const updatedVendor = await db.get('SELECT * FROM vendors WHERE id = ?', [id]);
+        res.json(updatedVendor);
+    } catch (err) {
+        try { await db.run('ROLLBACK'); } catch {}
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// List casual items (one-time seller submissions)
+app.get('/api/casual-items', authMiddleware, requireRole(['accounts','manager','admin']), async (req, res) => {
+    try {
+        const status = req.query.status || null;
+        let rows;
+        const baseSql = `
+            SELECT ci.*, cs.name as seller_name, cs.email as seller_email, cs.phone as seller_phone, i.id as invoice_id, i.total as invoice_total,
+                   GROUP_CONCAT(cip.path) as photos
+            FROM casual_items ci
+            LEFT JOIN casual_sellers cs ON cs.id = ci.casual_seller_id
+            LEFT JOIN invoices i ON i.id = ci.invoice_id
+            LEFT JOIN casual_item_photos cip ON cip.casual_item_id = ci.id
+        `;
+        if (status) {
+            rows = await db.all(`${baseSql} WHERE ci.status = ? GROUP BY ci.id ORDER BY ci.created_at DESC`, [status]);
+        } else {
+            rows = await db.all(`${baseSql} GROUP BY ci.id ORDER BY ci.created_at DESC`);
+        }
+        res.json(rows || []);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Aggregated submissions endpoint for the Submissions UI
+app.get('/api/submissions', authMiddleware, requireRole(['cashier','accounts','manager','admin']), async (req, res) => {
+    try {
+            const pendingVendors = await db.all("SELECT * FROM vendors WHERE status = 'pending' ORDER BY created_at DESC");
+            // Include photos and invoice info for casual items so staff can inspect submissions
+            const pendingCasual = await db.all(`
+                SELECT ci.*, cs.name as seller_name, cs.email as seller_email, i.id as invoice_id, i.total as invoice_total,
+                       GROUP_CONCAT(cip.path) as photos
+                FROM casual_items ci
+                LEFT JOIN casual_sellers cs ON cs.id = ci.casual_seller_id
+                LEFT JOIN invoices i ON i.id = ci.invoice_id
+                LEFT JOIN casual_item_photos cip ON cip.casual_item_id = ci.id
+                WHERE ci.status LIKE '%pending%'
+                GROUP BY ci.id
+                ORDER BY ci.created_at DESC
+            `);
+            // General/other submissions could be extended; for now return empty array
+            const others = [];
+            res.json({ vendors: pendingVendors || [], casual_items: pendingCasual || [], others });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Approve a casual item: create a product entry and publish to inventory
+app.put('/api/casual-items/:id/approve', authMiddleware, requireRole(['manager','admin']), async (req, res) => {
+    const { id } = req.params;
+    try {
+        await db.run('BEGIN TRANSACTION');
+        const item = await db.get('SELECT ci.*, cs.name as seller_name FROM casual_items ci LEFT JOIN casual_sellers cs ON cs.id = ci.casual_seller_id WHERE ci.id = ?', [id]);
+        if (!item) {
+            await db.run('ROLLBACK');
+            return res.status(404).json({ error: 'Casual item not found' });
+        }
+
+        // Create a product record in inventory
+        const prodRes = await db.run(
+            'INSERT INTO products (name, price, stock, category, description, track_inventory, sku) VALUES (?, ?, ?, ?, ?, ?, ?)',
+            [item.title || `Item ${id}`, item.asking_price || 0, 1, 'Casual', `Listed by ${item.seller_name || 'One-time seller'} (casual_item_id:${id})\n\n${item.description || ''}`, 0, null]
+        );
+        const productId = prodRes.lastID;
+
+        // Link product to casual_items and mark approved
+        await db.run('UPDATE casual_items SET status = ?, product_id = ? WHERE id = ?', ['approved', productId, id]);
+
+        // Ensure the casual seller has a customer record so they appear in Customers
+        try {
+            if (item.casual_seller_id) {
+                const seller = await db.get('SELECT * FROM casual_sellers WHERE id = ?', [item.casual_seller_id]);
+                if (seller && !seller.customer_id) {
+                    const custRes = await db.run(
+                        'INSERT INTO customers (name, email, phone, is_business, customer_type) VALUES (?, ?, ?, ?, ?)',
+                        [seller.name || `Seller ${seller.id}`, seller.email || null, seller.phone || null, 0, 'one-time-seller']
+                    );
+                    const customerId = custRes.lastID;
+                    await db.run('UPDATE casual_sellers SET customer_id = ? WHERE id = ?', [customerId, seller.id]);
+                    try { await cacheService.invalidateCustomers(); } catch {}
+                }
+            }
+        } catch (e) {
+            console.warn('Failed to create customer for casual seller', e?.message || e);
+        }
+
+        await db.run('COMMIT');
+        await logActivity('casual_items', id, 'approved', req.user?.username || null, `Published as product ${productId}`);
+        res.json({ id, productId, message: 'Casual item approved and published' });
+    } catch (err) {
+        await db.run('ROLLBACK');
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Reject a casual item
+app.put('/api/casual-items/:id/reject', authMiddleware, requireRole(['manager','admin']), async (req, res) => {
+    const { id } = req.params;
+    const { reason } = req.body || {};
+    try {
+        await db.run('UPDATE casual_items SET status = ? WHERE id = ?', ['rejected', id]);
+        await logActivity('casual_items', id, 'rejected', req.user?.username || null, reason || null);
+        res.json({ id, status: 'rejected' });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Casual seller — lightweight one-time item submission with automatic listing fee invoice
+// protect public casual seller submissions with a lightweight rate limiter
+const casualSubmissionLimiter = createRateLimiter({
+    windowMs: 60 * 60 * 1000, // 1 hour
+    max: 30,
+    keyFn: (req) => {
+        // rate limit per IP + email (if provided) to reduce abuse
+        const ip = req.ip || req.connection?.remoteAddress || '';
+        const email = (req.body && (req.body.email || req.body.name)) || '';
+        return `${ip}|${String(email).toLowerCase().trim()}`;
+    }
+});
+
+app.post('/api/sellers/submit-item', casualSubmissionLimiter, async (req, res) => {
+    const {
+        name,
+        phone,
+        email,
+        productTitle,
+        description,
+        condition = 'Used',
+        photos = [],
+        askingPrice = 0,
+        feature = false,
+        payment_method = null
+    } = req.body;
+    // optional user-provided categorization / tag to help admin triage
+    const user_category = req.body?.user_category || null;
+    const user_subcategory = req.body?.user_subcategory || null;
+    const user_tag = req.body?.user_tag || null;
+
+    if (!name || !productTitle) return res.status(400).json({ error: 'Name and productTitle required' });
+
+    // Calculate listing fee: if askingPrice > 300 => 100, else 0. Feature adds 20.
+    const LISTING_FEE = (Number(askingPrice) || 0) > 300 ? 100 : 0;
+    const FEATURE_FEE = feature ? 20 : 0;
+    const subtotal = LISTING_FEE + FEATURE_FEE;
+
+    // Require payment slip when there's a non-zero listing total so staff can validate payment.
+    // Accept payment_method or payment_slip in request body. payment_slip may be a data URL or an already-uploaded path.
+    const payment_slip = req.body?.payment_slip || null;
+    if (subtotal > 0 && !payment_slip) {
+        return res.status(400).json({ error: 'Payment slip is required for listing fees' });
+    }
+
+    try {
+        await db.run('BEGIN TRANSACTION');
+
+        // create casual seller
+        const sellerRes = await db.run('INSERT INTO casual_sellers (name, email, phone) VALUES (?, ?, ?)', [name, email || null, phone || null]);
+        const casualSellerId = sellerRes.lastID;
+
+        // create casual item
+        const itemRes = await db.run(
+            `INSERT INTO casual_items (casual_seller_id, title, description, condition, asking_price, featured, listing_fee, status)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+            [casualSellerId, productTitle, description || null, condition, askingPrice || 0, feature ? 1 : 0, LISTING_FEE, 'pending_payment']
+        );
+        const casualItemId = itemRes.lastID;
+
+        // If user supplied category/subcategory/tag, persist them onto the casual_items row so admin sees them
+        if (user_category || user_subcategory || user_tag) {
+            try {
+                await db.run('UPDATE casual_items SET user_category = ?, user_subcategory = ?, user_tag = ? WHERE id = ?', [user_category, user_subcategory, user_tag, casualItemId]);
+            } catch (e) {
+                console.warn('Failed to persist user category/tag for casual item', e?.message || e);
+            }
+        }
+
+    // persist photos (accept either existing upload paths or data URLs)
+        for (let i = 0; i < (photos || []).length; i++) {
+            const p = photos[i];
+            let savedPath = null;
+            try {
+                if (typeof p === 'string' && p.startsWith('data:')) {
+                    // save via base64 fallback into uploads/casual_items
+                    const m = String(p).match(/^data:(.+);base64,(.+)$/);
+                    let base64 = p;
+                    let ext = '.png';
+                    if (m) {
+                        const mime = m[1];
+                        base64 = m[2];
+                        const parts = mime.split('/');
+                        ext = parts[1] ? '.' + parts[1].split('+')[0] : ext;
+                    }
+                    const now = new Date();
+                    const cat = `casual_items/${now.getFullYear()}/${String(now.getMonth() + 1).padStart(2, '0')}`;
+                    const { dir } = ensureUploadDir(cat, 'casual_items');
+                    const fname = `ci-${Date.now()}-${i}${ext}`;
+                    const fpath = path.join(dir, fname);
+                    fs.writeFileSync(fpath, Buffer.from(base64, 'base64'));
+                    const rel = path.relative(imagesDir, fpath).replace(/\\/g, '/');
+                    savedPath = `/uploads/${rel}`;
+                } else if (typeof p === 'string') {
+                    // treat as already-uploaded path
+                    savedPath = normalizeUploadPath(p) ? `/uploads/${normalizeUploadPath(p)}` : p;
+                }
+            } catch (pe) {
+                console.warn('Failed to persist casual item photo', pe?.message || pe);
+            }
+            if (savedPath) await db.run('INSERT INTO casual_item_photos (casual_item_id, path) VALUES (?, ?)', [casualItemId, savedPath]);
+        }
+
+        // persist payment slip if provided
+        let slipPath = null;
+        if (payment_slip) {
+            try {
+                if (typeof payment_slip === 'string' && payment_slip.startsWith('data:')) {
+                    const m = String(payment_slip).match(/^data:(.+);base64,(.+)$/);
+                    let base64 = payment_slip;
+                    let ext = 'png';
+                    if (m) {
+                        const mime = m[1];
+                        base64 = m[2];
+                        const parts = mime.split('/');
+                        ext = parts[1] ? parts[1].split('+')[0] : ext;
+                    }
+                    const now = new Date();
+                    const slipCat = `payment_slips/${now.getFullYear()}/${String(now.getMonth() + 1).padStart(2, '0')}`;
+                    const { dir } = ensureUploadDir(slipCat, 'payment_slips');
+                    const fname = `slip-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
+                    const fpath = path.join(dir, fname);
+                    fs.writeFileSync(fpath, Buffer.from(base64, 'base64'));
+                    const rel = path.relative(imagesDir, fpath).replace(/\\/g, '/');
+                    slipPath = `/uploads/${rel}`;
+                } else if (typeof payment_slip === 'string') {
+                    slipPath = normalizeUploadPath(payment_slip) ? `/uploads/${normalizeUploadPath(payment_slip)}` : payment_slip;
+                }
+            } catch (err) {
+                console.warn('Failed to persist payment slip for casual item', err?.message || err);
+            }
+        }
+
+        // create invoice for listing fee
+        const settingsRow = await db.get('SELECT * FROM settings WHERE id = 1');
+        let outlet = null;
+        if (settingsRow && settingsRow.current_outlet_id) {
+            outlet = await db.get('SELECT * FROM outlets WHERE id = ?', [settingsRow.current_outlet_id]);
+        }
+        if (!outlet) outlet = { id: null, gst_rate: settingsRow?.gst_rate || 0, currency: settingsRow?.currency || 'MVR' };
+
+        const gstRate = parseFloat(outlet.gst_rate || 0);
+        const taxAmount = +(subtotal * (gstRate / 100));
+        const total = +(subtotal + taxAmount);
+
+        const invRes = await db.run(
+            'INSERT INTO invoices (customer_id, subtotal, tax_amount, total, outlet_id, type, status) VALUES (?, ?, ?, ?, ?, ?, ?)',
+            [null, subtotal, taxAmount, total, outlet.id || null, 'invoice', 'issued']
+        );
+        const invoiceId = invRes.lastID;
+
+        // insert invoice item representing listing fee
+        await db.run('INSERT INTO invoice_items (invoice_id, product_id, quantity, price) VALUES (?, ?, ?, ?)', [invoiceId, null, 1, subtotal]);
+
+        // If a payment slip was provided, record it against payments table so POS can validate
+        if (slipPath) {
+            try {
+                await db.run('INSERT INTO payments (invoice_id, amount, method, note, reference, slip_path) VALUES (?, ?, ?, ?, ?, ?)', [invoiceId, total, payment_method || 'transfer', null, null, slipPath]);
+                // mark invoice payment method and reference where applicable
+                await db.run('UPDATE invoices SET payment_method = ? WHERE id = ?', [payment_method || 'transfer', invoiceId]);
+            } catch (pErr) {
+                console.warn('Failed to record payment slip for casual invoice', pErr?.message || pErr);
+            }
+        }
+
+        // create basic journal entry similar to /api/invoices
+        const accountsReceivable = await db.get('SELECT id FROM chart_of_accounts WHERE account_code = ?', ['1200']);
+        const salesRevenue = await db.get('SELECT id FROM chart_of_accounts WHERE account_code = ?', ['4000']);
+        const taxesPayable = await db.get('SELECT id FROM chart_of_accounts WHERE account_code = ?', ['2200']);
+
+        if (accountsReceivable && salesRevenue) {
+            const journalResult = await db.run(
+                'INSERT INTO journal_entries (entry_date, description, reference, total_debit, total_credit, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+                [new Date().toISOString().split('T')[0], `Listing Fee Invoice #${invoiceId}`, `LIST-${invoiceId}`, total, total, 'posted', new Date().toISOString()]
+            );
+            const journalId = journalResult.lastID;
+            await db.run('INSERT INTO journal_entry_lines (journal_entry_id, account_id, debit, credit, description) VALUES (?, ?, ?, ?, ?)', [journalId, accountsReceivable.id, total, 0, `Listing fee invoice #${invoiceId}`]);
+            await db.run('INSERT INTO journal_entry_lines (journal_entry_id, account_id, debit, credit, description) VALUES (?, ?, ?, ?, ?)', [journalId, salesRevenue.id, 0, subtotal, `Listing fee revenue #${invoiceId}`]);
+            if (taxAmount > 0 && taxesPayable) {
+                await db.run('INSERT INTO journal_entry_lines (journal_entry_id, account_id, debit, credit, description) VALUES (?, ?, ?, ?, ?)', [journalId, taxesPayable.id, 0, taxAmount, `GST on listing #${invoiceId}`]);
+            }
+        }
+
+        // link invoice to casual item
+        await db.run('UPDATE casual_items SET invoice_id = ? WHERE id = ?', [invoiceId, casualItemId]);
+
+        await db.run('COMMIT');
+
+        await logActivity('casual_items', casualItemId, 'created', req.user?.username || null, JSON.stringify({ invoiceId, subtotal, total }));
+
+        res.status(201).json({ id: casualItemId, invoiceId, subtotal, taxAmount, total, message: 'Casual item submitted — invoice created and pending payment.' });
+    } catch (err) {
+        await db.run('ROLLBACK');
+        console.error('Failed to submit casual item', err?.message || err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
 // Customer update
 app.put('/api/customers/:id', async (req, res) => {
     const { id } = req.params;
@@ -3181,20 +3618,157 @@ app.put('/api/customers/:id', async (req, res) => {
 // Customer Routes
 app.get('/api/customers', async (req, res) => {
     try {
-        // Try to get from cache first
-        const cachedCustomers = await cacheService.getCustomers();
-        if (cachedCustomers) {
-            console.log('Serving customers from cache');
-            return res.json(cachedCustomers);
+        const {
+            search = '',
+            segment = null,
+            type = null,
+            includeMetrics = 'false',
+        } = req.query || {};
+
+        const includeMetricsFlag = includeMetrics === true || includeMetrics === 'true' || includeMetrics === '1';
+        const hasFilters = Boolean(
+            (search && search.trim()) ||
+            (segment && segment !== 'all') ||
+            (type && type !== 'all') ||
+            includeMetricsFlag
+        );
+
+        if (!hasFilters) {
+            const cachedCustomers = await cacheService.getCustomers();
+            if (cachedCustomers) {
+                console.log('Serving customers from cache');
+                return res.json(cachedCustomers);
+            }
         }
 
-        // Cache miss - fetch from database
-        const customers = await db.all('SELECT * FROM customers');
+        const whereClauses = [];
+        const params = [];
 
-        // Cache the result for 5 minutes
-        await cacheService.setCustomers(customers, 300);
+        const normalizedType = (type || '').toString().trim().toLowerCase();
+        if (normalizedType && normalizedType !== 'all') {
+            if (normalizedType === 'one-time-seller') {
+                whereClauses.push("LOWER(REPLACE(COALESCE(c.customer_type, ''), '_', '-')) = ?");
+            } else {
+                whereClauses.push('LOWER(COALESCE(c.customer_type, "")) = ?');
+            }
+            params.push(normalizedType);
+        }
+
+        const normalizedSegment = (segment || '').toString().trim().toLowerCase();
+        if (normalizedSegment === 'business') {
+            whereClauses.push('COALESCE(c.is_business, 0) = 1');
+        } else if (normalizedSegment === 'individual') {
+            whereClauses.push('COALESCE(c.is_business, 0) = 0');
+        }
+
+        const searchTerm = search.toString().trim().toLowerCase();
+        if (searchTerm) {
+            const likeValue = `%${searchTerm.replace(/[\\%_]/g, '\\$&')}%`;
+            whereClauses.push(`(
+                LOWER(COALESCE(c.name, '')) LIKE ? ESCAPE '\\' OR
+                LOWER(COALESCE(c.email, '')) LIKE ? ESCAPE '\\' OR
+                LOWER(COALESCE(c.phone, '')) LIKE ? ESCAPE '\\' OR
+                LOWER(COALESCE(c.gst_number, '')) LIKE ? ESCAPE '\\' OR
+                LOWER(COALESCE(c.registration_number, '')) LIKE ? ESCAPE '\\'
+            )`);
+            params.push(likeValue, likeValue, likeValue, likeValue, likeValue);
+        }
+
+        let selectClause = 'c.*';
+        let joinClause = '';
+        if (includeMetricsFlag) {
+            selectClause = `
+                c.*,
+                COALESCE(m.total_invoices, 0) AS total_invoices,
+                COALESCE(m.total_spent, 0) AS total_spent,
+                m.last_activity AS last_activity,
+                COALESCE(m.outstanding_balance, 0) AS outstanding_balance
+            `;
+            joinClause = `
+                LEFT JOIN (
+                    SELECT
+                        customer_id,
+                        COUNT(*) AS total_invoices,
+                        SUM(COALESCE(total, 0)) AS total_spent,
+                        MAX(created_at) AS last_activity,
+                        SUM(
+                            CASE
+                                WHEN status IS NULL OR LOWER(status) NOT IN ('paid', 'void')
+                                    THEN COALESCE(total, 0)
+                                ELSE 0
+                            END
+                        ) AS outstanding_balance
+                    FROM invoices
+                    GROUP BY customer_id
+                ) m ON m.customer_id = c.id
+            `;
+        }
+
+        let sql = `SELECT ${selectClause} FROM customers c ${joinClause}`;
+        if (whereClauses.length) {
+            sql += ` WHERE ${whereClauses.join(' AND ')}`;
+        }
+        sql += ' ORDER BY c.id DESC';
+
+        const customers = await db.all(sql, params);
+
+        if (!hasFilters) {
+            await cacheService.setCustomers(customers, 300);
+        }
 
         res.json(customers);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.get('/api/customers/summary', async (req, res) => {
+    try {
+        const totalRow = await db.get('SELECT COUNT(*) AS count FROM customers');
+        const businessRow = await db.get('SELECT COUNT(*) AS count FROM customers WHERE COALESCE(is_business, 0) = 1');
+        const sellersRow = await db.get("SELECT COUNT(*) AS count FROM customers WHERE LOWER(COALESCE(customer_type, '')) = 'one-time-seller'");
+        const activeVendorsRow = await db.get("SELECT COUNT(*) AS count FROM vendors WHERE LOWER(COALESCE(status, '')) = 'active'");
+        const pendingVendorsRow = await db.get("SELECT COUNT(*) AS count FROM vendors WHERE LOWER(COALESCE(status, '')) LIKE 'pending%'");
+        const pendingCasualRow = await db.get("SELECT COUNT(*) AS count FROM casual_items WHERE LOWER(COALESCE(status, '')) LIKE 'pending%'");
+        const outstandingRow = await db.get(`
+            SELECT
+                COUNT(*) AS customers_with_outstanding,
+                SUM(outstanding_balance) AS total_outstanding
+            FROM (
+                SELECT
+                    customer_id,
+                    SUM(
+                        CASE
+                            WHEN status IS NULL OR LOWER(status) NOT IN ('paid', 'void')
+                                THEN COALESCE(total, 0)
+                            ELSE 0
+                        END
+                    ) AS outstanding_balance
+                FROM invoices
+                GROUP BY customer_id
+            ) agg
+            WHERE agg.outstanding_balance > 0
+        `);
+
+        const totalCustomers = totalRow?.count || 0;
+        const businessCustomers = businessRow?.count || 0;
+        const individualCustomers = totalCustomers - businessCustomers;
+        const activeVendors = activeVendorsRow?.count || 0;
+        const pendingVendors = pendingVendorsRow?.count || 0;
+        const pendingCasual = pendingCasualRow?.count || 0;
+
+        res.json({
+            totalCustomers,
+            businessCustomers,
+            individualCustomers,
+            oneTimeSellers: sellersRow?.count || 0,
+            activeVendors,
+            pendingVendors,
+            pendingCasualItems: pendingCasual,
+            pendingSubmissions: pendingVendors + pendingCasual,
+            customersWithOutstanding: outstandingRow?.customers_with_outstanding || 0,
+            totalOutstandingBalance: outstandingRow?.total_outstanding || 0,
+        });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
@@ -3244,8 +3818,14 @@ app.get('/api/customers/:id', async (req, res) => {
 
 app.get('/api/customers/:id/invoices', async (req, res) => {
     try {
-        const invoices = await db.all('SELECT * FROM invoices WHERE customer_id = ? ORDER BY created_at DESC', [req.params.id]);
-        res.json(invoices);
+        const invoices = await db.all(`
+            SELECT i.*, c.customer_type as customer_type
+            FROM invoices i
+            LEFT JOIN customers c ON c.id = i.customer_id
+            WHERE i.customer_id = ?
+            ORDER BY i.created_at DESC
+        `, [req.params.id]);
+        res.json(invoices || []);
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
@@ -3756,6 +4336,40 @@ app.post('/api/invoices', async (req, res) => {
             }
         }
 
+        // Vendor commission handling: aggregate sales per supplier and create payable for vendor net amount (deduct commission)
+        // vendorTotals is declared here so it can be used later when creating GL adjustment lines
+        let vendorTotals = {};
+        try {
+            vendorTotals = {}; // vendor_id -> { gross }
+            for (const item of validItems) {
+                if (!item.id) continue;
+                const prod = await db.get('SELECT supplier_id, name FROM products WHERE id = ?', [item.id]);
+                if (prod && prod.supplier_id) {
+                    const vendorId = prod.supplier_id;
+                    const lineTotal = (Number(item.price || 0) * Number(item.quantity || 0)) || 0;
+                    if (!vendorTotals[vendorId]) vendorTotals[vendorId] = { gross: 0 };
+                    vendorTotals[vendorId].gross += lineTotal;
+                }
+            }
+
+            for (const [vendorId, data] of Object.entries(vendorTotals)) {
+                const vendorRow = await db.get('SELECT id, commission_rate FROM vendors WHERE id = ?', [vendorId]);
+                const commRate = vendorRow && vendorRow.commission_rate != null ? Number(vendorRow.commission_rate) : 0.10;
+                const gross = Number(data.gross || 0);
+                const commissionAmount = +(gross * (commRate));
+                const vendorNet = +(gross - commissionAmount);
+
+                // create an accounts_payable record for the vendor net amount
+                await db.run('INSERT INTO accounts_payable (vendor_id, invoice_number, invoice_date, due_date, amount, notes) VALUES (?, ?, ?, ?, ?, ?)',
+                    [vendorId, `INV-${invoiceId}`, new Date().toISOString().split('T')[0], null, vendorNet, `Vendor share for invoice ${invoiceId} (gross ${gross.toFixed(2)}, commission ${commissionAmount.toFixed(2)})`]
+                );
+
+                await logActivity('accounts_payable', null, 'created', req.user?.username || null, `Vendor ${vendorId} payable created for invoice ${invoiceId}`);
+            }
+        } catch (commErr) {
+            console.warn('Vendor commission processing failed for invoice', invoiceId, commErr?.message || commErr);
+        }
+
         // Create accounting journal entries for invoices (not quotes)
         if (type === 'invoice') {
             // Get account IDs
@@ -3789,6 +4403,55 @@ app.post('/api/invoices', async (req, res) => {
                         'INSERT INTO journal_entry_lines (journal_entry_id, account_id, debit, credit, description) VALUES (?, ?, ?, ?, ?)',
                         [journalId, taxesPayable.id, 0, taxAmount, `GST on invoice #${invoiceId}`]
                     );
+                }
+                // If vendor totals were computed, create GL adjustment lines to reflect vendor payables and commission revenue.
+                // Approach: the invoice earlier credited full Sales Revenue for subtotal. For vendor-supplied items we
+                // debit Sales Revenue (to remove vendor gross from company revenue), then credit Accounts Payable
+                // for the vendor net and credit Commission Revenue for the company's commission portion.
+                try {
+                    if (vendorTotals && Object.keys(vendorTotals).length > 0) {
+                        const accountsPayableAcc = await db.get('SELECT id FROM chart_of_accounts WHERE account_code = ?', ['2000']);
+                        const commissionAcc = await db.get('SELECT id FROM chart_of_accounts WHERE account_code = ?', ['4200']);
+                        // commissionAcc falls back to '4200' (Other Income) which exists in seeded COA. accountsPayableAcc should be '2000'.
+                        for (const [vendorId, data] of Object.entries(vendorTotals)) {
+                            const vendorGross = Number(data.gross || 0) || 0;
+                            // re-fetch vendor commission rate (safe)
+                            const vendorRow = await db.get('SELECT id, commission_rate FROM vendors WHERE id = ?', [vendorId]);
+                            const commRate = vendorRow && vendorRow.commission_rate != null ? Number(vendorRow.commission_rate) : 0.10;
+                            const commissionAmount = +(vendorGross * commRate);
+                            const vendorNet = +(vendorGross - commissionAmount);
+
+                            // Debit Sales Revenue to remove vendor gross portion (reduces previously credited sales revenue)
+                            if (salesRevenue) {
+                                await db.run(
+                                    'INSERT INTO journal_entry_lines (journal_entry_id, account_id, debit, credit, description) VALUES (?, ?, ?, ?, ?)',
+                                    [journalId, salesRevenue.id, vendorGross, 0, `Remove vendor-supplied sales (vendor ${vendorId}) for invoice #${invoiceId}`]
+                                );
+                            }
+
+                            // Credit Accounts Payable for vendor net (liability to vendor)
+                            if (accountsPayableAcc) {
+                                await db.run(
+                                    'INSERT INTO journal_entry_lines (journal_entry_id, account_id, debit, credit, description) VALUES (?, ?, ?, ?, ?)',
+                                    [journalId, accountsPayableAcc.id, 0, vendorNet, `Vendor payable (vendor ${vendorId}) for invoice #${invoiceId}`]
+                                );
+                            } else {
+                                console.warn('Accounts Payable account (2000) not found in chart_of_accounts; skipping GL payable line for vendor', vendorId);
+                            }
+
+                            // Credit Commission Revenue for the company's commission portion
+                            if (commissionAcc) {
+                                await db.run(
+                                    'INSERT INTO journal_entry_lines (journal_entry_id, account_id, debit, credit, description) VALUES (?, ?, ?, ?, ?)',
+                                    [journalId, commissionAcc.id, 0, commissionAmount, `Commission revenue (vendor ${vendorId}) for invoice #${invoiceId}`]
+                                );
+                            } else {
+                                console.warn('Commission revenue account (4200) not found in chart_of_accounts; skipping GL commission line for vendor', vendorId);
+                            }
+                        }
+                    }
+                } catch (adjErr) {
+                    console.warn('Failed to create commission GL adjustment lines for invoice', invoiceId, adjErr?.message || adjErr);
                 }
             }
         }
@@ -3874,6 +4537,7 @@ app.get('/api/invoices', async (req, res) => {
             SELECT 
                 i.id, i.total, i.subtotal, i.tax_amount, i.created_at, i.type, i.status,
                 c.name as customer_name,
+                c.customer_type as customer_type,
                 o.name as outlet_name
             FROM invoices i
             LEFT JOIN customers c ON c.id = i.customer_id
@@ -3899,7 +4563,8 @@ app.get('/api/transactions/recent', authMiddleware, requireRole('cashier'), asyn
                 i.total,
                 i.created_at,
                 i.customer_id,
-                c.name as customer_name
+                c.name as customer_name,
+                c.customer_type as customer_type
             FROM invoices i
             LEFT JOIN customers c ON c.id = i.customer_id
             ORDER BY datetime(i.created_at) DESC
@@ -3984,6 +4649,11 @@ app.get('/api/invoices/:id', authMiddleware, requireRole(['accounts','admin']), 
                 LEFT JOIN outlets o ON o.id = i.outlet_id
                 WHERE i.id = ?
             `, [id]);
+            if (invoice) {
+                // include customer_type when available
+                const cust = await db.get('SELECT customer_type FROM customers WHERE id = ?', [invoice.customer_id]);
+                invoice.customer_type = cust ? cust.customer_type : null;
+            }
             if (!invoice) return res.status(404).json({ error: 'Invoice not found' });
 
             const items = await db.all(`

@@ -17,6 +17,7 @@ export default function ForgotPassword() {
       toast.push('If an account exists we sent password reset instructions to that email.', 'success');
       navigate('/login');
     } catch (err) {
+      console.error('Password reset request failed', err);
       toast.push('Failed to request password reset. Try again later.', 'error');
     } finally {
       setLoading(false);

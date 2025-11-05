@@ -6,6 +6,7 @@ import logoMark from '../assets/logo.svg';
 
 const NAV_LINKS = [
   { to: '/market', label: 'Market Hub' },
+  { to: '/sell', label: 'Sell with us' },
   { to: '/shop-and-ship', label: 'Shop & Ship' },
   { to: '/vendor-onboarding', label: 'Vendors' },
   { to: '/privacy', label: 'Trust Center' },

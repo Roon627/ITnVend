@@ -6,6 +6,7 @@ import Cart from "./pages/Cart";
 import Checkout from "./pages/Checkout";
 import OrderConfirmation from "./pages/OrderConfirmation";
 import VendorOnboarding from "./pages/VendorOnboarding";
+import SellWithUs from "./pages/SellWithUs";
 import Privacy from "./pages/Privacy";
 import PrivacyGlobal from "./pages/PrivacyGlobal";
 import PrivacyMV from "./pages/PrivacyMV";
@@ -49,6 +50,7 @@ function App() {
         <Route path="/checkout" element={<PublicLayout><Checkout /></PublicLayout>} />
         <Route path="/confirmation" element={<PublicLayout><OrderConfirmation /></PublicLayout>} />
         <Route path="/vendor-onboarding" element={<PublicLayout><VendorOnboarding /></PublicLayout>} />
+  <Route path="/sell" element={<PublicLayout><SellWithUs /></PublicLayout>} />
         <Route path="/contact" element={<PublicLayout><Contact /></PublicLayout>} />
         <Route path="/shop-and-ship" element={<PublicLayout><ShopAndShip /></PublicLayout>} />
   <Route path="/socials" element={<PublicLayout><Socials /></PublicLayout>} />

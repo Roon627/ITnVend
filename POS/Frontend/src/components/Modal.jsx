@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useMemo } from 'react';
+import React, { useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 
 export default function Modal({ open, onClose, labelledBy, children, className = '', title, message, primaryText = 'OK', onPrimary, variant = 'notice' }) {

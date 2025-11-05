@@ -26,6 +26,7 @@ export default function SpecPreview({ value }) {
       );
     }
   } catch (e) {
+    console.warn('SpecPreview JSON parse failed', e);
     // fallback to lines
   }
   return (

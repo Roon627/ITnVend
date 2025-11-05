@@ -1,6 +1,8 @@
+/* eslint-env node */
 import fs from 'fs';
 import https from 'https';
 import path from 'path';
+import process from 'node:process';
 
 const outDir = path.join(process.cwd(), 'public', 'fonts');
 const targets = [
@@ -18,7 +20,11 @@ targets.push({
 async function ensureDir(dir) {
   try {
     await fs.promises.mkdir(dir, { recursive: true });
-  } catch (err) {}
+  } catch (err) {
+    if (err && err.code !== 'EEXIST') {
+      throw err;
+    }
+  }
 }
 
 function download(url, dest) {
@@ -34,7 +40,13 @@ function download(url, dest) {
       res.pipe(file);
       file.on('finish', () => file.close(resolve));
     }).on('error', (err) => {
-      try { fs.unlinkSync(dest); } catch (e) {}
+      try {
+        fs.unlinkSync(dest);
+      } catch (unlinkErr) {
+        if (unlinkErr && unlinkErr.code !== 'ENOENT') {
+          console.warn(`Failed to clean up ${dest}:`, unlinkErr.message);
+        }
+      }
       reject(err);
     });
   });
