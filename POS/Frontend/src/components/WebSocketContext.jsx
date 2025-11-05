@@ -17,24 +17,47 @@ export const WebSocketProvider = ({ children }) => {
   const [lastMessage, setLastMessage] = useState(null);
   const socketRef = useRef(null);
   const listenersRef = useRef(new Map());
+  const roomsRef = useRef(new Set());
 
   useEffect(() => {
     // Connect to WebSocket server
-    // Use the backend host (same host as current page) but force port 4000.
-    // When the app is served via HTTPS, switch to wss so the socket handshake uses TLS.
+    // Priority: VITE_SOCKET_URL > (VITE_SOCKET_HOST/VITE_SOCKET_PORT) > sane defaults
     const isSecure = window.location.protocol === 'https:';
+    const envUrl = import.meta.env?.VITE_SOCKET_URL;
     const envHost = import.meta.env?.VITE_SOCKET_HOST;
     const envPort = import.meta.env?.VITE_SOCKET_PORT;
-    const socketHost = envHost && envHost.trim().length ? envHost : window.location.hostname;
-    const socketPort = envPort && envPort.trim().length ? envPort : '4000';
-    const socketProtocol = isSecure ? 'wss:' : 'ws:';
-    const socketUrl = `${socketProtocol}//${socketHost}:${socketPort}`;
+
+    let socketUrl;
+    if (envUrl && String(envUrl).trim().length) {
+      socketUrl = String(envUrl).trim();
+    } else {
+      if (import.meta.env?.DEV) {
+        // In dev, prefer same-origin and let Vite proxy /socket.io to backend.
+        socketUrl = undefined; // socket.io-client will use window.location
+      } else {
+        const host = envHost && envHost.trim().length ? envHost : window.location.hostname;
+        const protocol = isSecure ? 'wss:' : 'ws:';
+        // For secure origins (production), default to implicit 443 with no explicit port
+        // unless an explicit env port is provided.
+        const portSegment = envPort && envPort.trim().length
+          ? `:${envPort.trim()}`
+          : (isSecure ? '' : ':4000');
+        socketUrl = `${protocol}//${host}${portSegment}`;
+      }
+    }
 
     const socket = io(socketUrl, {
-      transports: ['websocket', 'polling'],
+      // Start with polling to handle proxies/load balancers, then upgrade to websocket
+      transports: ['polling', 'websocket'],
       rememberUpgrade: true,
+      reconnection: true,
+      reconnectionAttempts: Infinity,
+      reconnectionDelay: 1000,
+      reconnectionDelayMax: 10000,
       timeout: 20000,
       secure: isSecure,
+      path: '/socket.io',
+      withCredentials: true,
     });
 
     socketRef.current = socket;
@@ -42,6 +65,14 @@ export const WebSocketProvider = ({ children }) => {
     socket.on('connect', () => {
       console.log('WebSocket connected');
       setIsConnected(true);
+      // Re-join any rooms requested before connection
+      try {
+        roomsRef.current.forEach((room) => {
+          if (room) socket.emit('join', room);
+        });
+      } catch (e) {
+        console.debug('Failed to re-join rooms on connect', e?.message || e);
+      }
     });
 
     socket.on('disconnect', () => {
@@ -50,7 +81,9 @@ export const WebSocketProvider = ({ children }) => {
     });
 
     socket.on('connect_error', (error) => {
-      console.error('WebSocket connection error:', error);
+      console.error('WebSocket connection error:', error?.message || error);
+      if (error?.description) console.debug('Socket error description:', error.description);
+      if (error?.context) console.debug('Socket error context:', error.context);
       setIsConnected(false);
     });
 
@@ -77,11 +110,15 @@ export const WebSocketProvider = ({ children }) => {
   };
 
   const joinRoom = (room) => {
-    emit('join', room);
+    if (!room) return;
+    roomsRef.current.add(room);
+    if (isConnected) emit('join', room);
   };
 
   const leaveRoom = (room) => {
-    emit('leave', room);
+    if (!room) return;
+    roomsRef.current.delete(room);
+    if (isConnected) emit('leave', room);
   };
 
   const on = (event, callback) => {

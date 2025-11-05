@@ -62,6 +62,12 @@ export default defineConfig({
         changeOrigin: true,
         secure: false,
       },
+      '/socket.io': {
+        target: process.env.VITE_API_PROXY_TARGET || 'https://localhost:4000',
+        changeOrigin: true,
+        secure: false,
+        ws: true,
+      },
     },
   },
 });
