@@ -144,14 +144,37 @@ const CustomerTable = ({
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                   <div className="flex items-center space-x-3">
-                    <button onClick={() => onView(customer)} className="text-gray-600 hover:text-indigo-900" title="View Details">
+                    {/* View button - read-only modal via onView prop */}
+                    <button
+                      type="button"
+                      onClick={() => onView && onView(customer)}
+                      title="View customer"
+                      className="inline-flex items-center gap-2 px-3 py-1 rounded-md text-sm font-medium bg-blue-100 text-blue-800 hover:shadow-md hover:-translate-y-0.5 transform transition"
+                    >
                       <FaEye />
+                      <span>View</span>
                     </button>
-                    <button onClick={() => onEdit(customer)} className="text-gray-600 hover:text-indigo-900" title="Edit">
+
+                    {/* Edit button - editable modal via onEdit prop */}
+                    <button
+                      type="button"
+                      onClick={() => onEdit && onEdit(customer)}
+                      title="Edit customer"
+                      className="inline-flex items-center gap-2 px-3 py-1 rounded-md text-sm font-medium bg-amber-100 text-amber-800 hover:shadow-md hover:-translate-y-0.5 transform transition"
+                    >
                       <FaEdit />
+                      <span>Edit</span>
                     </button>
-                    <button onClick={() => onCreateBill(customer)} className="text-gray-600 hover:text-indigo-900" title="Create Bill">
+
+                    {/* Create Bill - trigger provided handler (responsible for navigation to /pos?customer_id=...) */}
+                    <button
+                      type="button"
+                      onClick={() => onCreateBill && onCreateBill(customer)}
+                      title="Create bill for customer"
+                      className="inline-flex items-center gap-2 px-3 py-1 rounded-md text-sm font-medium bg-emerald-100 text-emerald-800 hover:shadow-md hover:-translate-y-0.5 transform transition"
+                    >
                       <FaFileInvoice />
+                      <span>Create Bill</span>
                     </button>
                     {/* Approve / Reject actions for request rows */}
                     {tab === 'vendor-requests' && customer.vendor_id && (

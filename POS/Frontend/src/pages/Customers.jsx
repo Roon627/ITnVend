@@ -8,7 +8,7 @@ import { useToast } from '../components/ToastContext';
 import StatCard from '../components/StatCard';
 import TableToolbar from '../components/TableToolbar';
 import CustomerTable from '../components/CustomerTable';
-import CustomerDetailModal from '../components/CustomerDetailModal';
+// CustomerDetailModal is not used here any more; we'll reuse the inline CustomerModal for view/edit
 
 const initialForm = {
   name: '',
@@ -44,58 +44,68 @@ function ActionCard({ title, desc, to, requiredRole }) {
   );
 }
 
-function CustomerModal({ open, form, onClose, onChange, onSave, saving }) {
+function CustomerModal({ open, form, onClose, onChange, onSave, saving, mode = 'create' }) {
+  // mode: 'create' | 'view' | 'edit'
+  const readOnly = mode === 'view';
   if (!open) return null;
+  const title = mode === 'create' ? 'New customer' : mode === 'view' ? 'Customer details' : 'Edit customer';
+  const subtitle = mode === 'create'
+    ? 'Create a customer record for invoices and quotes'
+    : mode === 'view'
+      ? 'Read-only details pulled from the server' : 'Update customer details';
+
   return (
     <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center px-4">
-      <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] overflow-auto">
+      <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] overflow-auto transition-transform transform-gpu">
         <header className="flex items-center justify-between px-6 py-4 border-b">
           <div>
-            <h2 className="text-lg font-semibold text-gray-800">New customer</h2>
-            <p className="text-sm text-gray-500">Create a customer record for invoices and quotes</p>
+            <h2 className="text-lg font-semibold text-gray-800">{title}</h2>
+            <p className="text-sm text-gray-500">{subtitle}</p>
           </div>
           <button onClick={onClose} className="p-2 rounded hover:bg-gray-100">✕</button>
         </header>
         <form
           onSubmit={(e) => {
             e.preventDefault();
-            onSave();
+            if (!readOnly) onSave();
           }}
           className="p-6 grid gap-4 md:grid-cols-2"
         >
           <label className="flex flex-col gap-1 text-sm text-gray-600">
-            Name <span className="text-red-500">*</span>
-            <input name="name" value={form.name} onChange={(e) => onChange('name', e.target.value)} className="border rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" required />
+            Name {mode !== 'view' && <span className="text-red-500">*</span>}
+            <input name="name" value={form.name} onChange={(e) => onChange('name', e.target.value)} className={`border rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 ${readOnly ? 'bg-gray-50' : ''}`} required={!readOnly} readOnly={readOnly} />
           </label>
           <label className="flex flex-col gap-1 text-sm text-gray-600">
-            Email <span className="text-red-500">*</span>
-            <input name="email" type="email" value={form.email} onChange={(e) => onChange('email', e.target.value)} className="border rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" required />
+            Email {mode !== 'view' && <span className="text-red-500">*</span>}
+            <input name="email" type="email" value={form.email} onChange={(e) => onChange('email', e.target.value)} className={`border rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 ${readOnly ? 'bg-gray-50' : ''}`} required={!readOnly} readOnly={readOnly} />
           </label>
           <label className="flex flex-col gap-1 text-sm text-gray-600">
             Phone
-            <input name="phone" value={form.phone} onChange={(e) => onChange('phone', e.target.value)} className="border rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            <input name="phone" value={form.phone} onChange={(e) => onChange('phone', e.target.value)} className={`border rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 ${readOnly ? 'bg-gray-50' : ''}`} readOnly={readOnly} />
           </label>
           <label className="flex flex-col gap-1 text-sm text-gray-600">
             Street address
-            <input name="address" value={form.address} onChange={(e) => onChange('address', e.target.value)} className="border rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            <input name="address" value={form.address} onChange={(e) => onChange('address', e.target.value)} className={`border rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 ${readOnly ? 'bg-gray-50' : ''}`} readOnly={readOnly} />
           </label>
           <label className="flex flex-col gap-1 text-sm text-gray-600">
             Tax / GST number
-            <input name="gst_number" value={form.gst_number} onChange={(e) => onChange('gst_number', e.target.value)} className="border rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            <input name="gst_number" value={form.gst_number} onChange={(e) => onChange('gst_number', e.target.value)} className={`border rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 ${readOnly ? 'bg-gray-50' : ''}`} readOnly={readOnly} />
           </label>
           <label className="flex flex-col gap-1 text-sm text-gray-600">
             Registration number
-            <input name="registration_number" value={form.registration_number} onChange={(e) => onChange('registration_number', e.target.value)} className="border rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            <input name="registration_number" value={form.registration_number} onChange={(e) => onChange('registration_number', e.target.value)} className={`border rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 ${readOnly ? 'bg-gray-50' : ''}`} readOnly={readOnly} />
           </label>
           <label className="flex items-center gap-3 text-sm text-gray-600">
-            <input type="checkbox" name="is_business" checked={form.is_business} onChange={(e) => onChange('is_business', e.target.checked)} className="h-4 w-4 text-blue-600" />
+            <input type="checkbox" name="is_business" checked={Boolean(form.is_business)} onChange={(e) => onChange('is_business', e.target.checked)} className="h-4 w-4 text-blue-600" disabled={readOnly} />
             Treat as business account (enables company-level reporting)
           </label>
           <div className="md:col-span-2 flex justify-end">
-            <button type="button" onClick={onClose} className="inline-flex items-center gap-2 px-4 py-2 border rounded-md">Cancel</button>
-            <button type="submit" disabled={saving} className="ml-3 inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-md font-semibold hover:bg-blue-700">
-              {saving ? 'Saving...' : 'Save customer'}
-            </button>
+            <button type="button" onClick={onClose} className="inline-flex items-center gap-2 px-4 py-2 border rounded-md">{readOnly ? 'Close' : 'Cancel'}</button>
+            {!readOnly && (
+              <button type="submit" disabled={saving} className="ml-3 inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-md font-semibold hover:bg-blue-700">
+                {saving ? 'Saving...' : mode === 'create' ? 'Save customer' : 'Save changes'}
+              </button>
+            )}
           </div>
         </form>
       </div>
@@ -122,8 +132,11 @@ export default function Customers() {
   const [form, setForm] = useState(initialForm);
   const [customerModalOpen, setCustomerModalOpen] = useState(false);
   const [customerSaving, setCustomerSaving] = useState(false);
-  const [selectedCustomer, setSelectedCustomer] = useState(null);
-  const [detailOpen, setDetailOpen] = useState(false);
+  // detail modal state (shared for view + edit)
+  const [detailModalOpen, setDetailModalOpen] = useState(false);
+  const [detailForm, setDetailForm] = useState(initialForm);
+  const [detailMode, setDetailMode] = useState('view');
+  const [detailSaving, setDetailSaving] = useState(false);
   const [loadingCustomers, setLoadingCustomers] = useState(false);
   const [loadingSummary, setLoadingSummary] = useState(false);
   const [error, setError] = useState(null);
@@ -340,16 +353,43 @@ export default function Customers() {
       .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
   }, [customers, debouncedSearch, segmentFilter]);
 
+  const openDetailModal = useCallback(async (customer, mode = 'view') => {
+    // mode: 'view' | 'edit'
+    if (!customer || !customer.id) {
+      toast.push('Invalid customer selected', 'error');
+      return;
+    }
+    setDetailMode(mode);
+    setDetailModalOpen(true);
+    setDetailSaving(false);
+    try {
+      const data = await api.get(`/customers/${customer.id}`);
+      const normalized = data || {};
+      setDetailForm({
+        id: normalized.id,
+        name: normalized.name || '',
+        email: normalized.email || '',
+        phone: normalized.phone || '',
+        address: normalized.address || '',
+        gst_number: normalized.gst_number || normalized.tax_number || '',
+        registration_number: normalized.registration_number || normalized.reg_number || '',
+        is_business: Boolean(normalized.is_business || normalized.isBusiness || normalized.company),
+      });
+    } catch (err) {
+      console.error('Failed to load customer', err);
+      toast.push('Failed to load customer details', 'error');
+      setDetailModalOpen(false);
+    }
+  }, [toast]);
+
   const handleEdit = (customer, event) => {
     event?.stopPropagation();
-    setSelectedCustomer(customer);
-    setDetailOpen(true);
+    void openDetailModal(customer, 'edit');
   };
 
   const handleView = (customer, event) => {
     event?.stopPropagation();
-    setSelectedCustomer(customer);
-    setDetailOpen(true);
+    void openDetailModal(customer, 'view');
   };
 
   const handleCreateBill = (customer, event) => {
@@ -391,6 +431,38 @@ export default function Customers() {
       toast.push(err?.response?.data?.error || 'Failed to reject', 'error');
     }
   };
+
+  const handleDetailSave = useCallback(async () => {
+    if (!detailForm || !detailForm.id) return;
+    // basic validation
+    if (!detailForm.name || !detailForm.email) {
+      toast.push('Name and email are required.', 'error');
+      return;
+    }
+    setDetailSaving(true);
+    try {
+      const payload = {
+        name: detailForm.name,
+        email: detailForm.email,
+        phone: detailForm.phone || null,
+        address: detailForm.address || null,
+        gst_number: detailForm.gst_number || null,
+        registration_number: detailForm.registration_number || null,
+        is_business: detailForm.is_business ? 1 : 0,
+      };
+      await api.put(`/customers/${detailForm.id}`, payload);
+      toast.push('Customer updated', 'success');
+      setDetailModalOpen(false);
+      // refresh list and summary
+      await fetchCustomers();
+      await fetchSummary();
+    } catch (err) {
+      console.error('Failed to save customer', err);
+      toast.push(err?.response?.data?.error || 'Failed to update customer', 'error');
+    } finally {
+      setDetailSaving(false);
+    }
+  }, [detailForm, fetchCustomers, fetchSummary, toast]);
 
   const segmentChips = [
     { value: 'all', label: 'All', count: metrics.total },
@@ -559,19 +631,16 @@ export default function Customers() {
         </div>
       </section>
 
-      {/* Detail modal for viewing/editing an existing customer */}
-      {selectedCustomer && (
-        <CustomerDetailModal
-          customer={selectedCustomer}
-          isOpen={detailOpen}
-          onClose={() => setDetailOpen(false)}
-          onSave={(updated) => {
-            // merge into current list
-            setCustomers((prev) => prev.map((p) => (p.id === updated.id ? { ...p, ...updated } : p)));
-            setDetailOpen(false);
-            toast.push('Customer updated', 'info');
-            fetchSummary();
-          }}
+      {/* Shared detail modal used for both view and edit modes */}
+      {detailModalOpen && (
+        <CustomerModal
+          open={detailModalOpen}
+          form={detailForm}
+          mode={detailMode}
+          onClose={() => setDetailModalOpen(false)}
+          onChange={(name, value) => setDetailForm((p) => ({ ...p, [name]: value }))}
+          onSave={handleDetailSave}
+          saving={detailSaving}
         />
       )}
     </div>
