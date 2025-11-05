@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { FaSearch, FaUndo, FaExclamationTriangle, FaCheckCircle, FaTimes } from 'react-icons/fa';
 import api from '../../lib/api';
 import { useToast } from '../../components/ToastContext';
@@ -16,12 +16,7 @@ const ReversePurchases = () => {
   const [reverseReason, setReverseReason] = useState('');
   const [processing, setProcessing] = useState(false);
 
-  // Load purchases on component mount and when search changes
-  useEffect(() => {
-    loadPurchases();
-  }, [searchTerm]);
-
-  const loadPurchases = async () => {
+  const loadPurchases = useCallback(async () => {
     setLoading(true);
     try {
       const response = await api.get('/api/purchases', {
@@ -39,7 +34,12 @@ const ReversePurchases = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [searchTerm, toast]);
+
+  // Load purchases on component mount and when search changes
+  useEffect(() => {
+    loadPurchases();
+  }, [loadPurchases]);
 
   const handleReversePurchase = async () => {
     if (!selectedPurchase || !reverseReason.trim()) {

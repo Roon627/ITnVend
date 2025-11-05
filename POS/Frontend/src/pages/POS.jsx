@@ -105,79 +105,9 @@ export default function POS() {
       .replace(/\b\w/g, (char) => char.toUpperCase());
   };
 
-  useEffect(() => {
-    loadInitialData();
-    loadHeldOrders();
-    loadTransactionHistory();
-    // attempt to sync active shift from server
-    (async () => {
-      try {
-        const active = await api.get('/shifts/active');
-        if (active) {
-          setShiftStartedAt(active.started_at || '');
-          setShiftId(active.id || null);
-          try { localStorage.setItem('pos_shift_started_at', active.started_at); localStorage.setItem('pos_shift_id', String(active.id)); } catch (e) { /* ignore */ }
-        }
-      } catch (e) {
-        // ignore sync errors; fall back to localStorage
-        console.debug('Failed to sync active shift', e?.message || e);
-      }
-    })();
-  }, []);
+  
 
-  useEffect(() => {
-    // Keyboard shortcuts
-    const handleKeyPress = (e) => {
-      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
-
-      switch (e.key.toLowerCase()) {
-        case 'f1':
-          e.preventDefault();
-          searchInputRef.current?.focus();
-          break;
-        case 'f':
-          // quick 'f' also focuses search for faster keyboards
-          e.preventDefault();
-          searchInputRef.current?.focus();
-          break;
-        case 'c':
-          // focus the Pay Now button / cart area
-          e.preventDefault();
-          if (payNowBtnRef.current) {
-            payNowBtnRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
-            payNowBtnRef.current.focus();
-          }
-          break;
-        case 'f2':
-          e.preventDefault();
-          setActiveTab('products');
-          break;
-        case 'f3':
-          e.preventDefault();
-          setActiveTab('history');
-          break;
-        case 'f4':
-          e.preventDefault();
-          handleHoldOrder();
-          break;
-        case 'f5':
-          e.preventDefault();
-          setShowPaymentModal(true);
-          break;
-        case 'escape':
-          e.preventDefault();
-          if (showPaymentModal) closePaymentModal();
-          if (showCustomerModal) setShowCustomerModal(false);
-          if (showReceipt) setShowReceipt(false);
-          break;
-        default:
-          break;
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyPress);
-    return () => window.removeEventListener('keydown', handleKeyPress);
-  }, [showPaymentModal, showCustomerModal, showReceipt, closePaymentModal]);
+  
 
   useEffect(() => {
     const isTransferPayment = paymentMethod === 'bank_transfer' || paymentMethod === 'transfer';
@@ -214,11 +144,7 @@ export default function POS() {
     setPaymentSlipUploading(false);
   };
 
-  useEffect(() => {
-    if (activeTab === 'history') {
-      loadTransactionHistory();
-    }
-  }, [activeTab]);
+  
 
   // WebSocket real-time updates
   useWebSocketRoom('staff', !!user); // Join staff room when user is logged in
@@ -327,7 +253,88 @@ export default function POS() {
     return items.some((entry) => markPreorderFlag(entry));
   }, [markPreorderFlag]);
 
-  const loadInitialData = async () => {
+  // Hold order handler (memoized so keyboard effect can depend on it safely)
+  const handleHoldOrder = useCallback(() => {
+    if (cart.length === 0) {
+      toast.push('Cart is empty', 'warning');
+      return;
+    }
+
+    const orderName = prompt('Enter a name for this held order:');
+    if (!orderName) return;
+
+    const heldOrder = {
+      id: Date.now(),
+      name: orderName,
+      cart,
+      customerId: selectedCustomerId,
+      timestamp: new Date().toISOString(),
+      preorder: cartContainsPreorder(cart)
+    };
+
+    const updatedHeldOrders = [...heldOrders, heldOrder];
+    saveHeldOrders(updatedHeldOrders);
+    setCart([]);
+    setIsPreorderCart(false);
+    setShowPreorderModal(false);
+    setShowPreorderPrompt(false);
+    setPendingPreorderProduct(null);
+    toast.push('Order held successfully', 'success');
+  }, [cart, cartContainsPreorder, heldOrders, selectedCustomerId, toast]);
+
+  // Keyboard shortcuts (placed after handleHoldOrder to avoid TDZ)
+  useEffect(() => {
+    const handleKeyPress = (e) => {
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+
+      switch (e.key.toLowerCase()) {
+        case 'f1':
+          e.preventDefault();
+          searchInputRef.current?.focus();
+          break;
+        case 'f':
+          e.preventDefault();
+          searchInputRef.current?.focus();
+          break;
+        case 'c':
+          e.preventDefault();
+          if (payNowBtnRef.current) {
+            payNowBtnRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            payNowBtnRef.current.focus();
+          }
+          break;
+        case 'f2':
+          e.preventDefault();
+          setActiveTab('products');
+          break;
+        case 'f3':
+          e.preventDefault();
+          setActiveTab('history');
+          break;
+        case 'f4':
+          e.preventDefault();
+          handleHoldOrder();
+          break;
+        case 'f5':
+          e.preventDefault();
+          setShowPaymentModal(true);
+          break;
+        case 'escape':
+          e.preventDefault();
+          if (showPaymentModal) closePaymentModal();
+          if (showCustomerModal) setShowCustomerModal(false);
+          if (showReceipt) setShowReceipt(false);
+          break;
+        default:
+          break;
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyPress);
+    return () => window.removeEventListener('keydown', handleKeyPress);
+  }, [showPaymentModal, showCustomerModal, showReceipt, closePaymentModal, handleHoldOrder]);
+
+  const loadInitialData = useCallback(async () => {
     try {
       const [productsData, customersData, categoriesData] = await Promise.all([
         api.get('/products'),
@@ -345,14 +352,14 @@ export default function POS() {
     } catch (error) {
       toast.push('Failed to load data', 'error');
     }
-  };
+  }, [normalizeProduct, toast]);
 
   const loadHeldOrders = () => {
     const held = JSON.parse(localStorage.getItem('pos_held_orders') || '[]');
     setHeldOrders(held);
   };
 
-  const loadTransactionHistory = async () => {
+  const loadTransactionHistory = useCallback(async () => {
     try {
       const history = await api.get('/transactions/recent', { params: { limit: 50 } });
       const normalized = Array.isArray(history) ? history : [];
@@ -364,12 +371,43 @@ export default function POS() {
       setTransactionHistory([]);
       setExpandedHistoryId(null);
     }
-  };
+  }, [toast]);
 
   const saveHeldOrders = (orders) => {
     localStorage.setItem('pos_held_orders', JSON.stringify(orders));
     setHeldOrders(orders);
   };
+
+  // Initial data load and shift sync
+  useEffect(() => {
+    loadInitialData();
+    loadHeldOrders();
+    loadTransactionHistory();
+    // attempt to sync active shift from server
+    (async () => {
+      try {
+        const active = await api.get('/shifts/active');
+        if (active) {
+          setShiftStartedAt(active.started_at || '');
+          setShiftId(active.id || null);
+          try {
+            localStorage.setItem('pos_shift_started_at', active.started_at);
+            localStorage.setItem('pos_shift_id', String(active.id));
+          } catch (e) { /* ignore */ }
+        }
+      } catch (e) {
+        // ignore sync errors; fall back to localStorage
+        console.debug('Failed to sync active shift', e?.message || e);
+      }
+    })();
+  }, [loadInitialData, loadTransactionHistory]);
+
+  // Reload history when switching to history tab
+  useEffect(() => {
+    if (activeTab === 'history') {
+      loadTransactionHistory();
+    }
+  }, [activeTab, loadTransactionHistory]);
 
   // Held orders still persist locally because they are POS-specific drafts
 
@@ -463,33 +501,7 @@ export default function POS() {
     }
   };
 
-  const handleHoldOrder = () => {
-    if (cart.length === 0) {
-      toast.push('Cart is empty', 'warning');
-      return;
-    }
-
-    const orderName = prompt('Enter a name for this held order:');
-    if (!orderName) return;
-
-    const heldOrder = {
-      id: Date.now(),
-      name: orderName,
-      cart,
-      customerId: selectedCustomerId,
-      timestamp: new Date().toISOString(),
-      preorder: cartContainsPreorder(cart)
-    };
-
-    const updatedHeldOrders = [...heldOrders, heldOrder];
-    saveHeldOrders(updatedHeldOrders);
-    setCart([]);
-    setIsPreorderCart(false);
-    setShowPreorderModal(false);
-    setShowPreorderPrompt(false);
-    setPendingPreorderProduct(null);
-    toast.push('Order held successfully', 'success');
-  };
+  
 
   const recallHeldOrder = (orderId) => {
     const order = heldOrders.find(o => o.id === orderId);

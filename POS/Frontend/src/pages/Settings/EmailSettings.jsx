@@ -5,6 +5,7 @@ import {
   FRIENDLY_QUOTE_REQUEST_TEMPLATE,
   FRIENDLY_PASSWORD_SUBJECT,
   FRIENDLY_PASSWORD_TEMPLATE,
+  FRIENDLY_STAFF_ORDER_TEMPLATE,
 } from './emailTemplatePresets';
 
 export default function EmailSettings({

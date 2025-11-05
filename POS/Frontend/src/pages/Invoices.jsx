@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, useCallback } from 'react';
 import { useWebSocketRoom, useWebSocketEvent } from '../hooks/useWebSocket';
 import { FaTh, FaList } from 'react-icons/fa';
 import api from '../lib/api';
@@ -53,7 +53,7 @@ export default function Invoices() {
   const [showBuilder, setShowBuilder] = useState(false);
   // help moved to central Help page; keep a small link here instead
   const [shiftStartedAt, setShiftStartedAt] = useState(() => {
-    try { return localStorage.getItem('pos_shift_started_at') || ''; } catch (e) { return ''; }
+    try { return localStorage.getItem('pos_shift_started_at') || ''; } catch { return ''; }
   });
   // try to sync active shift from server when the page loads
   useEffect(() => {
@@ -62,7 +62,7 @@ export default function Invoices() {
         const active = await api.get('/shifts/active');
         if (active && active.started_at) {
           setShiftStartedAt(active.started_at);
-          try { localStorage.setItem('pos_shift_started_at', active.started_at); } catch (e) {}
+          try { localStorage.setItem('pos_shift_started_at', active.started_at); } catch { /* ignore localStorage errors */ }
         }
       } catch (err) {
         // ignore: keep localStorage fallback
@@ -76,32 +76,32 @@ export default function Invoices() {
   useWebSocketRoom(outletId ? `outlet:${outletId}` : null, !!outletId);
 
   useWebSocketEvent('shift.started', (payload) => {
-    try {
-      const shift = payload?.shift;
-      if (!shift) return;
-      const started = shift.started_at || new Date().toISOString();
-      try { localStorage.setItem('pos_shift_started_at', started); } catch (e) {}
-      setShiftStartedAt(started);
-      push('Shift started', 'info');
-    } catch (e) {
-      console.debug('Failed to handle shift.started on invoices', e);
-    }
+      try {
+        const shift = payload?.shift;
+        if (!shift) return;
+        const started = shift.started_at || new Date().toISOString();
+        try { localStorage.setItem('pos_shift_started_at', started); } catch { /* ignore */ }
+        setShiftStartedAt(started);
+        push('Shift started', 'info');
+      } catch (err) {
+        console.debug('Failed to handle shift.started on invoices', err?.message || err);
+      }
   });
 
   useWebSocketEvent('shift.stopped', (payload) => {
-    try {
-      const shift = payload?.shift;
-      if (!shift) return;
-      // clear local marker if it matches current marker
-      const current = localStorage.getItem('pos_shift_id');
-      if (current && String(current) === String(shift.id)) {
-        try { localStorage.removeItem('pos_shift_started_at'); localStorage.removeItem('pos_shift_id'); } catch (e) {}
-        setShiftStartedAt('');
+      try {
+        const shift = payload?.shift;
+        if (!shift) return;
+        // clear local marker if it matches current marker
+        const current = localStorage.getItem('pos_shift_id');
+        if (current && String(current) === String(shift.id)) {
+          try { localStorage.removeItem('pos_shift_started_at'); localStorage.removeItem('pos_shift_id'); } catch { /* ignore */ }
+          setShiftStartedAt('');
+        }
+        push('Shift closed', 'info');
+      } catch (err) {
+        console.debug('Failed to handle shift.stopped on invoices', err?.message || err);
       }
-      push('Shift closed', 'info');
-    } catch (e) {
-      console.debug('Failed to handle shift.stopped on invoices', e);
-    }
   });
   // format a short relative label for shift badge
   const formatShiftRelative = (iso) => {
@@ -114,7 +114,7 @@ export default function Invoices() {
       if (mins < 60) return `${mins}m ago`;
       if (mins < 1440) return `${Math.floor(mins / 60)}h ago`;
       return `${Math.floor(mins / 1440)}d ago`;
-    } catch (e) {
+    } catch {
       return '';
     }
   };
@@ -143,7 +143,7 @@ export default function Invoices() {
   const [viewMode, setViewMode] = useState(() => {
     try {
       return localStorage.getItem(UI_VIEW_KEY) || 'table';
-    } catch (e) {
+    } catch {
       return 'table';
     }
   }); // 'table' or 'cards'
@@ -152,7 +152,7 @@ export default function Invoices() {
   useEffect(() => {
     try {
       localStorage.setItem(UI_VIEW_KEY, viewMode);
-    } catch (e) {
+    } catch {
       // ignore
     }
   }, [viewMode]);
@@ -261,9 +261,7 @@ export default function Invoices() {
     return Array.from(merged.values());
   }, [typeFilter]);
 
-  useEffect(() => {
-    loadInvoices();
-  }, []);
+  
 
   useEffect(() => {
     // load outlets for filter dropdown
@@ -285,7 +283,7 @@ export default function Invoices() {
     }
   }, []);
 
-  const loadInvoices = async () => {
+  const loadInvoices = useCallback(async () => {
     try {
       const list = await api.get('/invoices');
       setInvoices(list);
@@ -293,7 +291,12 @@ export default function Invoices() {
       console.error(err);
       push('Failed to load invoices', 'error');
     }
-  };
+  }, [push]);
+
+  // Initial load once loadInvoices is defined to avoid TDZ
+  useEffect(() => {
+    loadInvoices();
+  }, [loadInvoices]);
 
   const openInvoiceEditor = (invoiceId) => {
     if (!canManageTransactions) {
@@ -524,6 +527,7 @@ export default function Invoices() {
         window.open(linkResp.url, '_blank');
       } catch (err) {
         push(`Failed to open PDF for invoice ${id}`, 'error');
+        console.debug(err);
       }
     }
   };
@@ -623,9 +627,9 @@ export default function Invoices() {
         to.setHours(23, 59, 59, 999);
         if (created > to) matchesDate = false;
       }
-      return matchesSearch && matchesType;
+      return matchesSearch && matchesType && matchesStatus && matchesOutlet && matchesDate;
     });
-  }, [invoices, searchTerm, typeFilter]);
+  }, [invoices, searchTerm, typeFilter, statusFilter, outletFilter, dateFrom, dateTo]);
 
   return (
     <div className="min-h-full bg-slate-50">
@@ -1000,6 +1004,7 @@ export default function Invoices() {
                               window.open(linkResp.url, '_blank');
                             } catch (err) {
                               push('Failed to open PDF', 'error');
+                              console.debug(err);
                             }
                           }}
                           className="text-blue-600 hover:underline"
@@ -1062,7 +1067,7 @@ export default function Invoices() {
                   <div className="flex items-center justify-between mt-4">
                     <div className="text-sm text-gray-500">{invoice.outlet_name || '-'}</div>
                     <div className="flex items-center gap-3">
-                      <button onClick={async () => { try { const linkResp = await api.post(`/invoices/${invoice.id}/pdf-link`); window.open(linkResp.url, '_blank'); } catch (err) { push('Failed to open PDF', 'error'); } }} className="text-blue-600 text-sm">PDF</button>
+                      <button onClick={async () => { try { const linkResp = await api.post(`/invoices/${invoice.id}/pdf-link`); window.open(linkResp.url, '_blank'); } catch (err) { push('Failed to open PDF', 'error'); console.debug(err); } }} className="text-blue-600 text-sm">PDF</button>
                       {canManageTransactions && (
                         <>
                           <button onClick={() => openInvoiceEditor(invoice.id)} className="text-indigo-600 text-sm">Edit</button>

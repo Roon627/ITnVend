@@ -2,7 +2,8 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link, NavLink, useLocation } from 'react-router-dom';
 import { FaBars, FaShoppingCart, FaTimes } from 'react-icons/fa';
 import { useCart } from './CartContext';
-import logoMark from '../assets/logo.svg';
+
+const POS_BRAND_LOGO = 'https://pos.itnvend.com:4000/uploads/logos/1762295200252-icons8-it-64.png.png';
 
 const NAV_LINKS = [
   { to: '/market', label: 'Market Hub' },
@@ -36,6 +37,15 @@ export default function PublicNavbar() {
       return current?.label ?? '';
     }, [location.pathname]);
 
+    const isOnMarketPage = useMemo(() => location.pathname.startsWith('/market'), [location.pathname]);
+
+    const filteredNavLinks = useMemo(() => {
+      if (isOnMarketPage) {
+        return NAV_LINKS.filter((link) => link.to !== '/market');
+      }
+      return NAV_LINKS;
+    }, [isOnMarketPage]);
+
     const cartbadge = cartCount > 0 ? (
       <span
         className="ml-2 inline-flex min-w-[20px] items-center justify-center rounded-full bg-rose-500 px-2 text-xs font-semibold leading-none text-white shadow-sm"
@@ -44,6 +54,13 @@ export default function PublicNavbar() {
         {cartCount}
       </span>
     ) : null;
+
+    const cartButtonClasses = [
+      'inline-flex items-center gap-2 rounded-full border border-rose-300/60 bg-white/20 px-4 py-2 text-sm font-semibold text-rose-500 transition-colors duration-200 hover:border-rose-400 hover:bg-white/30',
+      cartCount > 0 ? 'ring-1 ring-rose-300/60' : '',
+    ]
+      .filter(Boolean)
+      .join(' ');
 
     return (
       <>
@@ -76,35 +93,34 @@ export default function PublicNavbar() {
         </div>
       )}
       <header
-        className={`sticky top-0 z-40 backdrop-blur transition-shadow ${
-          elevated ? 'shadow-lg shadow-rose-200/40' : ''
+        className={`sticky top-0 z-40 bg-gradient-to-r from-rose-50/70 via-white/40 to-sky-50/70 backdrop-blur-md transition-shadow duration-300 ${
+          elevated ? 'shadow-md' : 'shadow-sm'
         }`}
-        style={{ backgroundColor: 'rgba(255,255,255,0.88)', borderBottom: '1px solid rgba(244, 114, 182, 0.15)' }}
       >
-        <div className="mx-auto flex max-w-6xl items-center justify-between gap-6 px-6 py-3 lg:py-4">
-          <Link to="/" className="flex items-center gap-3 text-left">
-            <img
-              src={logoMark}
-              alt="ITnVend"
-              className="h-10 w-10 rounded-full border border-rose-100 bg-white object-contain p-1 shadow-sm"
-            />
-            <span className="flex flex-col leading-tight text-slate-800">
-              <span className="text-base font-bold sm:text-lg">ITnVend Market Hub</span>
-              <span className="text-xs text-rose-400 sm:text-sm">Retail, subscriptions &amp; smiles in sync</span>
-            </span>
-          </Link>
+        <div className="mx-auto flex max-w-6xl items-center gap-6 px-6 py-3 lg:py-4">
+            <Link to="/" className="flex items-center gap-3 text-left">
+              <img
+                src={POS_BRAND_LOGO}
+                alt="ITnVend"
+                className="h-12 w-12 rounded-2xl border border-white/70 bg-white/80 object-contain p-2 shadow-md shadow-rose-200/40"
+              />
+              <span className="flex flex-col leading-tight text-slate-800">
+                <span className="text-base font-bold sm:text-lg">ITnVend Market Hub</span>
+                <span className="text-xs text-rose-400 sm:text-sm">Retail, subscriptions &amp; smiles in sync</span>
+              </span>
+            </Link>
 
-          <nav className="hidden items-center gap-2 text-sm font-semibold text-rose-400 lg:flex">
-            {NAV_LINKS.map(({ to, label }) => (
+          <nav className="hidden flex-1 items-center justify-center gap-6 text-sm font-semibold text-rose-500 lg:flex">
+            {filteredNavLinks.map(({ to, label }) => (
               <NavLink
                 key={to}
                 to={to}
                 className={({ isActive }) =>
-                  `relative rounded-full px-4 py-2 transition ${
+                  `relative inline-flex items-center px-1 py-2 transition-all duration-200 ${
                     isActive
-                      ? 'text-rose-600 after:absolute after:inset-x-3 after:bottom-0 after:h-[3px] after:rounded-full after:bg-rose-400/90'
-                      : 'text-rose-400 hover:text-rose-500'
-                  }`
+                      ? 'text-rose-600 after:scale-x-100 after:opacity-100'
+                      : 'text-rose-500 hover:text-rose-600 after:opacity-0'
+                  } after:absolute after:-bottom-1 after:left-0 after:right-0 after:h-[2px] after:origin-center after:scale-x-0 after:rounded-full after:bg-gradient-to-r after:from-rose-400 after:to-sky-400 after:transition-all after:duration-300`
                 }
               >
                 {label}
@@ -113,21 +129,20 @@ export default function PublicNavbar() {
           </nav>
 
           <div className="ml-auto flex items-center gap-3">
-            <Link
-              to="/cart"
-              className="inline-flex items-center rounded-full border border-rose-200 bg-white px-3 py-2 text-sm font-semibold text-rose-500 shadow-sm transition hover:border-rose-300 hover:text-rose-600"
-            >
+            <Link to="/cart" className={cartButtonClasses}>
               <FaShoppingCart className="mr-2" aria-hidden="true" />
               Cart
               {cartbadge}
             </Link>
 
-            <Link
-              to="/market"
-              className="hidden rounded-full bg-gradient-to-r from-rose-500 to-sky-400 px-5 py-2 text-sm font-semibold text-white shadow-lg shadow-rose-200/80 transition hover:-translate-y-0.5 hover:shadow-rose-200/90 lg:inline-flex"
-            >
-              Explore products
-            </Link>
+            {!isOnMarketPage && (
+              <Link
+                to="/market"
+                className="hidden items-center gap-2 rounded-full bg-gradient-to-r from-rose-500 via-rose-400 to-sky-400 px-5 py-2 text-sm font-semibold text-white shadow-md shadow-rose-200/50 transition-transform duration-200 hover:-translate-y-0.5 lg:inline-flex"
+              >
+                Browse curated sets
+              </Link>
+            )}
 
             <button
               type="button"
@@ -169,7 +184,7 @@ export default function PublicNavbar() {
               </button>
             </div>
             <nav className="space-y-2 text-base font-semibold text-rose-500">
-              {NAV_LINKS.map(({ to, label }) => (
+              {filteredNavLinks.map(({ to, label }) => (
                 <NavLink
                   key={to}
                   to={to}

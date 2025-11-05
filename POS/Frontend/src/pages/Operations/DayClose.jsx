@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { FaLock, FaUnlock, FaCalculator, FaCheckCircle, FaExclamationTriangle, FaPrint } from 'react-icons/fa';
 import api from '../../lib/api';
 import { useToast } from '../../components/ToastContext';
@@ -38,21 +38,7 @@ const DayClose = () => {
   const [discrepancy, setDiscrepancy] = useState(0);
   const [notes, setNotes] = useState('');
 
-  // Load current shift data
-  useEffect(() => {
-    loadShiftData();
-  }, []);
-
-  // Calculate actual cash when counts change
-  useEffect(() => {
-    const calculated = calculateActualCash();
-    setActualCash(calculated);
-    if (shiftData?.expectedCash !== undefined) {
-      setDiscrepancy(calculated - shiftData.expectedCash);
-    }
-  }, [cashCounts, shiftData]);
-
-  const loadShiftData = async () => {
+  const loadShiftData = useCallback(async () => {
     setLoading(true);
     try {
       const response = await api.get('/api/operations/shift/current');
@@ -64,9 +50,14 @@ const DayClose = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [toast]);
 
-  const calculateActualCash = () => {
+  // Load current shift data
+  useEffect(() => {
+    loadShiftData();
+  }, [loadShiftData]);
+
+  const calculateActualCash = useCallback(() => {
     return (
       cashCounts.ones * 1 +
       cashCounts.fives * 5 +
@@ -76,7 +67,16 @@ const DayClose = () => {
       cashCounts.hundreds * 100 +
       cashCounts.coins
     );
-  };
+  }, [cashCounts]);
+
+  // Calculate actual cash when counts change
+  useEffect(() => {
+    const calculated = calculateActualCash();
+    setActualCash(calculated);
+    if (shiftData?.expectedCash !== undefined) {
+      setDiscrepancy(calculated - shiftData.expectedCash);
+    }
+  }, [calculateActualCash, shiftData]);
 
   const handleCashCountChange = (denomination, value) => {
     const numValue = parseFloat(value) || 0;

@@ -13,7 +13,7 @@ export default function OutletsPanel({
   CURRENCY_OPTIONS,
   createOutlet,
   isManager,
-  defaultSettings,
+  defaultSettings: _defaultSettings,
   formState,
   updateField
 }) {

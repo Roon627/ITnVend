@@ -72,114 +72,155 @@ export default function Submissions() {
   }
 
   return (
-    <div className="p-6 bg-gray-50 min-h-full">
-      <header className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-2xl font-bold">Submissions</h1>
-          <p className="text-sm text-gray-500">Review incoming vendor applications and one-time seller listings.</p>
-        </div>
-      </header>
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-blue-50 p-6 pb-24 space-y-6">
+      <section className="rounded-2xl border border-slate-200/70 bg-white/80 p-6 shadow-sm shadow-blue-100/50 backdrop-blur">
+        <header className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="space-y-3">
+            <span className="inline-flex items-center gap-2 rounded-full bg-blue-50 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-blue-600">
+              Review queue
+            </span>
+            <div>
+              <h1 className="text-3xl font-bold text-slate-900">Submissions</h1>
+              <p className="text-sm text-slate-500">Approve or reject vendor applications and one-time seller listings before they join the hub.</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 text-xs text-slate-500">
+            <FaSearch className="text-blue-500" />
+            <span>Keep a close pulse on your marketplace intake.</span>
+          </div>
+        </header>
+      </section>
 
-      <div className="bg-white border rounded p-4 mb-4">
-        <nav className="flex gap-2">
-          <button onClick={() => setTab('vendors')} className={`px-3 py-1 rounded ${tab==='vendors'?'bg-blue-600 text-white':'bg-gray-100'}`}>
+      <section className="rounded-2xl border border-slate-200/70 bg-white/80 p-4 shadow-sm shadow-blue-100/40 backdrop-blur">
+        <nav className="flex flex-wrap gap-2">
+          <button
+            onClick={() => setTab('vendors')}
+            className={`inline-flex items-center rounded-full px-3.5 py-1.5 text-sm font-semibold transition-all ${
+              tab==='vendors'
+                ? 'bg-blue-600 text-white shadow shadow-blue-300/60'
+                : 'bg-white/70 text-slate-500 hover:bg-blue-50 hover:text-blue-600'
+            }`}
+          >
             Vendors ({data.vendors?.length || 0})
           </button>
-          <button onClick={() => setTab('casual')} className={`px-3 py-1 rounded ${tab==='casual'?'bg-blue-600 text-white':'bg-gray-100'}`}>
-            One-Time Sellers ({data.casual_items?.length || 0})
+          <button
+            onClick={() => setTab('casual')}
+            className={`inline-flex items-center rounded-full px-3.5 py-1.5 text-sm font-semibold transition-all ${
+              tab==='casual'
+                ? 'bg-blue-600 text-white shadow shadow-blue-300/60'
+                : 'bg-white/70 text-slate-500 hover:bg-blue-50 hover:text-blue-600'
+            }`}
+          >
+            One-time sellers ({data.casual_items?.length || 0})
           </button>
-          <button onClick={() => setTab('others')} className={`px-3 py-1 rounded ${tab==='others'?'bg-blue-600 text-white':'bg-gray-100'}`}>
+          <button
+            onClick={() => setTab('others')}
+            className={`inline-flex items-center rounded-full px-3.5 py-1.5 text-sm font-semibold transition-all ${
+              tab==='others'
+                ? 'bg-blue-600 text-white shadow shadow-blue-300/60'
+                : 'bg-white/70 text-slate-500 hover:bg-blue-50 hover:text-blue-600'
+            }`}
+          >
             Other ({data.others?.length || 0})
           </button>
         </nav>
-      </div>
+      </section>
 
-      <div className="bg-white border rounded p-4">
+      <section className="rounded-2xl border border-slate-200/70 bg-white/90 p-6 shadow-md shadow-blue-100/50 backdrop-blur space-y-4">
         {loading && <div className="text-sm text-gray-500">Loading...</div>}
 
         {tab === 'vendors' && (
-          <table className="min-w-full divide-y divide-gray-200">
+          <table className="min-w-full divide-y divide-slate-200">
             <thead className="bg-gray-50">
               <tr>
-                <th className="px-4 py-2 text-left text-xs font-semibold text-gray-500">Name</th>
-                <th className="px-4 py-2 text-left text-xs font-semibold text-gray-500">Contact</th>
-                <th className="px-4 py-2 text-left text-xs font-semibold text-gray-500">Status</th>
-                <th className="px-4 py-2 text-right text-xs font-semibold text-gray-500">Actions</th>
+                <th className="px-4 py-2 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Name</th>
+                <th className="px-4 py-2 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Contact</th>
+                <th className="px-4 py-2 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Status</th>
+                <th className="px-4 py-2 text-right text-xs font-semibold uppercase tracking-wide text-slate-500">Actions</th>
               </tr>
             </thead>
             <tbody>
               {data.vendors.map((v) => (
-                <tr key={v.id} className="hover:bg-gray-50">
-                  <td className="px-4 py-2">{v.legal_name}</td>
-                  <td className="px-4 py-2 text-sm text-gray-600">{v.email || v.contact_person}</td>
-                  <td className="px-4 py-2">{v.status}</td>
+                <tr key={v.id} className="transition hover:bg-blue-50/40">
+                  <td className="px-4 py-3 text-sm font-medium text-slate-800">{v.legal_name}</td>
+                  <td className="px-4 py-3 text-sm text-slate-500">{v.email || v.contact_person}</td>
+                  <td className="px-4 py-3 text-sm capitalize text-slate-600">{v.status}</td>
                   <td className="px-4 py-2 text-right">
                     <div className="inline-flex gap-2">
-                      <button onClick={() => { setSelected({ type: 'vendor', row: v }); }} className="px-3 py-1 bg-gray-200 text-gray-800 rounded">View</button>
-                      <button onClick={() => approveVendor(v.id)} className="px-3 py-1 bg-emerald-500 text-white rounded"><FaCheck /></button>
-                      <button onClick={() => rejectVendor(v.id)} className="px-3 py-1 bg-red-100 text-red-600 rounded"><FaTimes /></button>
+                      <button onClick={() => { setSelected({ type: 'vendor', row: v }); }} className="inline-flex items-center rounded-full border border-slate-200 px-3 py-1 text-xs font-semibold text-slate-600 transition hover:border-blue-400 hover:text-blue-600">View</button>
+                      <button onClick={() => approveVendor(v.id)} className="inline-flex items-center justify-center rounded-full bg-emerald-500 px-3 py-1 text-xs font-semibold text-white shadow-sm shadow-emerald-200/70 transition hover:-translate-y-0.5">
+                        <FaCheck />
+                      </button>
+                      <button onClick={() => rejectVendor(v.id)} className="inline-flex items-center justify-center rounded-full bg-rose-50 px-3 py-1 text-xs font-semibold text-rose-600 transition hover:bg-rose-100">
+                        <FaTimes />
+                      </button>
                     </div>
                   </td>
                 </tr>
               ))}
               {data.vendors.length === 0 && (
-                <tr><td colSpan={4} className="px-4 py-6 text-center text-sm text-gray-500">No vendor submissions</td></tr>
+                <tr><td colSpan={4} className="px-4 py-6 text-center text-sm text-slate-400">No vendor submissions</td></tr>
               )}
             </tbody>
           </table>
         )}
 
         {tab === 'casual' && (
-          <table className="min-w-full divide-y divide-gray-200">
+          <table className="min-w-full divide-y divide-slate-200">
             <thead className="bg-gray-50">
               <tr>
-                <th className="px-4 py-2 text-left text-xs font-semibold text-gray-500">Title</th>
-                <th className="px-4 py-2 text-left text-xs font-semibold text-gray-500">Seller</th>
-                <th className="px-4 py-2 text-left text-xs font-semibold text-gray-500">Price</th>
-                <th className="px-4 py-2 text-right text-xs font-semibold text-gray-500">Actions</th>
+                <th className="px-4 py-2 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Title</th>
+                <th className="px-4 py-2 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Seller</th>
+                <th className="px-4 py-2 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Price</th>
+                <th className="px-4 py-2 text-right text-xs font-semibold uppercase tracking-wide text-slate-500">Actions</th>
               </tr>
             </thead>
             <tbody>
               {data.casual_items.map((c) => (
-                <tr key={c.id} className="hover:bg-gray-50">
-                  <td className="px-4 py-2">{c.title}</td>
-                  <td className="px-4 py-2 text-sm text-gray-600">{c.seller_name || c.seller_email}</td>
-                  <td className="px-4 py-2">{c.asking_price}</td>
+                <tr key={c.id} className="transition hover:bg-blue-50/40">
+                  <td className="px-4 py-3 text-sm font-medium text-slate-800">{c.title}</td>
+                  <td className="px-4 py-3 text-sm text-slate-500">{c.seller_name || c.seller_email}</td>
+                  <td className="px-4 py-3 text-sm text-slate-600">{c.asking_price}</td>
                   <td className="px-4 py-2 text-right">
                     <div className="inline-flex gap-2">
-                      <button onClick={() => { setSelected({ type: 'casual', row: c }); }} className="px-3 py-1 bg-gray-200 text-gray-800 rounded">View</button>
-                      <button onClick={() => approveCasual(c.id)} className="px-3 py-1 bg-emerald-500 text-white rounded"><FaCheck /></button>
-                      <button onClick={() => rejectCasual(c.id)} className="px-3 py-1 bg-red-100 text-red-600 rounded"><FaTimes /></button>
+                      <button onClick={() => { setSelected({ type: 'casual', row: c }); }} className="inline-flex items-center rounded-full border border-slate-200 px-3 py-1 text-xs font-semibold text-slate-600 transition hover:border-blue-400 hover:text-blue-600">View</button>
+                      <button onClick={() => approveCasual(c.id)} className="inline-flex items-center justify-center rounded-full bg-emerald-500 px-3 py-1 text-xs font-semibold text-white shadow-sm shadow-emerald-200/70 transition hover:-translate-y-0.5">
+                        <FaCheck />
+                      </button>
+                      <button onClick={() => rejectCasual(c.id)} className="inline-flex items-center justify-center rounded-full bg-rose-50 px-3 py-1 text-xs font-semibold text-rose-600 transition hover:bg-rose-100">
+                        <FaTimes />
+                      </button>
                     </div>
                   </td>
                 </tr>
               ))}
               {data.casual_items.length === 0 && (
-                <tr><td colSpan={4} className="px-4 py-6 text-center text-sm text-gray-500">No casual submissions</td></tr>
+                <tr><td colSpan={4} className="px-4 py-6 text-center text-sm text-slate-400">No casual submissions</td></tr>
               )}
             </tbody>
           </table>
         )}
 
         {tab === 'others' && (
-          <div className="text-sm text-gray-500">No other submissions configured yet.</div>
+          <div className="text-sm text-slate-500">No other submissions configured yet.</div>
         )}
-      </div>
+      </section>
 
       {/* Detail modal */}
       {selected && (
-        <div className="fixed inset-0 z-50 bg-black/40 flex items-start justify-center p-6">
-          <div className="bg-white rounded-lg shadow-xl w-full max-w-3xl max-h-[90vh] overflow-auto">
-            <header className="flex items-center justify-between px-6 py-4 border-b">
-              <div>
-                <h2 className="text-lg font-semibold text-gray-800">{selected.type === 'vendor' ? 'Vendor application' : 'One-time item'}</h2>
-                <p className="text-sm text-gray-500">Details submitted</p>
+        <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-sm flex items-start justify-center p-6">
+          <div className="w-full max-w-3xl overflow-auto rounded-2xl border border-slate-200/70 bg-white/95 shadow-2xl shadow-slate-900/20">
+            <header className="flex flex-col gap-2 border-b border-slate-200 px-6 py-4 sm:flex-row sm:items-center sm:justify-between">
+              <div className="space-y-1">
+                <span className="inline-flex items-center gap-2 rounded-full bg-blue-50 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-blue-600">
+                  {selected.type === 'vendor' ? 'Vendor application' : 'One-time submission'}
+                </span>
+                <h2 className="text-lg font-semibold text-slate-800">Review details</h2>
+                <p className="text-xs text-slate-500">Make sure the submission aligns with your marketplace standards.</p>
               </div>
-              <div className="flex items-center gap-2">
-                <button onClick={() => setSelected(null)} className="px-3 py-1 rounded bg-gray-100">Close</button>
-              </div>
+              <button onClick={() => setSelected(null)} className="inline-flex items-center rounded-full border border-slate-200 px-3 py-1 text-xs font-semibold text-slate-600 transition hover:border-blue-400 hover:text-blue-600">Close</button>
             </header>
-            <div className="p-6 grid gap-4 md:grid-cols-2">
+            <div className="grid gap-6 p-6 md:grid-cols-2">
               {selected.type === 'vendor' ? (
                 <>
                   <div>
@@ -196,15 +237,15 @@ export default function Submissions() {
                   </div>
                   <div>
                     {selected.row.logo_url && (
-                      <img src={selected.row.logo_url.startsWith('http') ? selected.row.logo_url : `/images/${selected.row.logo_url}`} alt="logo" className="w-full h-48 object-contain bg-gray-50 p-4" />
+                      <img src={selected.row.logo_url.startsWith('http') ? selected.row.logo_url : `/images/${selected.row.logo_url}`} alt="logo" className="h-44 w-full rounded-xl bg-slate-50 object-contain p-4" />
                     )}
                     <div className="mt-4">
                       <div className="text-sm font-semibold">Commission rate</div>
                       <div className="text-gray-700">{(selected.row.commission_rate != null) ? `${(selected.row.commission_rate*100).toFixed(1)}%` : '—'}</div>
                     </div>
                     <div className="mt-4">
-                      <button onClick={() => approveVendor(selected.row.id)} className="px-3 py-2 bg-emerald-500 text-white rounded mr-2">Approve</button>
-                      <button onClick={() => rejectVendor(selected.row.id)} className="px-3 py-2 bg-red-100 text-red-600 rounded">Reject</button>
+                      <button onClick={() => approveVendor(selected.row.id)} className="inline-flex items-center gap-2 rounded-full bg-emerald-500 px-4 py-2 text-sm font-semibold text-white shadow shadow-emerald-200/70 transition hover:-translate-y-0.5 mr-2">Approve</button>
+                      <button onClick={() => rejectVendor(selected.row.id)} className="inline-flex items-center gap-2 rounded-full border border-rose-200 bg-rose-50 px-4 py-2 text-sm font-semibold text-rose-600 transition hover:bg-rose-100">Reject</button>
                     </div>
                   </div>
                 </>
@@ -230,14 +271,14 @@ export default function Submissions() {
                     )}
                   </div>
                   <div>
-                    <div className="grid gap-2">
+                    <div className="grid gap-3">
                       {(selected.row.photos || '').split(',').filter(Boolean).map((p, idx) => (
-                        <img key={idx} src={p.startsWith('http') ? p : `/images/${p}`} alt={`photo-${idx}`} className="w-full h-40 object-cover rounded" />
+                        <img key={idx} src={p.startsWith('http') ? p : `/images/${p}`} alt={`photo-${idx}`} className="h-44 w-full rounded-xl object-cover shadow-sm shadow-slate-200/60" />
                       ))}
                     </div>
                     <div className="mt-4">
-                      <button onClick={() => approveCasual(selected.row.id)} className="px-3 py-2 bg-emerald-500 text-white rounded mr-2">Approve</button>
-                      <button onClick={() => rejectCasual(selected.row.id)} className="px-3 py-2 bg-red-100 text-red-600 rounded">Reject</button>
+                      <button onClick={() => approveCasual(selected.row.id)} className="inline-flex items-center gap-2 rounded-full bg-emerald-500 px-4 py-2 text-sm font-semibold text-white shadow shadow-emerald-200/70 transition hover:-translate-y-0.5 mr-2">Approve</button>
+                      <button onClick={() => rejectCasual(selected.row.id)} className="inline-flex items-center gap-2 rounded-full border border-rose-200 bg-rose-50 px-4 py-2 text-sm font-semibold text-rose-600 transition hover:bg-rose-100">Reject</button>
                     </div>
                   </div>
                 </>

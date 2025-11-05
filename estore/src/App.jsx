@@ -8,8 +8,6 @@ import OrderConfirmation from "./pages/OrderConfirmation";
 import VendorOnboarding from "./pages/VendorOnboarding";
 import SellWithUs from "./pages/SellWithUs";
 import Privacy from "./pages/Privacy";
-import PrivacyGlobal from "./pages/PrivacyGlobal";
-import PrivacyMV from "./pages/PrivacyMV";
 import UsePolicy from "./pages/UsePolicy";
 import UseGlobal from "./pages/UseGlobal";
 import UseMV from "./pages/UseMV";
@@ -55,8 +53,6 @@ function App() {
         <Route path="/shop-and-ship" element={<PublicLayout><ShopAndShip /></PublicLayout>} />
   <Route path="/socials" element={<PublicLayout><Socials /></PublicLayout>} />
         <Route path="/privacy" element={<PublicLayout><Privacy /></PublicLayout>} />
-        <Route path="/privacy/global" element={<PublicLayout><PrivacyGlobal /></PublicLayout>} />
-        <Route path="/privacy/mv" element={<PublicLayout><PrivacyMV /></PublicLayout>} />
         <Route path="/use" element={<PublicLayout><UsePolicy /></PublicLayout>} />
         <Route path="/use/global" element={<PublicLayout><UseGlobal /></PublicLayout>} />
         <Route path="/use/mv" element={<PublicLayout><UseMV /></PublicLayout>} />

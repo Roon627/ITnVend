@@ -187,28 +187,35 @@ async function loadPreorders(status) {
   }, [preorders]);
 
   return (
-    <div className="space-y-6">
-      <header className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-800">Customer Preorders</h1>
-          <p className="text-sm text-slate-500">
-            Capture overseas cart requests, verify payments, and send order updates by email.
-          </p>
-        </div>
-        <button
-          type="button"
-          onClick={() => loadPreorders(statusFilter)}
-          className="inline-flex items-center gap-2 rounded-full border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-600 shadow-sm transition hover:border-slate-300 hover:text-slate-800"
-          disabled={loading}
-        >
-          <FaSync className={loading ? 'animate-spin' : ''} />
-          Refresh
-        </button>
-      </header>
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-blue-50 p-6 pb-24 space-y-8">
+      <section className="rounded-2xl border border-slate-200/70 bg-white/80 p-6 shadow-sm shadow-blue-100/50 backdrop-blur">
+        <header className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+          <div className="space-y-3">
+            <span className="inline-flex items-center gap-2 rounded-full bg-blue-50 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-blue-600">
+              Preorder desk
+            </span>
+            <div>
+              <h1 className="text-3xl font-bold text-slate-900">Customer Preorders</h1>
+              <p className="text-sm text-slate-500">
+                Capture overseas cart requests, verify payments, and send order updates by email.
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => loadPreorders(statusFilter)}
+            className="inline-flex items-center gap-2 rounded-full bg-gradient-to-r from-blue-600 via-blue-500 to-indigo-500 px-5 py-2 text-sm font-semibold text-white shadow-lg shadow-blue-200/60 transition hover:-translate-y-0.5 hover:shadow-blue-300/70 disabled:opacity-60"
+            disabled={loading}
+          >
+            <FaSync className={loading ? 'animate-spin' : ''} />
+            Refresh
+          </button>
+        </header>
+      </section>
 
-      <section className="rounded-2xl border border-slate-100 bg-white shadow-sm">
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-6 py-4">
-          <div className="flex flex-wrap items-center gap-2 text-sm">
+      <section className="rounded-2xl border border-slate-200/70 bg-white/80 p-4 shadow-sm shadow-blue-100/40 backdrop-blur">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200/70 pb-4">
+          <nav className="flex flex-wrap items-center gap-2 text-sm">
             {filteredOptions.map((option) => {
               const count = statusSummary?.[option.value] ?? 0;
               const isActive = statusFilter === option.value;
@@ -220,8 +227,10 @@ async function loadPreorders(status) {
                     setSelectedId(null);
                     setStatusFilter(option.value);
                   }}
-                  className={`rounded-full px-4 py-2 text-sm font-semibold transition ${
-                    isActive ? 'bg-rose-500 text-white shadow' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                  className={`inline-flex items-center rounded-full px-3.5 py-1.5 text-sm font-semibold transition-all ${
+                    isActive
+                      ? 'bg-blue-600 text-white shadow shadow-blue-300/60'
+                      : 'bg-white/70 text-slate-500 hover:bg-blue-50 hover:text-blue-600'
                   }`}
                 >
                   {option.label}
@@ -229,16 +238,16 @@ async function loadPreorders(status) {
                 </button>
               );
             })}
-          </div>
-          <div className="text-xs text-slate-400">
+          </nav>
+          <div className="text-xs font-semibold uppercase tracking-wide text-slate-400">
             Showing {preorders.length} record{preorders.length === 1 ? '' : 's'}
           </div>
         </div>
 
-        <div className="grid gap-6 px-6 py-6 lg:grid-cols-[1.6fr_1fr]">
-          <div className="overflow-hidden rounded-2xl border border-slate-100">
-            <table className="min-w-full divide-y divide-slate-100 text-sm">
-              <thead className="bg-slate-50/70 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+        <div className="grid gap-6 pt-6 lg:grid-cols-[1.6fr_1fr]">
+          <div className="overflow-hidden rounded-2xl border border-slate-200/70 bg-white/90">
+            <table className="min-w-full divide-y divide-slate-200 text-sm">
+              <thead className="bg-slate-50/80 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
                 <tr>
                   <th className="px-4 py-3">Order</th>
                   <th className="px-4 py-3">Customer</th>
@@ -246,7 +255,7 @@ async function loadPreorders(status) {
                   <th className="px-4 py-3">Status</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100 bg-white">
+              <tbody className="divide-y divide-slate-200 bg-white/95">
                 {loading ? (
                   <tr>
                     <td colSpan={4} className="px-4 py-6 text-center text-slate-400">
@@ -265,7 +274,7 @@ async function loadPreorders(status) {
                     return (
                       <tr
                         key={order.id}
-                        className={`cursor-pointer transition hover:bg-rose-50/40 ${isActive ? 'bg-rose-50/60' : ''}`}
+                        className={`cursor-pointer transition hover:bg-blue-50/40 ${isActive ? 'bg-blue-50/70' : ''}`}
                         onClick={() => setSelectedId(order.id)}
                       >
                         <td className="px-4 py-3 align-top">
@@ -307,8 +316,8 @@ async function loadPreorders(status) {
           </div>
 
           <aside className="space-y-6">
-            <div className="rounded-2xl border border-slate-100 bg-slate-50/50 p-5 shadow-inner">
-              <h2 className="mb-2 flex items-center gap-2 text-sm font-semibold text-slate-600">
+            <div className="rounded-2xl border border-slate-200/70 bg-white/85 p-5 shadow-sm shadow-blue-100/50 backdrop-blur">
+              <h2 className="mb-2 flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-slate-500">
                 <FaEnvelopeOpenText /> Customer brief
               </h2>
               {detailLoading ? (
@@ -388,7 +397,7 @@ async function loadPreorders(status) {
                       <button
                         type="button"
                         onClick={() => setPreviewSlip(detail.paymentSlip)}
-                        className="inline-flex items-center gap-2 rounded-full border border-rose-200 px-4 py-2 text-xs font-semibold text-rose-500 transition hover:border-rose-300 hover:text-rose-600"
+                        className="inline-flex items-center gap-2 rounded-full border border-blue-200 px-4 py-2 text-xs font-semibold text-blue-600 transition hover:border-blue-300 hover:text-blue-700"
                       >
                         View payment slip
                         <FaExternalLinkAlt />
@@ -399,16 +408,16 @@ async function loadPreorders(status) {
               )}
             </div>
 
-            <div className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
-              <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold text-slate-600">
+            <div className="rounded-2xl border border-slate-200/70 bg-white/85 p-5 shadow-sm shadow-blue-100/50 backdrop-blur">
+              <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-slate-500">
                 <FaHistory /> Status history
               </h2>
               <Timeline history={detail?.statusHistory} />
             </div>
 
             {detail && (
-              <form onSubmit={handleUpdate} className="space-y-4 rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
-                <h2 className="text-sm font-semibold text-slate-600">Update order</h2>
+              <form onSubmit={handleUpdate} className="space-y-4 rounded-2xl border border-slate-200/70 bg-white/85 p-5 shadow-sm shadow-blue-100/50 backdrop-blur">
+                <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Update order</h2>
                 <div>
                   <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-400">
                     Status
@@ -416,7 +425,7 @@ async function loadPreorders(status) {
                   <select
                     value={nextStatus}
                     onChange={(event) => setNextStatus(event.target.value)}
-                    className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm shadow-sm focus:border-rose-400 focus:outline-none focus:ring-2 focus:ring-rose-100"
+                    className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm shadow-sm focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-100"
                   >
                     {STATUS_OPTIONS.filter((option) => option.value !== 'all').map((option) => (
                       <option key={option.value} value={option.value}>
@@ -434,7 +443,7 @@ async function loadPreorders(status) {
                     onChange={(event) => setNote(event.target.value)}
                     rows={3}
                     placeholder="Add context for teammates (private)"
-                    className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm shadow-sm focus:border-rose-400 focus:outline-none focus:ring-2 focus:ring-rose-100"
+                    className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm shadow-sm focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-100"
                   />
                 </div>
                 <div>
@@ -446,21 +455,21 @@ async function loadPreorders(status) {
                     onChange={(event) => setCustomerMessage(event.target.value)}
                     rows={3}
                     placeholder="Write the update they will receive"
-                    className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm shadow-sm focus:border-rose-400 focus:outline-none focus:ring-2 focus:ring-rose-100"
+                    className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm shadow-sm focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-100"
                   />
                   <label className="mt-2 inline-flex items-center gap-2 text-xs text-slate-500">
                     <input
                       type="checkbox"
                       checked={notifyCustomer}
                       onChange={(event) => setNotifyCustomer(event.target.checked)}
-                      className="rounded border border-slate-300 text-rose-500 focus:ring-rose-400"
+                      className="rounded border border-slate-300 text-blue-600 focus:ring-blue-400"
                     />
                     Email the customer this update
                   </label>
                 </div>
                 <button
                   type="submit"
-                  className="inline-flex w-full items-center justify-center rounded-full bg-gradient-to-r from-rose-500 to-sky-400 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-rose-200/80 transition hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-70"
+                  className="inline-flex w-full items-center justify-center rounded-full bg-gradient-to-r from-blue-600 via-blue-500 to-indigo-500 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-blue-200/80 transition hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-70"
                   disabled={updating}
                 >
                   {updating ? 'Updating…' : 'Save update'}
@@ -471,14 +480,14 @@ async function loadPreorders(status) {
         </div>
       </section>
       {previewSlip && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/70 backdrop-blur-sm">
-          <div className="max-h-[90vh] w-[90vw] max-w-3xl overflow-hidden rounded-2xl bg-white shadow-2xl">
-            <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
-              <h3 className="text-sm font-semibold text-slate-600">Payment slip preview</h3>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm">
+          <div className="max-h-[90vh] w-[90vw] max-w-3xl overflow-hidden rounded-2xl border border-slate-200/70 bg-white/95 shadow-2xl shadow-slate-900/25">
+            <div className="flex items-center justify-between border-b border-slate-200/70 px-4 py-3">
+              <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Payment slip preview</h3>
               <button
                 type="button"
                 onClick={() => setPreviewSlip(null)}
-                className="rounded-full border border-slate-200 p-2 text-slate-400 transition hover:border-slate-300 hover:text-slate-600"
+                className="rounded-full border border-slate-200 p-2 text-slate-400 transition hover:border-blue-300 hover:text-blue-600"
                 aria-label="Close preview"
               >
                 <FaTimes />
@@ -491,7 +500,7 @@ async function loadPreorders(status) {
                 <img
                   src={previewSlip}
                   alt="Payment slip"
-                  className="mx-auto max-h-[75vh] rounded-lg border border-slate-100 bg-white object-contain shadow-inner"
+                  className="mx-auto max-h-[75vh] rounded-lg border border-slate-200 bg-white object-contain shadow-inner"
                 />
               )}
             </div>

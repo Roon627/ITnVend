@@ -38,6 +38,7 @@ export default function StockAdjustments() {
       setTotal(res.total || 0);
     } catch (err) {
       toast.push('Failed to load adjustments', 'error');
+      console.debug(err);
     } finally {
       setLoading(false);
     }

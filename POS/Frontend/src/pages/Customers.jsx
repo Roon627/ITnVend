@@ -407,26 +407,34 @@ export default function Customers() {
   ];
 
   return (
-    <div className="p-6 space-y-6 bg-gray-50 min-h-full">
-      <header className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-        <div>
-          <h1 className="text-3xl font-bold text-gray-900">Customers</h1>
-          <p className="text-sm text-gray-500">
-            Maintain a clean CRM across business clients and individual buyers. Track registration details and jump into profiles quickly.
-          </p>
-        </div>
-        <div className="flex items-center gap-3">
-          <button
-            onClick={() => setCustomerModalOpen(true)}
-            className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-md font-semibold shadow hover:bg-blue-700"
-          >
-            <FaUsers /> New Customer
-          </button>
-        </div>
-      </header>
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-blue-50 p-6 pb-24 space-y-8">
+      <section className="rounded-2xl border border-slate-200/70 bg-white/80 p-6 shadow-sm shadow-blue-100/50 backdrop-blur">
+        <header className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+          <div className="space-y-3">
+            <span className="inline-flex items-center gap-2 rounded-full bg-blue-50 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-blue-600">
+              Customer hub
+            </span>
+            <div>
+              <h1 className="text-3xl font-bold text-slate-900">Customers</h1>
+              <p className="text-sm text-slate-500">
+                Maintain a clean CRM across business clients and individual buyers. Track registration details and jump into profiles quickly.
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => setCustomerModalOpen(true)}
+              className="inline-flex items-center gap-2 rounded-full bg-gradient-to-r from-blue-600 via-blue-500 to-indigo-500 px-5 py-2 text-sm font-semibold text-white shadow-lg shadow-blue-200/60 transition hover:-translate-y-0.5 hover:shadow-blue-300/70"
+            >
+              <FaUsers /> New customer
+            </button>
+          </div>
+        </header>
+      </section>
 
       {/* Top stats cards - unified overview */}
-      <section className="grid grid-cols-1 md:grid-cols-4 gap-4">
+      <section className="rounded-2xl border border-slate-200/70 bg-white/80 p-4 shadow-sm shadow-blue-100/40 backdrop-blur">
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
         <StatCard icon={<FaUsers />} title="Total Customers" value={stats.total} link="/customers" bgColor="bg-indigo-50" textColor="text-indigo-800" />
         <StatCard icon={<FaBuilding />} title="Vendors" value={stats.vendors} link="/customers?tab=vendors" bgColor="bg-green-50" textColor="text-green-800" />
         <StatCard icon={<FaUserTie />} title="One-Time Sellers" value={stats.sellers} link="/customers?tab=one-time-seller" bgColor="bg-yellow-50" textColor="text-yellow-800" />
@@ -438,10 +446,11 @@ export default function Customers() {
           bgColor="bg-pink-50"
           textColor="text-pink-800"
         />
+        </div>
       </section>
 
-      <section className="mt-6 bg-white border rounded p-3">
-        <nav className="flex gap-2">
+      <section className="rounded-2xl border border-slate-200/70 bg-white/80 p-4 shadow-sm shadow-blue-100/40 backdrop-blur">
+        <nav className="flex flex-wrap gap-2">
           {custTabs.map((t) => (
             <button
               key={t.key}
@@ -450,7 +459,11 @@ export default function Customers() {
                 // attach route so the tab is linkable and bookmarkable
                 navigate(`/customers?tab=${t.key}`);
               }}
-              className={`px-3 py-1 rounded ${custTab===t.key ? 'bg-blue-600 text-white' : 'bg-gray-100'}`}>
+              className={`group relative inline-flex items-center rounded-full px-3.5 py-1.5 text-sm font-semibold transition-all ${
+                custTab===t.key
+                  ? 'bg-blue-600 text-white shadow shadow-blue-300/60'
+                  : 'bg-white/70 text-slate-500 hover:bg-blue-50 hover:text-blue-600'
+              }`}>
               {t.label}
             </button>
           ))}
@@ -490,7 +503,7 @@ export default function Customers() {
         />
       )}
 
-      <section className="bg-white border border-gray-100 rounded-lg shadow-sm p-6">
+      <section className="rounded-2xl border border-slate-200/70 bg-white/90 p-6 shadow-md shadow-blue-100/50 backdrop-blur">
         <TableToolbar
           onSearch={(v) => setSearchTerm(v)}
           onAddCustomer={() => setCustomerModalOpen(true)}

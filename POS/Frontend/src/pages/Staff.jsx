@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { api, setAuthToken } from '../lib/api';
 import { useToast } from '../components/ToastContext';
+import { useTheme } from '../components/ThemeContext';
 
 export default function Staff() {
   const [staff, setStaff] = useState([]);
@@ -15,6 +16,20 @@ export default function Staff() {
   const [activityLoading, setActivityLoading] = useState(false);
   const toast = useToast();
   const [roleErrors, setRoleErrors] = useState({});
+  const [selectedStaff] = useState(null);
+  const { theme } = useTheme();
+
+  const pageBgClass = theme === 'mauve'
+    ? 'bg-gradient-to-br from-purple-50 via-white to-pink-50'
+    : theme === 'emerald'
+    ? 'bg-gradient-to-br from-emerald-50 via-white to-green-50'
+    : 'bg-gradient-to-br from-slate-50 via-white to-blue-50';
+
+  const ctaClass = theme === 'mauve'
+    ? 'from-purple-600 to-pink-500'
+    : theme === 'emerald'
+    ? 'from-emerald-600 to-emerald-500'
+    : 'from-blue-600 to-indigo-500';
 
   async function load() {
     setLoading(true);
@@ -153,119 +168,131 @@ export default function Staff() {
   }
 
   return (
-    <div className="p-6">
-      <div className="flex items-center justify-between mb-6">
-        <h2 className="text-2xl font-semibold">Staff</h2>
-        <div>
-          <button className="px-4 py-2 bg-blue-600 text-white rounded" onClick={openCreate}>New Staff</button>
+    <div className={`min-h-screen ${pageBgClass} p-6 pb-24 space-y-8`}>
+      <section className="rounded-2xl border border-slate-200/70 bg-white/80 p-6 shadow-sm shadow-blue-100/50 backdrop-blur">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="space-y-2">
+            <span className="inline-flex items-center gap-2 rounded-full bg-blue-50 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-blue-600">Team</span>
+            <div>
+              <h1 className="text-2xl font-bold text-slate-900">Staff</h1>
+              <p className="text-sm text-slate-500">Manage staff accounts, roles and activity.</p>
+            </div>
+          </div>
+          <div>
+            <button onClick={openCreate} className={`inline-flex items-center gap-2 rounded-full bg-gradient-to-r ${ctaClass} px-4 py-2 text-sm font-semibold text-white shadow hover:-translate-y-0.5`}>New Staff</button>
+          </div>
         </div>
-      </div>
+      </section>
 
-      {error && <div className="mb-4 text-red-600">{error}</div>}
+      {error && <div className="rounded-md border border-rose-200 bg-rose-50 px-4 py-2 text-sm text-rose-600">{error}</div>}
 
-      <div className="bg-white shadow rounded overflow-hidden">
-        <table className="w-full text-left">
-          <thead className="bg-gray-50">
-            <tr>
-              <th className="px-4 py-3">Username</th>
-              <th className="px-4 py-3">Name</th>
-              <th className="px-4 py-3">Email</th>
-              <th className="px-4 py-3">Phone</th>
-              <th className="px-4 py-3">Roles</th>
-              <th className="px-4 py-3">Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {loading && <tr><td colSpan="6" className="p-4">Loading…</td></tr>}
-            {!loading && staff.length === 0 && <tr><td colSpan="6" className="p-4">No staff yet</td></tr>}
-            {!loading && staff.map(s => (
-              <tr key={s.id} className="border-t">
-                <td className="px-4 py-3">{s.username}</td>
-                <td className="px-4 py-3">{s.display_name}</td>
-                <td className="px-4 py-3">{s.email}</td>
-                <td className="px-4 py-3">{s.phone}</td>
-                <td className="px-4 py-3">
-                  <div className="flex gap-2 items-center">
-                    {(roles || []).map(r => (
-                      <label key={r.id} className="inline-flex items-center text-sm mr-2">
-                        <input type="checkbox" className="mr-1" checked={(s.roles || []).some(x => x.id === r.id)} onChange={() => toggleInlineRole(s.id, r.id)} />
-                        <span className="px-2 py-1 rounded bg-gray-100">{r.name}</span>
-                      </label>
-                    ))}
-                  </div>
-                </td>
-                <td className="px-4 py-3">
-                  <button className="mr-2 text-sm px-3 py-1 bg-yellow-100 rounded" onClick={() => openEdit(s)}>Edit</button>
-                  <button className="mr-2 text-sm px-3 py-1 bg-blue-100 rounded" onClick={() => openActivity(s)}>Activity</button>
-                  <button className="mr-2 text-sm px-3 py-1 bg-green-100 rounded" onClick={() => switchTo(s)}>Switch</button>
-                  <button className="text-sm px-3 py-1 bg-red-100 rounded" onClick={() => remove(s.id)}>Delete</button>
-                </td>
+      <section className="rounded-2xl border border-slate-200/70 bg-white/90 p-4 shadow-sm shadow-blue-100/40 backdrop-blur">
+        <div className="overflow-x-auto">
+          <table className="min-w-full text-left text-sm">
+            <thead className="bg-slate-50/80 text-xs text-slate-500 font-semibold uppercase tracking-wide">
+              <tr>
+                <th className="px-4 py-3">Username</th>
+                <th className="px-4 py-3">Name</th>
+                <th className="px-4 py-3">Email</th>
+                <th className="px-4 py-3">Phone</th>
+                <th className="px-4 py-3">Roles</th>
+                <th className="px-4 py-3">Actions</th>
               </tr>
-            ))}
-            {!loading && Object.keys(roleErrors).length > 0 && staff.map(s => (
-              roleErrors[s.id] ? (
-                <tr key={`err-${s.id}`}>
-                  <td colSpan="6" className="px-4 py-2 bg-yellow-50 text-sm text-yellow-800">Role update failed: {roleErrors[s.id]}</td>
+            </thead>
+            <tbody className="divide-y divide-slate-100 bg-white">
+              {loading && <tr><td colSpan="6" className="p-6 text-center text-sm text-slate-400">Loading…</td></tr>}
+              {!loading && staff.length === 0 && <tr><td colSpan="6" className="p-6 text-center text-sm text-slate-400">No staff yet</td></tr>}
+              {!loading && staff.map(s => (
+                <tr key={s.id} className={`${selectedStaff?.id === s.id ? 'bg-blue-50/50' : ''}`}>
+                  <td className="px-4 py-3 align-top">{s.username}</td>
+                  <td className="px-4 py-3 align-top">{s.display_name}</td>
+                  <td className="px-4 py-3 align-top">{s.email}</td>
+                  <td className="px-4 py-3 align-top">{s.phone}</td>
+                  <td className="px-4 py-3 align-top">
+                    <div className="flex flex-wrap gap-2">
+                      {(roles || []).map(r => (
+                        <label key={r.id} className="inline-flex items-center text-xs">
+                          <input type="checkbox" className="mr-2" checked={(s.roles || []).some(x => x.id === r.id)} onChange={() => toggleInlineRole(s.id, r.id)} />
+                          <span className="inline-flex items-center gap-2 rounded-full bg-slate-100 px-2 py-1 text-slate-700">{r.name}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </td>
+                  <td className="px-4 py-3 align-top">
+                    <div className="flex flex-wrap gap-2 justify-end">
+                      <button className="inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs text-slate-600 hover:bg-slate-50" onClick={() => openEdit(s)}>Edit</button>
+                      <button className="inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs text-slate-600 hover:bg-slate-50" onClick={() => openActivity(s)}>Activity</button>
+                      <button className="inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs text-slate-600 hover:bg-slate-50" onClick={() => switchTo(s)}>Switch</button>
+                      <button className="inline-flex items-center gap-2 rounded-full border border-rose-200 px-3 py-1 text-xs text-rose-600 hover:bg-rose-50" onClick={() => remove(s.id)}>Delete</button>
+                    </div>
+                  </td>
                 </tr>
-              ) : null
-            ))}
-          </tbody>
-        </table>
-      </div>
+              ))}
+              {!loading && Object.keys(roleErrors).length > 0 && staff.map(s => (
+                roleErrors[s.id] ? (
+                  <tr key={`err-${s.id}`}>
+                    <td colSpan="6" className="px-4 py-2 bg-amber-50 text-sm text-amber-800">Role update failed: {roleErrors[s.id]}</td>
+                  </tr>
+                ) : null
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
 
       {activityOpen && (
-        <div className="fixed inset-0 bg-black bg-opacity-40 flex items-start justify-center p-6">
-          <div className="bg-white rounded shadow max-w-2xl w-full p-6">
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-6">
+          <div className="rounded-2xl border border-slate-200/70 bg-white/90 p-6 shadow-sm max-w-2xl w-full">
             <h3 className="text-lg font-medium mb-4">Activity</h3>
-            {activityLoading && <div>Loading…</div>}
-            {!activityLoading && activityEntries.length === 0 && <div className="text-sm text-gray-600">No activity found</div>}
+            {activityLoading && <div className="text-sm text-slate-500">Loading…</div>}
+            {!activityLoading && activityEntries.length === 0 && <div className="text-sm text-slate-500">No activity found</div>}
             <ul className="space-y-2 max-h-80 overflow-auto">
               {activityEntries.map(a => (
-                <li key={a.id} className="p-2 border rounded">
-                  <div className="text-sm text-gray-700"><strong>{a.action}</strong> — {a.details}</div>
-                  <div className="text-xs text-gray-500">By: {a.user || 'system'} • {a.created_at}</div>
+                <li key={a.id} className="p-3 rounded border bg-white">
+                  <div className="text-sm text-slate-700"><strong>{a.action}</strong> — {a.details}</div>
+                  <div className="text-xs text-slate-400">By: {a.user || 'system'} • {a.created_at}</div>
                 </li>
               ))}
             </ul>
             <div className="mt-4 flex justify-end">
-              <button className="px-4 py-2 border rounded" onClick={() => setActivityOpen(false)}>Close</button>
+              <button className="px-4 py-2 rounded-md border" onClick={() => setActivityOpen(false)}>Close</button>
             </div>
           </div>
         </div>
       )}
 
       {formOpen && (
-        <div className="fixed inset-0 bg-black bg-opacity-40 flex items-start justify-center p-6">
-          <div className="bg-white rounded shadow max-w-xl w-full p-6">
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-6">
+          <div className="rounded-2xl border border-slate-200/70 bg-white/90 p-6 shadow-sm max-w-xl w-full max-h-[90vh] overflow-auto">
             <h3 className="text-lg font-medium mb-4">{editingId ? 'Edit Staff' : 'Create Staff'}</h3>
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm">Username</label>
-                <input className="mt-1 p-2 border w-full" value={form.username} onChange={e => setForm({ ...form, username: e.target.value })} disabled={!!editingId} />
+                <input className="mt-1 p-2 rounded border w-full" value={form.username} onChange={e => setForm({ ...form, username: e.target.value })} disabled={!!editingId} />
               </div>
               <div>
                 <label className="block text-sm">Display name</label>
-                <input className="mt-1 p-2 border w-full" value={form.display_name} onChange={e => setForm({ ...form, display_name: e.target.value })} />
+                <input className="mt-1 p-2 rounded border w-full" value={form.display_name} onChange={e => setForm({ ...form, display_name: e.target.value })} />
               </div>
               <div>
                 <label className="block text-sm">Email</label>
-                <input className="mt-1 p-2 border w-full" value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} />
+                <input className="mt-1 p-2 rounded border w-full" value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} />
               </div>
               <div>
                 <label className="block text-sm">Phone</label>
-                <input className="mt-1 p-2 border w-full" value={form.phone} onChange={e => setForm({ ...form, phone: e.target.value })} />
+                <input className="mt-1 p-2 rounded border w-full" value={form.phone} onChange={e => setForm({ ...form, phone: e.target.value })} />
               </div>
               <div>
                 <label className="block text-sm">Password{editingId ? ' (leave blank to keep)' : ''}</label>
-                <input type="password" className="mt-1 p-2 border w-full" value={form.password} onChange={e => setForm({ ...form, password: e.target.value })} />
+                <input type="password" className="mt-1 p-2 rounded border w-full" value={form.password} onChange={e => setForm({ ...form, password: e.target.value })} />
               </div>
               <div>
                 <label className="block text-sm">Roles</label>
                 <div className="mt-1 space-y-1">
                   {roles.map(r => (
-                    <label key={r.id} className="inline-flex items-center mr-3">
+                    <label key={r.id} className="inline-flex items-center mr-3 text-sm">
                       <input type="checkbox" className="mr-2" checked={form.roles.includes(r.id)} onChange={() => toggleRole(r.id)} />
-                      <span>{r.name}</span>
+                      <span className="text-sm">{r.name}</span>
                     </label>
                   ))}
                 </div>
@@ -273,8 +300,8 @@ export default function Staff() {
             </div>
 
             <div className="mt-6 flex justify-end gap-2">
-              <button className="px-4 py-2 border rounded" onClick={() => setFormOpen(false)}>Cancel</button>
-              <button className="px-4 py-2 bg-blue-600 text-white rounded" onClick={submit}>{editingId ? 'Save' : 'Create'}</button>
+              <button className="px-4 py-2 rounded border" onClick={() => setFormOpen(false)}>Cancel</button>
+              <button className="px-4 py-2 rounded-full bg-gradient-to-r from-blue-600 to-indigo-600 text-white" onClick={submit}>{editingId ? 'Save' : 'Create'}</button>
             </div>
           </div>
         </div>

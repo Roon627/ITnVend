@@ -153,7 +153,7 @@ function mapCsvRowToProduct(row) {
   return { product, valid, issues, source: row };
 }
 
-function computeAutoSkuPreview(brandName = '', productName = '', year) {
+function _computeAutoSkuPreview(brandName = '', productName = '', year) {
   const brandSegment = (brandName || 'GN')
     .split(/\s+/)
     .map((part) => part.charAt(0))
@@ -323,7 +323,7 @@ function ProductInsight({ product, formatCurrency, onTagClick }) {
   );
 }
 
-function ProductModal({ open, draft, onClose, onChange, onSave, onUploadImage, uploading, saving, stockChanged, stockReason, onStockReasonChange, categoryTree, lookups, onTagsChanged, createBrand, createMaterial, createColor, createCategoryRoot, createSubcategory, createSubsubcategory }) {
+function ProductModal({ open, draft, onClose, onChange, onSave, onUploadImage, uploading, saving, stockChanged, stockReason, onStockReasonChange, categoryTree, lookups, onTagsChanged }) {
   const fileInputRef = useRef(null);
   const modalRef = useRef(null);
   const [modalVisible, setModalVisible] = useState(false);
@@ -690,7 +690,7 @@ export default function Products() {
   const [filters, setFilters] = useState({ category: '', subcategory: '', search: '', tag: '' });
   const [searchValue, setSearchValue] = useState('');
   const [form, setForm] = useState(EMPTY_FORM);
-  const [adding, setAdding] = useState(false);
+  const [_adding, setAdding] = useState(false);
   const [loading, setLoading] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState(null);
 
@@ -703,7 +703,7 @@ export default function Products() {
   const [lookups, setLookups] = useState(null);
   const [categoryTree, setCategoryTree] = useState([]);
 
-  const [newImageUploading, setNewImageUploading] = useState(false);
+  const [_newImageUploading, setNewImageUploading] = useState(false);
   const newImageInputRef = useRef(null);
 
   const [bulkRows, setBulkRows] = useState([]);
@@ -947,7 +947,7 @@ export default function Products() {
     });
   };
 
-  const handleFormChange = (event) => {
+  const _handleFormChange = (event) => {
     const { name, value, type, checked } = event.target;
     setForm((prev) => ({
       ...prev,
@@ -955,7 +955,7 @@ export default function Products() {
     }));
   };
 
-  const handleAddProduct = async (event) => {
+  const _handleAddProduct = async (event) => {
     event.preventDefault();
     if (!form.name || !form.price) {
       toast.push('Name and price are required', 'warning');
@@ -1253,7 +1253,7 @@ export default function Products() {
     }
   };
 
-  const handleNewImageUpload = async (file) => {
+  const _handleNewImageUpload = async (file) => {
     if (!file) return;
     setNewImageUploading(true);
     try {
@@ -1325,7 +1325,7 @@ export default function Products() {
     }
   };
 
-  const handleModalChange = (key, value) => {
+  const _handleModalChange = (key, value) => {
     setModalDraft((prev) => (prev ? { ...prev, [key]: value } : prev));
   };
 
