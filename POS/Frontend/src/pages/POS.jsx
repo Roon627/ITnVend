@@ -76,10 +76,10 @@ export default function POS() {
     : null;
 
   const [shiftStartedAt, setShiftStartedAt] = useState(() => {
-    try { return localStorage.getItem('pos_shift_started_at') || ''; } catch (e) { return ''; }
+    try { return localStorage.getItem('pos_shift_started_at') || ''; } catch { return ''; }
   });
   const [shiftId, setShiftId] = useState(() => {
-    try { return localStorage.getItem('pos_shift_id') || null; } catch (e) { return null; }
+    try { return localStorage.getItem('pos_shift_id') || null; } catch { return null; }
   });
   const [shiftPending, setShiftPending] = useState(false);
   // Mobile cart/drawer state: hidden by default on small screens
@@ -95,7 +95,7 @@ export default function POS() {
       if (mins < 60) return `${mins}m ago`;
       if (mins < 1440) return `${Math.floor(mins / 60)}h ago`;
       return `${Math.floor(mins / 1440)}d ago`;
-    } catch (e) { return ''; }
+  } catch { return ''; }
   };
 
   const humanizeLabel = (value) => {
@@ -159,7 +159,9 @@ export default function POS() {
       const shift = payload?.shift;
       if (!shift) return;
       const started = shift.started_at || new Date().toISOString();
-      try { localStorage.setItem('pos_shift_started_at', started); localStorage.setItem('pos_shift_id', String(shift.id)); } catch (e) {}
+      try { localStorage.setItem('pos_shift_started_at', started); localStorage.setItem('pos_shift_id', String(shift.id)); } catch {
+        console.debug('Failed to persist shift start to localStorage');
+      }
       setShiftStartedAt(started);
       setShiftId(shift.id || null);
       toast.push('Shift started', 'info');
@@ -173,7 +175,9 @@ export default function POS() {
       const shift = payload?.shift;
       // if the stopped shift matches our current shift, clear it
       if (shift && String(shift.id) === String(shiftId)) {
-        try { localStorage.removeItem('pos_shift_started_at'); localStorage.removeItem('pos_shift_id'); } catch (e) {}
+        try { localStorage.removeItem('pos_shift_started_at'); localStorage.removeItem('pos_shift_id'); } catch {
+          console.debug('Failed to clear shift keys from localStorage');
+        }
         setShiftStartedAt('');
         setShiftId(null);
         toast.push('Shift closed', 'info');
@@ -350,6 +354,7 @@ export default function POS() {
         setSelectedCustomerId(customersData[0].id);
       }
     } catch (error) {
+      console.debug('Failed to load initial POS data', error);
       toast.push('Failed to load data', 'error');
     }
   }, [normalizeProduct, toast]);
@@ -393,7 +398,9 @@ export default function POS() {
           try {
             localStorage.setItem('pos_shift_started_at', active.started_at);
             localStorage.setItem('pos_shift_id', String(active.id));
-          } catch (e) { /* ignore */ }
+          } catch {
+            console.debug('Failed to persist active shift to localStorage');
+          }
         }
       } catch (e) {
         // ignore sync errors; fall back to localStorage
@@ -679,6 +686,7 @@ export default function POS() {
       toast.push(normalizedType === 'invoice' ? 'Invoice created successfully' : 'Quote generated successfully', 'success');
       return true;
     } catch (err) {
+      console.debug('Checkout failed', err);
       toast.push(normalizedType === 'invoice' ? 'Failed to create invoice' : 'Failed to create quote', 'error');
       return false;
     }
@@ -733,6 +741,7 @@ export default function POS() {
       setNewCustomer({ name: '', email: '', phone: '' });
       toast.push('Customer created successfully', 'success');
     } catch (error) {
+      console.debug('Create customer failed', error);
       toast.push('Failed to create customer', 'error');
     }
   };
@@ -748,6 +757,7 @@ export default function POS() {
         window.open(linkResp.url, '_blank');
       }
     } catch (error) {
+      console.debug('Open receipt failed', error);
       toast.push('Failed to open receipt', 'error');
     }
   };
@@ -1113,7 +1123,9 @@ export default function POS() {
                             toast.push('Shift closed', 'info');
                           } catch (e) {
                             // fallback: clear local marker and notify user
-                            try { localStorage.removeItem('pos_shift_started_at'); localStorage.removeItem('pos_shift_id'); } catch (err) {}
+                            try { localStorage.removeItem('pos_shift_started_at'); localStorage.removeItem('pos_shift_id'); } catch {
+                              console.debug('Failed to clear shift keys from localStorage');
+                            }
                             setShiftStartedAt(''); setShiftId(null);
                             toast.push('Shift closed locally (server unavailable)', 'warning');
                             console.debug('Failed to stop shift', e?.message || e);
@@ -1136,7 +1148,9 @@ export default function POS() {
                           const resp = await api.post('/shifts/start', payload);
                           if (resp && resp.started_at) {
                             const now = resp.started_at;
-                            try { localStorage.setItem('pos_shift_started_at', now); localStorage.setItem('pos_shift_id', String(resp.id)); } catch (e) {}
+                            try { localStorage.setItem('pos_shift_started_at', now); localStorage.setItem('pos_shift_id', String(resp.id)); } catch {
+                              console.debug('Failed to persist shift start to localStorage');
+                            }
                             setShiftStartedAt(now);
                             setShiftId(resp.id || null);
                             toast.push('Shift started', 'info');
@@ -1150,7 +1164,9 @@ export default function POS() {
                         } catch (e) {
                           // network error: fallback to local marker and notify
                           const now = new Date().toISOString();
-                          try { localStorage.setItem('pos_shift_started_at', now); } catch (err) {}
+                          try { localStorage.setItem('pos_shift_started_at', now); } catch {
+                            console.debug('Failed to persist local shift marker');
+                          }
                           setShiftStartedAt(now);
                           toast.push('Shift started locally (server unavailable)', 'warning');
                           console.debug('Failed to start shift', e?.message || e);
