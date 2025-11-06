@@ -114,7 +114,10 @@ export default function CasualSeller() {
 
   async function handleSubmit(e) {
     e.preventDefault();
-    if (!form.name || !form.productTitle) return toast.push('Name and product title are required', 'error');
+    // validate important fields
+    if (!form.name || !form.productTitle || !form.email) {
+      return toast.push('Name, email and product title are required', 'error');
+    }
     setSubmitting(true);
     try {
       const payload = {
@@ -152,19 +155,36 @@ export default function CasualSeller() {
   }
 
   return (
-    <div className="p-6">
-      <h2 className="text-xl font-semibold mb-4">One-time seller — submit an item</h2>
-      <form onSubmit={handleSubmit} className="bg-white p-6 rounded shadow-sm space-y-4">
-        <div className="grid md:grid-cols-2 gap-4">
-          <input placeholder="Your name" value={form.name} onChange={(e) => change('name', e.target.value)} className="border rounded px-3 py-2" />
-          <input placeholder="Phone" value={form.phone} onChange={(e) => change('phone', e.target.value)} className="border rounded px-3 py-2" />
-          <input placeholder="Email" value={form.email} onChange={(e) => change('email', e.target.value)} className="border rounded px-3 py-2" />
-          <select value={form.condition} onChange={(e) => change('condition', e.target.value)} className="border rounded px-3 py-2">
-            <option>New</option>
-            <option>Like New</option>
-            <option>Used</option>
-          </select>
+    <div className="min-h-screen flex items-center justify-center p-6">
+      <div className="w-full max-w-3xl">
+        <div className="mb-6">
+          <h1 className="text-2xl font-semibold text-slate-900">One-time seller — submit an item</h1>
+          <p className="text-sm text-slate-500">Quickly list an item for sale — we’ll review and create an invoice for payment.</p>
         </div>
+
+        <form onSubmit={handleSubmit} className="bg-white p-6 rounded-lg shadow-sm space-y-6">
+          <div className="grid md:grid-cols-2 gap-4">
+            <label className="text-sm font-medium text-slate-600">
+              Your name
+              <input placeholder="Your name" value={form.name} onChange={(e) => change('name', e.target.value)} className="mt-1 w-full rounded border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            </label>
+            <label className="text-sm font-medium text-slate-600">
+              Phone
+              <input placeholder="Phone" value={form.phone} onChange={(e) => change('phone', e.target.value)} className="mt-1 w-full rounded border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            </label>
+            <label className="text-sm font-medium text-slate-600">
+              Email
+              <input placeholder="Email" value={form.email} onChange={(e) => change('email', e.target.value)} className="mt-1 w-full rounded border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            </label>
+            <label className="text-sm font-medium text-slate-600">
+              Condition
+              <select value={form.condition} onChange={(e) => change('condition', e.target.value)} className="mt-1 w-full rounded border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                <option>New</option>
+                <option>Like New</option>
+                <option>Used</option>
+              </select>
+            </label>
+          </div>
 
         <input placeholder="Product title" value={form.productTitle} onChange={(e) => change('productTitle', e.target.value)} className="border rounded px-3 py-2 w-full" />
         <textarea placeholder="Description" value={form.description} onChange={(e) => change('description', e.target.value)} className="border rounded px-3 py-2 w-full" rows={3} />
@@ -172,8 +192,8 @@ export default function CasualSeller() {
         <div>
           <label className="block text-sm font-medium">Photos (optional)</label>
           <input type="file" accept="image/*" multiple onChange={handleFiles} className="mt-2 text-sm" />
-          <div className="bg-white p-4 rounded shadow-sm">
-            <h3 className="text-sm font-semibold mb-2">Preview</h3>
+      <div className="bg-white p-4 rounded shadow-sm">
+        <h3 className="text-sm font-semibold mb-2">Preview</h3>
             <div className="text-sm text-gray-700 mb-2"><strong>Category:</strong> {form.user_category || '—'} {form.user_subcategory ? `› ${form.user_subcategory}` : ''}</div>
             <div className="text-sm text-gray-700 mb-2"><strong>Condition:</strong> {form.condition} <em className="ml-2 text-xs text-gray-500">(suggested tag: {suggestedTag})</em></div>
             <div className="text-sm text-gray-700 mb-2"><strong>Preview title:</strong> {form.productTitle || '—'}</div>
@@ -252,21 +272,23 @@ export default function CasualSeller() {
           </div>
         </div>
 
-        <div className="flex justify-end">
-          <button type="submit" disabled={submitting} className="px-4 py-2 bg-blue-600 text-white rounded">{submitting ? 'Submitting...' : 'Create listing & invoice'}</button>
-        </div>
-      </form>
-
-      {invoice && (
-        <div className="mt-6 bg-white p-4 rounded shadow-sm">
-          <div className="text-sm">Invoice created: <strong>{invoice.id}</strong></div>
-          <div className="text-sm">Subtotal: {invoice.subtotal}</div>
-          <div className="text-sm">Total: {invoice.total}</div>
-          <div className="mt-3">
-            <p className="text-sm text-gray-600">Upload payment slip in the POS → Validate slip or collect payment to mark the listing paid.</p>
+          <div className="flex justify-end">
+            <button type="submit" disabled={submitting} className="inline-flex items-center gap-2 rounded-md bg-blue-600 px-4 py-2 text-white text-sm hover:bg-blue-700 disabled:bg-blue-400">
+              {submitting ? 'Submitting...' : 'Create listing & invoice'}
+            </button>
           </div>
-        </div>
-      )}
+      </form>
+        {invoice && (
+          <div className="mt-6 bg-white p-4 rounded shadow-sm">
+            <div className="text-sm">Invoice created: <strong>{invoice.id}</strong></div>
+            <div className="text-sm">Subtotal: {invoice.subtotal}</div>
+            <div className="text-sm">Total: {invoice.total}</div>
+            <div className="mt-3">
+              <p className="text-sm text-gray-600">Upload payment slip in the POS → Validate slip or collect payment to mark the listing paid.</p>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

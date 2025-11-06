@@ -43,6 +43,7 @@ const EMPTY_FORM = {
   preorderNotes: '',
   preorderEta: '',
   tags: [],
+  model: '',
   year: '',
 };
 
@@ -435,22 +436,69 @@ function ProductModal({ open, draft, onClose, onChange, onSave, onUploadImage, u
               </label>
             </div>
 
-            <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-              <SelectField
-                label="Brand"
-                value={draft.brandId || ''}
-                onChange={(v) => handleFieldChange('brandId')({ target: { value: v } })}
-                options={(lookups?.brands||[]).map(b=>({id:b.id,name:b.name}))}
-                placeholder="Select brand"
-              />
-              <SelectField label="Type" value={draft.type || ''} onChange={(v) => handleFieldChange('type')({ target: { value: v } })} options={[{id:'physical',name:'Physical'},{id:'digital',name:'Digital'}]} placeholder="Select type" />
+            <div className="grid grid-cols-1 gap-4 lg:grid-cols-4">
+              <div className="">
+                <label className="text-sm font-medium text-slate-600">Brand</label>
+                <div className="mt-1 flex items-center gap-2">
+                  <SelectField
+                    value={draft.brandId || ''}
+                    onChange={(v) => handleFieldChange('brandId')({ target: { value: v } })}
+                    options={(lookups?.brands||[]).map(b=>({id:b.id,name:b.name}))}
+                    placeholder="Select brand"
+                  />
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      const name = window.prompt('New brand name');
+                      if (!name) return;
+                      await createBrand(name);
+                    }}
+                    className="inline-flex items-center px-3 py-2 rounded-md text-sm bg-green-50 text-green-700 border border-green-100 hover:bg-green-100"
+                    aria-label="Add brand"
+                  >
+                    Add
+                  </button>
+                </div>
+              </div>
+
+              <div>
+                <label className="text-sm font-medium text-slate-600">Type</label>
+                <div className="mt-1">
+                  <SelectField labelHidden value={draft.type || ''} onChange={(v) => handleFieldChange('type')({ target: { value: v } })} options={[{id:'physical',name:'Physical'},{id:'digital',name:'Digital'}]} placeholder="Select type" />
+                </div>
+              </div>
+
+              <div>
+                <label className="text-sm font-medium text-slate-600">Material</label>
+                <div className="mt-1 flex items-center gap-2">
+                  <SelectField
+                    value={draft.materialId || ''}
+                    onChange={(v) => handleFieldChange('materialId')({ target: { value: v } })}
+                    options={(lookups?.materials||[]).map(m=>({id:m.id,name:m.name}))}
+                    placeholder="Select material"
+                  />
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      const name = window.prompt('New material name');
+                      if (!name) return;
+                      await createMaterial(name);
+                    }}
+                    className="inline-flex items-center px-3 py-2 rounded-md text-sm bg-green-50 text-green-700 border border-green-100 hover:bg-green-100"
+                    aria-label="Add material"
+                  >
+                    Add
+                  </button>
+                </div>
+              </div>
+
               <label className="text-sm font-medium text-slate-600">
-                Year
+                Model
                 <input
-                  value={draft.year || ''}
-                  onChange={handleFieldChange('year')}
-                  type="number"
+                  value={draft.model || ''}
+                  onChange={handleFieldChange('model')}
                   className="mt-1 w-full rounded-md border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="Model / variant"
                 />
               </label>
             </div>
@@ -1059,7 +1107,8 @@ export default function Products() {
       deliveryType: product.delivery_type || product.deliveryType || '',
       warrantyTerm: product.warranty_term || product.warrantyTerm || '',
       preorderEta: product.preorder_eta || product.preorderEta || '',
-      year: product.year || '',
+  model: product.model || product.modelName || '',
+  year: product.year || '',
       autoSku: product.auto_sku === 0 || product.auto_sku === false ? false : true,
       tags: Array.isArray(product.tags) ? product.tags.map((t) => t.id || t) : product.tags || [],
       preorderReleaseDate: product.preorder_release_date || '',
@@ -1091,7 +1140,8 @@ export default function Products() {
       deliveryType: product.delivery_type || product.deliveryType || '',
       warrantyTerm: product.warranty_term || product.warrantyTerm || '',
       preorderEta: product.preorder_eta || product.preorderEta || '',
-      year: product.year || '',
+  model: product.model || product.modelName || '',
+  year: product.year || '',
       autoSku: product.auto_sku === 0 || product.auto_sku === false ? false : true,
       tags: Array.isArray(product.tags) ? product.tags.map((t) => t.id || t) : product.tags || [],
       preorderReleaseDate: product.preorder_release_date || '',
@@ -1126,6 +1176,7 @@ export default function Products() {
           technicalDetails: modalDraft.technicalDetails || null,
           sku: modalDraft.sku || null,
           barcode: modalDraft.barcode || null,
+          model: modalDraft.model || null,
           cost: modalDraft.cost ? parseFloat(modalDraft.cost) : 0,
           trackInventory: modalDraft.trackInventory,
           availableForPreorder: modalDraft.availableForPreorder,
@@ -1165,7 +1216,8 @@ export default function Products() {
         shortDescription: modalDraft.shortDescription || null,
         year: modalDraft.year || null,
         tags: modalDraft.tags || [],
-        autoSku: modalDraft.autoSku === false ? false : true,
+        	autoSku: modalDraft.autoSku === false ? false : true,
+        	model: modalDraft.model || null,
         image: modalDraft.image || null,
         imageUrl: modalDraft.imageUrl || null,
         description: modalDraft.description || null,

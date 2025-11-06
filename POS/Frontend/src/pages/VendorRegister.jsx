@@ -72,26 +72,31 @@ export default function VendorRegister() {
   }
 
   return (
-    <div className="p-6">
-      <h2 className="text-xl font-semibold mb-4">Vendor registration</h2>
-      <form onSubmit={handleSubmit} className="space-y-6 bg-white p-6 rounded shadow-sm">
+    <div className="min-h-screen flex items-center justify-center p-6">
+      <div className="w-full max-w-3xl">
+        <div className="mb-6">
+          <h1 className="text-2xl font-semibold text-slate-900">Vendor registration</h1>
+          <p className="text-sm text-slate-500">Provide vendor details and payment information to register your business on the platform.</p>
+        </div>
+
+        <form onSubmit={handleSubmit} className="space-y-6 bg-white p-6 rounded-lg shadow-sm">
         {step === 1 && (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <label className="block">
-              <div className="text-sm font-medium">Business name</div>
-              <input value={form.legal_name} onChange={(e) => change('legal_name', e.target.value)} className="mt-1 block w-full border rounded px-3 py-2" required />
+            <label className="text-sm font-medium text-slate-600">
+              Business name
+              <input value={form.legal_name} onChange={(e) => change('legal_name', e.target.value)} className="mt-1 w-full rounded border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" required />
             </label>
-            <label className="block">
-              <div className="text-sm font-medium">Contact person</div>
-              <input value={form.contact_person} onChange={(e) => change('contact_person', e.target.value)} className="mt-1 block w-full border rounded px-3 py-2" />
+            <label className="text-sm font-medium text-slate-600">
+              Contact person
+              <input value={form.contact_person} onChange={(e) => change('contact_person', e.target.value)} className="mt-1 w-full rounded border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" />
             </label>
-            <label className="block">
-              <div className="text-sm font-medium">Email</div>
-              <input type="email" value={form.email} onChange={(e) => change('email', e.target.value)} className="mt-1 block w-full border rounded px-3 py-2" required />
+            <label className="text-sm font-medium text-slate-600">
+              Email
+              <input type="email" value={form.email} onChange={(e) => change('email', e.target.value)} className="mt-1 w-full rounded border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" required />
             </label>
-            <label className="block">
-              <div className="text-sm font-medium">Phone</div>
-              <input value={form.phone} onChange={(e) => change('phone', e.target.value)} className="mt-1 block w-full border rounded px-3 py-2" />
+            <label className="text-sm font-medium text-slate-600">
+              Phone
+              <input value={form.phone} onChange={(e) => change('phone', e.target.value)} className="mt-1 w-full rounded border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" />
             </label>
           </div>
         )}
@@ -150,10 +155,13 @@ export default function VendorRegister() {
             )}
           </div>
           <div>
-            <button type="submit" disabled={loading} className="px-4 py-2 bg-green-600 text-white rounded">{loading ? 'Saving...' : 'Register vendor'}</button>
+            <button type="submit" disabled={loading} className="inline-flex items-center gap-2 rounded-md bg-blue-600 px-4 py-2 text-white text-sm hover:bg-blue-700 disabled:bg-blue-400">
+              {loading ? 'Saving...' : 'Register vendor'}
+            </button>
           </div>
         </div>
-      </form>
+        </form>
+      </div>
     </div>
   );
 }
