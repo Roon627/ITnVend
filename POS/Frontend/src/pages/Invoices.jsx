@@ -22,12 +22,12 @@ const STATUS_OPTIONS = {
 };
 
 const STATUS_BADGE_CLASSES = {
-  issued: 'bg-slate-100 text-slate-700',
-  paid: 'bg-green-100 text-green-700',
-  cancelled: 'bg-red-100 text-red-700',
-  draft: 'bg-slate-100 text-slate-600',
-  sent: 'bg-blue-100 text-blue-700',
-  accepted: 'bg-emerald-100 text-emerald-700',
+  issued: 'bg-muted/20 text-muted-foreground',
+  paid: 'bg-success text-primary-foreground',
+  cancelled: 'bg-red-100 text-red-600',
+  draft: 'bg-muted/20 text-muted-foreground',
+  sent: 'bg-primary/10 text-primary',
+  accepted: 'bg-success text-primary-foreground',
 };
 
 const STATUS_LABELS = {
@@ -632,132 +632,143 @@ export default function Invoices() {
   }, [invoices, searchTerm, typeFilter, statusFilter, outletFilter, dateFrom, dateTo]);
 
   return (
-    <div className="min-h-full bg-slate-50">
-      <div className="mx-auto w-full max-w-7xl space-y-6 px-4 py-6 sm:px-6 lg:px-8">
-      <header className="mb-2 flex flex-col gap-4 rounded-2xl border border-slate-200 bg-white px-5 py-6 shadow-sm md:flex-row md:items-start md:justify-between">
-        <div className="space-y-2">
-          <h1 className="text-3xl font-bold text-slate-900">Invoices &amp; Quotes</h1>
-          <div className="flex flex-wrap items-center gap-3 text-sm text-slate-500">
-            <p className="max-w-2xl">
-              Track billing, monitor outstanding balances, and convert quotes without leaving the console.
-            </p>
-            <a
-              href="/help"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-xs font-semibold uppercase tracking-wide text-sky-600 hover:text-sky-700"
-            >
-              Help
-            </a>
-          </div>
-          {shiftStartedAt ? (
-            <div
-              className="hidden w-max items-center gap-2 rounded-full bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-600 md:inline-flex"
-              aria-live="polite"
-              title={new Date(shiftStartedAt).toLocaleString()}
-            >
-              Active shift - {formatShiftRelative(shiftStartedAt)}
+    <div className="min-h-screen bg-background p-6">
+      <div className="mx-auto w-full max-w-7xl space-y-6 pb-24">
+        <header className="rounded-2xl border border-border bg-surface p-6 shadow-sm">
+          <div className="flex flex-col gap-6 md:flex-row md:items-start md:justify-between">
+            <div className="space-y-3">
+              <span className="inline-flex items-center gap-2 rounded-full bg-primary/10 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-primary">
+                INVOICE HUB
+              </span>
+              <div className="space-y-2">
+                <h1 className="text-2xl font-bold text-foreground md:text-3xl">Invoices &amp; Quotes</h1>
+                <div className="flex flex-wrap items-center gap-3 text-sm text-muted-foreground">
+                  <p className="max-w-2xl">
+                    Track billing, monitor outstanding balances, and convert quotes without leaving the console.
+                  </p>
+                  <a
+                    href="/help"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-xs font-semibold uppercase tracking-wide text-primary hover:text-primary"
+                  >
+                    Help
+                  </a>
+                </div>
+              </div>
+              {shiftStartedAt ? (
+                <div
+                  className="hidden w-max items-center gap-2 rounded-full bg-muted/20 px-3 py-1 text-xs font-semibold text-muted-foreground md:inline-flex"
+                  aria-live="polite"
+                  title={new Date(shiftStartedAt).toLocaleString()}
+                >
+                  Active shift - {formatShiftRelative(shiftStartedAt)}
+                </div>
+              ) : null}
             </div>
-          ) : null}
-        </div>
-        <div className="flex w-full flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-end md:w-auto">
-          <div className="grid w-full grid-cols-1 gap-2 sm:grid-cols-2">
-            <button
-              onClick={() => openBuilder('invoice')}
-              className="w-full rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-300"
-              title="Open the invoice builder: add products, select customer, and create an invoice"
-            >
-              New Invoice
-            </button>
-            <button
-              onClick={() => openBuilder('quote')}
-              className="w-full rounded-lg bg-sky-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-300"
-              title="Open the quote builder: prepare a quote you can send or convert later"
-            >
-              New Quote
-            </button>
-          </div>
-          <div className="flex w-full items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white px-2 py-1 shadow-sm sm:w-auto sm:justify-center">
-            <button
-              onClick={() => setViewMode('table')}
-              className={`flex items-center gap-2 rounded-md px-3 py-1 text-sm font-semibold transition ${
-                viewMode === 'table' ? 'bg-slate-900 text-white shadow-sm' : 'text-slate-600 hover:text-slate-900'
-              }`}
-              title="Show table view"
-              aria-pressed={viewMode === 'table'}
-              aria-label="Table view"
-            >
-              <FaList className="text-sm" />
-              <span className="hidden sm:inline">Table</span>
-            </button>
-            <button
-              onClick={() => setViewMode('cards')}
-              className={`flex items-center gap-2 rounded-md px-3 py-1 text-sm font-semibold transition ${
-                viewMode === 'cards' ? 'bg-slate-900 text-white shadow-sm' : 'text-slate-600 hover:text-slate-900'
-              }`}
-              title="Show card/grid view"
-              aria-pressed={viewMode === 'cards'}
-              aria-label="Cards view"
-            >
-              <FaTh className="text-sm" />
-              <span className="hidden sm:inline">Cards</span>
-            </button>
-          </div>
-          {shiftStartedAt ? (
-            <div
-              className="w-full rounded-lg bg-amber-50 px-3 py-2 text-center text-sm font-medium text-amber-700 shadow-sm sm:w-auto md:hidden"
-              aria-live="polite"
-              title={new Date(shiftStartedAt).toLocaleString()}
-            >
-              Active shift - {formatShiftRelative(shiftStartedAt)}
+            <div className="flex w-full flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-end md:w-auto">
+              <div className="grid w-full grid-cols-1 gap-2 sm:grid-cols-2">
+                <button
+                  onClick={() => openBuilder('invoice')}
+                  className="w-full rounded-full bg-primary px-5 py-2 text-sm font-semibold text-primary-foreground shadow-sm transition hover:bg-primary/90 focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 focus:ring-offset-background"
+                  title="Open the invoice builder: add products, select customer, and create an invoice"
+                >
+                  New Invoice
+                </button>
+                <button
+                  onClick={() => openBuilder('quote')}
+                  className="w-full rounded-full border border-border bg-surface px-5 py-2 text-sm font-semibold text-foreground shadow-sm transition hover:bg-muted/20 focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 focus:ring-offset-background"
+                  title="Open the quote builder: prepare a quote you can send or convert later"
+                >
+                  New Quote
+                </button>
+              </div>
+              <div className="flex w-full items-center justify-between gap-2 rounded-full border border-border bg-surface px-2 py-1 shadow-sm sm:w-auto sm:justify-center">
+                <button
+                  onClick={() => setViewMode('table')}
+                  className={`flex items-center gap-2 rounded-md px-3 py-1 text-sm font-semibold transition ${
+                    viewMode === 'table' ? 'bg-primary text-primary-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
+                  }`}
+                  title="Show table view"
+                  aria-pressed={viewMode === 'table'}
+                  aria-label="Table view"
+                >
+                  <FaList className="text-sm" />
+                  <span className="hidden sm:inline">Table</span>
+                </button>
+                <button
+                  onClick={() => setViewMode('cards')}
+                  className={`flex items-center gap-2 rounded-md px-3 py-1 text-sm font-semibold transition ${
+                    viewMode === 'cards' ? 'bg-primary text-primary-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
+                  }`}
+                  title="Show card/grid view"
+                  aria-pressed={viewMode === 'cards'}
+                  aria-label="Cards view"
+                >
+                  <FaTh className="text-sm" />
+                  <span className="hidden sm:inline">Cards</span>
+                </button>
+              </div>
+              {shiftStartedAt ? (
+                <div
+                  className="w-full rounded-full bg-muted/20 px-3 py-2 text-center text-sm font-medium text-muted-foreground shadow-sm sm:w-auto md:hidden"
+                  aria-live="polite"
+                  title={new Date(shiftStartedAt).toLocaleString()}
+                >
+                  Active shift - {formatShiftRelative(shiftStartedAt)}
+                </div>
+              ) : null}
             </div>
-          ) : null}
-        </div>
-      </header>
+          </div>
+        </header>
       {/* Help moved to the central Help page - click the link above to open full guidance */}
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         {summaryCards.map((card) => (
-          <div key={card.key} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-            <div className="text-xs font-semibold uppercase tracking-wide text-slate-400">{card.title}</div>
-            <div className="mt-2 text-2xl font-bold text-slate-900">{card.primary}</div>
-            <div className="mt-1 text-sm font-semibold text-sky-600">{card.secondary}</div>
-            <div className="mt-2 text-xs text-slate-400">{card.footnote}</div>
+          <div key={card.key} className="rounded-xl border border-border bg-surface p-5 shadow-sm">
+            <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{card.title}</div>
+            <div className="mt-2 text-2xl font-bold text-foreground">{card.primary}</div>
+            <div className="mt-1 text-sm font-semibold text-primary">{card.secondary}</div>
+            <div className="mt-2 text-xs text-muted-foreground">{card.footnote}</div>
           </div>
         ))}
       </div>
 
-      <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm space-y-5">
+      <div className="space-y-5 rounded-2xl border border-border bg-surface p-5 shadow-sm">
         <div className="space-y-4">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Document type</p>
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Document type</p>
             <div className="mt-2 flex flex-wrap items-center gap-2">
               {typeChips.map((chip) => (
                 <button
                   key={chip.value}
                   onClick={() => setTypeFilter(chip.value)}
                   className={`rounded-full px-3 py-1.5 text-xs font-semibold transition ${
-                    typeFilter === chip.value ? 'bg-sky-600 text-white shadow-sm' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                    typeFilter === chip.value
+                      ? 'bg-primary text-primary-foreground shadow-sm'
+                      : 'bg-muted/20 text-muted-foreground hover:text-foreground'
                   }`}
                 >
                   {chip.label}
-                  <span className="ml-2 text-[11px] font-semibold opacity-80">{chip.count}</span>
+                  <span className="ml-2 text-[11px] font-semibold text-muted-foreground">{chip.count}</span>
                 </button>
               ))}
             </div>
           </div>
 
           <div>
-            <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Status</p>
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Status</p>
             <div className="mt-2 flex flex-wrap items-center gap-2">
               <button
                 onClick={() => setStatusFilter('all')}
                 className={`rounded-full px-3 py-1.5 text-xs font-semibold transition ${
-                  statusFilter === 'all' ? 'bg-slate-900 text-white shadow-sm' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                  statusFilter === 'all'
+                    ? 'bg-primary text-primary-foreground shadow-sm'
+                    : 'bg-muted/20 text-muted-foreground hover:text-foreground'
                 }`}
               >
                 All statuses
-                <span className="ml-2 text-[11px] font-semibold opacity-80">{invoices.length}</span>
+                <span className="ml-2 text-[11px] font-semibold text-muted-foreground">{invoices.length}</span>
               </button>
               {statusChips
                 .filter((opt) => statusCounts[opt.value] || statusFilter === opt.value)
@@ -766,11 +777,13 @@ export default function Invoices() {
                     key={opt.value}
                     onClick={() => setStatusFilter(opt.value)}
                     className={`rounded-full px-3 py-1.5 text-xs font-semibold transition ${
-                      statusFilter === opt.value ? 'bg-sky-600 text-white shadow-sm' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                      statusFilter === opt.value
+                        ? 'bg-primary text-primary-foreground shadow-sm'
+                        : 'bg-muted/20 text-muted-foreground hover:text-foreground'
                     }`}
                   >
                     {opt.label}
-                    <span className="ml-2 text-[11px] font-semibold opacity-80">
+                    <span className="ml-2 text-[11px] font-semibold text-muted-foreground">
                       {statusCounts[opt.value] || 0}
                     </span>
                   </button>
@@ -780,22 +793,22 @@ export default function Invoices() {
         </div>
 
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-          <label className="flex flex-col gap-1 text-xs font-semibold uppercase tracking-wide text-slate-400">
+          <label className="flex flex-col gap-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
             Search
             <input
               type="text"
               placeholder="Customer, invoice number, amount..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm shadow-sm focus:border-sky-400 focus:outline-none focus:ring-2 focus:ring-sky-200"
+              className="w-full rounded-md border border-border bg-surface px-3 py-2 text-sm text-foreground shadow-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary"
             />
           </label>
-          <label className="flex flex-col gap-1 text-xs font-semibold uppercase tracking-wide text-slate-400">
+          <label className="flex flex-col gap-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
             Outlet
             <select
               value={outletFilter}
               onChange={(e) => setOutletFilter(e.target.value)}
-              className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm shadow-sm focus:border-sky-400 focus:outline-none focus:ring-2 focus:ring-sky-200"
+              className="w-full rounded-md border border-border bg-surface px-3 py-2 text-sm text-foreground shadow-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary"
             >
               <option value="all">Any outlet</option>
               {outlets.map((o) => (
@@ -805,40 +818,40 @@ export default function Invoices() {
               ))}
             </select>
           </label>
-          <label className="flex flex-col gap-1 text-xs font-semibold uppercase tracking-wide text-slate-400">
+          <label className="flex flex-col gap-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
             From
             <input
               type="date"
               value={dateFrom}
               onChange={(e) => setDateFrom(e.target.value)}
-              className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm shadow-sm focus:border-sky-400 focus:outline-none focus:ring-2 focus:ring-sky-200"
+              className="w-full rounded-md border border-border bg-surface px-3 py-2 text-sm text-foreground shadow-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary"
             />
           </label>
-          <label className="flex flex-col gap-1 text-xs font-semibold uppercase tracking-wide text-slate-400">
+          <label className="flex flex-col gap-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
             To
             <input
               type="date"
               value={dateTo}
               onChange={(e) => setDateTo(e.target.value)}
-              className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm shadow-sm focus:border-sky-400 focus:outline-none focus:ring-2 focus:ring-sky-200"
+              className="w-full rounded-md border border-border bg-surface px-3 py-2 text-sm text-foreground shadow-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary"
             />
           </label>
         </div>
 
         {savedViews.length > 0 && (
-          <div className="flex flex-wrap items-center gap-2 rounded-xl border border-slate-100 bg-slate-50 px-4 py-2">
-            <span className="text-xs font-semibold uppercase tracking-wide text-slate-400">Saved views</span>
+          <div className="flex flex-wrap items-center gap-2 rounded-xl border border-border bg-surface-muted px-4 py-2">
+            <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Saved views</span>
             {savedViews.map((view) => (
               <span
                 key={view.id}
-                className="inline-flex items-center gap-2 rounded-full bg-white px-3 py-1 text-xs text-slate-600 shadow-sm"
+                className="inline-flex items-center gap-2 rounded-full border border-border bg-surface px-3 py-1 text-xs text-muted-foreground shadow-sm"
               >
-                <button onClick={() => loadView(view)} className="font-semibold hover:text-sky-600">
+                <button onClick={() => loadView(view)} className="font-semibold text-foreground hover:text-primary">
                   {view.name}
                 </button>
                 <button
                   onClick={() => deleteView(view.id)}
-                  className="text-slate-400 hover:text-rose-500"
+                  className="text-muted-foreground hover:text-red-500"
                   type="button"
                   aria-label={`Remove saved view ${view.name}`}
                 >
@@ -849,21 +862,21 @@ export default function Invoices() {
           </div>
         )}
 
-        <div className="flex flex-col gap-3 border-t border-slate-100 pt-2 sm:flex-row sm:items-center sm:justify-between">
-          <div className="text-xs text-slate-500">
+  <div className="flex flex-col gap-3 border-t border-border pt-2 sm:flex-row sm:items-center sm:justify-between">
+          <div className="text-xs text-muted-foreground">
             Showing {filteredInvoices.length} of {invoices.length} documents
           </div>
           <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
             <div className="flex flex-col gap-2 sm:flex-row">
-              <button onClick={resetFilters} className="rounded-lg border border-slate-300 px-3 py-1 text-xs font-semibold text-slate-600 transition hover:border-slate-400 hover:bg-slate-50">
+              <button onClick={resetFilters} className="rounded-md border border-border px-3 py-1 text-xs font-semibold text-muted-foreground transition hover:bg-muted/20">
                 Reset filters
               </button>
-              <button onClick={saveCurrentView} className="rounded-lg border border-slate-300 px-3 py-1 text-xs font-semibold text-slate-600 transition hover:border-sky-400 hover:bg-sky-50">
+              <button onClick={saveCurrentView} className="rounded-md border border-border px-3 py-1 text-xs font-semibold text-muted-foreground transition hover:bg-muted/20">
                 Save view
               </button>
             </div>
-            <div className="flex sm:border-l sm:border-slate-200 sm:pl-3">
-              <button onClick={exportCsv} className="rounded-lg bg-slate-900 px-3 py-1 text-xs font-semibold text-white transition hover:bg-slate-700">
+            <div className="flex sm:border-l sm:border-border sm:pl-3">
+              <button onClick={exportCsv} className="rounded-md bg-primary px-3 py-1 text-xs font-semibold text-primary-foreground transition hover:bg-primary/90">
                 Export CSV
               </button>
             </div>
@@ -875,16 +888,16 @@ export default function Invoices() {
         <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
           <button
             onClick={() => toggleSelectAll(filteredInvoices)}
-            className="px-3 py-1 border rounded bg-white text-sm transition hover:bg-gray-50"
+            className="rounded-md border border-border bg-surface px-3 py-1 text-sm text-foreground transition hover:bg-muted/20"
           >
             {selectAll ? 'Unselect all' : 'Select visible'}
           </button>
 
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-2 sm:border-l sm:border-gray-300 sm:pl-3">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-2 sm:border-l sm:border-border sm:pl-3">
             <select
               value={bulkStatus}
               onChange={(e) => setBulkStatus(e.target.value)}
-              className="border rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300"
+              className="rounded-md border border-border bg-surface px-2 py-1 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
               disabled={bulkProcessing}
             >
               <option value="">Bulk set status</option>
@@ -899,179 +912,198 @@ export default function Invoices() {
                 ))}
               </optgroup>
             </select>
-            <button onClick={applyBulkStatus} className="px-3 py-1 bg-blue-600 text-white rounded text-sm transition hover:bg-blue-700 disabled:bg-blue-300" disabled={bulkProcessing}>
+            <button onClick={applyBulkStatus} className="rounded-md bg-primary px-3 py-1 text-sm font-semibold text-primary-foreground transition hover:bg-primary/90 disabled:bg-muted/20 disabled:text-muted-foreground" disabled={bulkProcessing}>
               {bulkProcessing ? 'Applying...' : 'Apply'}
             </button>
           </div>
 
-          <div className="flex sm:border-l sm:border-gray-300 sm:pl-3">
-            <button onClick={bulkDownloadPdfs} className="px-3 py-1 border rounded text-sm transition hover:bg-gray-50">
+          <div className="flex sm:border-l sm:border-border sm:pl-3">
+            <button onClick={bulkDownloadPdfs} className="rounded-md border border-border bg-surface px-3 py-1 text-sm text-foreground transition hover:bg-muted/20">
               Download PDFs
             </button>
           </div>
         </div>
-        <div className="text-sm text-gray-500">{selectedIds.size} selected</div>
+        <div className="text-sm text-muted-foreground">{selectedIds.size} selected</div>
       </div>
 
       {viewMode === 'table' ? (
-        <div className="bg-white shadow rounded-lg">
+        <div className="rounded-2xl border border-border bg-surface shadow-sm">
           <div className="overflow-x-auto">
-            <table className="min-w-[960px] w-full divide-y divide-gray-200">
-            <thead className="bg-gray-100">
-              <tr>
-                <th className="p-4">
-                  <input
-                    type="checkbox"
-                    checked={selectAll}
-                    onChange={() => toggleSelectAll(filteredInvoices)}
-                  />
-                </th>
-                <th className="p-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">ID</th>
-                <th className="p-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Type</th>
-                <th className="p-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Customer</th>
-                <th className="p-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date</th>
-                <th className="p-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total</th>
-                <th className="p-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                <th className="p-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Outlet</th>
-                <th className="p-4 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              {filteredInvoices.map((invoice) => {
-                const docType = invoice.type === 'quote' ? 'quote' : 'invoice';
-                const statusOptions = STATUS_OPTIONS[docType] || [];
-                const statusBadgeClass = STATUS_BADGE_CLASSES[invoice.status] || 'bg-gray-100 text-gray-600';
-                return (
-                  <tr key={invoice.id} className="hover:bg-gray-50">
-                    <td className="p-4">
-                      <input
-                        type="checkbox"
-                        checked={selectedIds.has(invoice.id)}
-                        onChange={() => toggleSelectId(invoice.id)}
-                      />
-                    </td>
-                    <td className="p-4 whitespace-nowrap font-medium text-gray-900">#{invoice.id}</td>
-                    <td className="p-4 whitespace-nowrap">
-                      <span
-                        className={`px-2 py-1 rounded text-xs font-semibold uppercase ${
-                          invoice.type === 'quote' ? 'bg-blue-100 text-blue-700' : 'bg-green-100 text-green-700'
-                        }`}
-                      >
-                        {invoice.type || 'invoice'}
-                      </span>
-                    </td>
-                    <td className="p-4 whitespace-nowrap">{invoice.customer_name || '-'}</td>
-                    <td className="p-4 whitespace-nowrap text-sm text-gray-500">{new Date(invoice.created_at).toLocaleDateString()}</td>
-                    <td className="p-4 whitespace-nowrap font-semibold">{formatCurrency(invoice.total)}</td>
-                    <td className="p-4 whitespace-nowrap">
-                      <div className="flex flex-col gap-1">
-                        <span className={`px-2 py-1 rounded text-xs font-semibold uppercase ${statusBadgeClass}`}>
-                          {formatStatusLabel(invoice.status)}
-                        </span>
-                        <select
-                          value={invoice.status || ''}
-                          onChange={(e) => handleStatusChange(invoice, e.target.value)}
-                          className="border rounded px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100"
-                          disabled={!canManageTransactions || statusUpdatingId === invoice.id}
-                        >
-                          {(!invoice.status || invoice.status === '') && <option value="">Set status</option>}
-                          {statusOptions.map((option) => (
-                            <option key={option.value} value={option.value}>
-                              {option.label}
-                            </option>
-                          ))}
-                        </select>
-                        {statusUpdatingId === invoice.id && (
-                          <span className="text-[10px] uppercase tracking-wide text-gray-400">Updating...</span>
-                        )}
-                      </div>
-                    </td>
-                    <td className="p-4 whitespace-nowrap text-sm text-gray-500">{invoice.outlet_name || '-'}</td>
-                    <td className="p-4 whitespace-nowrap text-right">
-                      <div className="flex items-center justify-end gap-3">
-                        {canManageTransactions && (
-                          <button
-                            onClick={() => openInvoiceEditor(invoice.id)}
-                            className="text-indigo-600 hover:underline"
-                          >
-                            Edit
-                          </button>
-                        )}
-                        <button
-                          onClick={async () => {
-                            try {
-                              const linkResp = await api.post(`/invoices/${invoice.id}/pdf-link`);
-                              window.open(linkResp.url, '_blank');
-                            } catch (err) {
-                              push('Failed to open PDF', 'error');
-                              console.debug(err);
-                            }
-                          }}
-                          className="text-blue-600 hover:underline"
-                        >
-                          PDF
-                        </button>
-                        {canManageTransactions && invoice.type === 'quote' && (
-                          <button
-                            onClick={() => handleConvertQuote(invoice)}
-                            className="text-green-600 hover:underline disabled:text-gray-400"
-                            disabled={convertingId === invoice.id}
-                          >
-                            {convertingId === invoice.id ? 'Converting...' : 'Convert'}
-                          </button>
-                        )}
-                        {canManageTransactions && (
-                          <button
-                            onClick={() => handleDelete(invoice.id)}
-                            className="text-red-600 hover:underline"
-                          >
-                            Delete
-                          </button>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
-              {filteredInvoices.length === 0 && (
+            <table className="min-w-[960px] w-full divide-y divide-border">
+              <thead className="bg-surface-muted text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                 <tr>
-                  <td colSpan={9} className="p-6 text-center text-gray-500">No records found.</td>
+                  <th className="p-4">
+                    <input
+                      type="checkbox"
+                      checked={selectAll}
+                      onChange={() => toggleSelectAll(filteredInvoices)}
+                    />
+                  </th>
+                  <th className="p-4">ID</th>
+                  <th className="p-4">Type</th>
+                  <th className="p-4">Customer</th>
+                  <th className="p-4">Date</th>
+                  <th className="p-4">Total</th>
+                  <th className="p-4">Status</th>
+                  <th className="p-4">Outlet</th>
+                  <th className="p-4 text-right">Actions</th>
                 </tr>
-              )}
-            </tbody>
-          </table>
+              </thead>
+              <tbody className="divide-y divide-border text-sm text-foreground">
+                {filteredInvoices.map((invoice) => {
+                  const docType = invoice.type === 'quote' ? 'quote' : 'invoice';
+                  const statusOptions = STATUS_OPTIONS[docType] || [];
+                  const statusBadgeClass = STATUS_BADGE_CLASSES[invoice.status] || 'bg-muted/20 text-muted-foreground';
+                  return (
+                    <tr key={invoice.id} className="transition hover:bg-muted/20">
+                      <td className="p-4">
+                        <input
+                          type="checkbox"
+                          checked={selectedIds.has(invoice.id)}
+                          onChange={() => toggleSelectId(invoice.id)}
+                        />
+                      </td>
+                      <td className="p-4 whitespace-nowrap font-medium">#{invoice.id}</td>
+                      <td className="p-4 whitespace-nowrap">
+                        <span
+                          className={`rounded-full px-2 py-1 text-xs font-semibold uppercase ${
+                            invoice.type === 'quote' ? 'bg-primary/10 text-primary' : 'bg-success text-primary-foreground'
+                          }`}
+                        >
+                          {invoice.type || 'invoice'}
+                        </span>
+                      </td>
+                      <td className="p-4 whitespace-nowrap">{invoice.customer_name || '-'}</td>
+                      <td className="p-4 whitespace-nowrap text-muted-foreground">
+                        {new Date(invoice.created_at).toLocaleDateString()}
+                      </td>
+                      <td className="p-4 whitespace-nowrap font-semibold">{formatCurrency(invoice.total)}</td>
+                      <td className="p-4 whitespace-nowrap">
+                        <div className="flex flex-col gap-1">
+                          <span className={`w-max rounded-full px-2 py-1 text-xs font-semibold uppercase ${statusBadgeClass}`}>
+                            {formatStatusLabel(invoice.status)}
+                          </span>
+                          <select
+                            value={invoice.status || ''}
+                            onChange={(e) => handleStatusChange(invoice, e.target.value)}
+                            className="rounded-md border border-border bg-surface px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-primary disabled:bg-muted/20"
+                            disabled={!canManageTransactions || statusUpdatingId === invoice.id}
+                          >
+                            {(!invoice.status || invoice.status === '') && <option value="">Set status</option>}
+                            {statusOptions.map((option) => (
+                              <option key={option.value} value={option.value}>
+                                {option.label}
+                              </option>
+                            ))}
+                          </select>
+                          {statusUpdatingId === invoice.id && (
+                            <span className="text-[10px] uppercase tracking-wide text-muted-foreground">Updating...</span>
+                          )}
+                        </div>
+                      </td>
+                      <td className="p-4 whitespace-nowrap text-muted-foreground">{invoice.outlet_name || '-'}</td>
+                      <td className="p-4 whitespace-nowrap text-right">
+                        <div className="flex items-center justify-end gap-3 text-xs font-semibold">
+                          {canManageTransactions && (
+                            <button
+                              onClick={() => openInvoiceEditor(invoice.id)}
+                              className="text-primary hover:underline"
+                            >
+                              Edit
+                            </button>
+                          )}
+                          <button
+                            onClick={async () => {
+                              try {
+                                const linkResp = await api.post(`/invoices/${invoice.id}/pdf-link`);
+                                window.open(linkResp.url, '_blank');
+                              } catch (err) {
+                                push('Failed to open PDF', 'error');
+                                console.debug(err);
+                              }
+                            }}
+                            className="text-primary hover:underline"
+                          >
+                            PDF
+                          </button>
+                          {canManageTransactions && invoice.type === 'quote' && (
+                            <button
+                              onClick={() => handleConvertQuote(invoice)}
+                              className="text-success hover:underline disabled:text-muted-foreground"
+                              disabled={convertingId === invoice.id}
+                            >
+                              {convertingId === invoice.id ? 'Converting...' : 'Convert'}
+                            </button>
+                          )}
+                          {canManageTransactions && (
+                            <button
+                              onClick={() => handleDelete(invoice.id)}
+                              className="text-red-500 hover:underline"
+                            >
+                              Delete
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+                {filteredInvoices.length === 0 && (
+                  <tr>
+                    <td colSpan={9} className="p-6 text-center text-muted-foreground">No records found.</td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
         </div>
-      </div>
       ) : (
-        <div className="bg-white shadow rounded-lg overflow-hidden p-4 sm:p-5">
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div className="overflow-hidden rounded-2xl border border-border bg-surface p-4 shadow-sm sm:p-5">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {filteredInvoices.length === 0 && (
-              <div className="col-span-full text-center text-gray-500 p-6">No records found.</div>
+              <div className="col-span-full rounded-lg border border-border bg-surface-muted p-6 text-center text-muted-foreground">
+                No records found.
+              </div>
             )}
             {filteredInvoices.map((invoice) => {
-              const statusBadgeClass = STATUS_BADGE_CLASSES[invoice.status] || 'bg-gray-100 text-gray-600';
+              const statusBadgeClass = STATUS_BADGE_CLASSES[invoice.status] || 'bg-muted/20 text-muted-foreground';
               return (
-                <div key={invoice.id} className="border rounded-lg p-4 bg-white hover:shadow">
+                <div key={invoice.id} className="rounded-lg border border-border bg-surface p-4 transition hover:bg-muted/20">
                   <div className="flex items-start justify-between">
-                    <div>
-                      <div className="text-sm text-gray-500">#{invoice.id} - <span className="uppercase text-xs font-semibold">{invoice.type || 'invoice'}</span></div>
-                      <div className="font-semibold text-lg text-gray-900 mt-1">{invoice.customer_name || '-'}</div>
-                      <div className="text-sm text-gray-500 mt-1">{new Date(invoice.created_at).toLocaleDateString()}</div>
+                    <div className="space-y-1">
+                      <div className="text-sm text-muted-foreground">#{invoice.id} · <span className="uppercase text-xs font-semibold text-foreground">{invoice.type || 'invoice'}</span></div>
+                      <div className="text-lg font-semibold text-foreground">{invoice.customer_name || '-'}</div>
+                      <div className="text-sm text-muted-foreground">{new Date(invoice.created_at).toLocaleDateString()}</div>
                     </div>
                     <div className="text-right">
-                      <div className="text-lg font-bold">{formatCurrency(invoice.total)}</div>
-                      <div className={`inline-block mt-2 px-2 py-1 rounded text-xs font-semibold ${statusBadgeClass}`}>{formatStatusLabel(invoice.status)}</div>
+                      <div className="text-lg font-bold text-foreground">{formatCurrency(invoice.total)}</div>
+                      <div className={`mt-2 inline-block rounded-full px-2 py-1 text-xs font-semibold ${statusBadgeClass}`}>
+                        {formatStatusLabel(invoice.status)}
+                      </div>
                     </div>
                   </div>
 
-                  <div className="flex items-center justify-between mt-4">
-                    <div className="text-sm text-gray-500">{invoice.outlet_name || '-'}</div>
-                    <div className="flex items-center gap-3">
-                      <button onClick={async () => { try { const linkResp = await api.post(`/invoices/${invoice.id}/pdf-link`); window.open(linkResp.url, '_blank'); } catch (err) { push('Failed to open PDF', 'error'); console.debug(err); } }} className="text-blue-600 text-sm">PDF</button>
+                  <div className="mt-4 flex items-center justify-between text-sm">
+                    <div className="text-muted-foreground">{invoice.outlet_name || '-'}</div>
+                    <div className="flex items-center gap-3 text-xs font-semibold">
+                      <button
+                        onClick={async () => {
+                          try {
+                            const linkResp = await api.post(`/invoices/${invoice.id}/pdf-link`);
+                            window.open(linkResp.url, '_blank');
+                          } catch (err) {
+                            push('Failed to open PDF', 'error');
+                            console.debug(err);
+                          }
+                        }}
+                        className="text-primary"
+                      >
+                        PDF
+                      </button>
                       {canManageTransactions && (
                         <>
-                          <button onClick={() => openInvoiceEditor(invoice.id)} className="text-indigo-600 text-sm">Edit</button>
-                          <button onClick={() => handleDelete(invoice.id)} className="text-red-600 text-sm">Delete</button>
+                          <button onClick={() => openInvoiceEditor(invoice.id)} className="text-primary">Edit</button>
+                          <button onClick={() => handleDelete(invoice.id)} className="text-red-500">Delete</button>
                         </>
                       )}
                     </div>
@@ -1080,50 +1112,50 @@ export default function Invoices() {
               );
             })}
           </div>
-      </div>
+        </div>
       )}
 
       {showBuilder && (
-        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg shadow-xl w-full max-w-5xl max-h-[90vh] overflow-hidden flex flex-col">
-            <div className="flex items-center justify-between px-6 py-4 border-b">
-              <div>
-                <h2 className="text-xl font-semibold">{builderType === 'invoice' ? 'Create Invoice' : 'Create Quote'}</h2>
-                <p className="text-sm text-gray-500">
-                  Steps: search products and click to add them &rarr; pick a customer on the right &rarr; review totals and click to create. Use the cart to remove items before saving.
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+          <div className="flex max-h-[90vh] w-full max-w-5xl flex-col overflow-hidden rounded-2xl border border-border bg-surface shadow-xl">
+            <div className="flex items-center justify-between border-b border-border px-6 py-4">
+              <div className="space-y-1">
+                <h2 className="text-xl font-semibold text-foreground">{builderType === 'invoice' ? 'Create Invoice' : 'Create Quote'}</h2>
+                <p className="text-sm text-muted-foreground">
+                  Steps: search products and click to add them, then pick a customer on the right, then review totals and save. Use the cart to remove items before publishing.
                 </p>
               </div>
-              <button onClick={() => setShowBuilder(false)} className="text-gray-500 hover:text-gray-700 text-lg" aria-label="Close builder">&times;</button>
+              <button onClick={() => setShowBuilder(false)} className="text-lg text-muted-foreground transition hover:text-foreground" aria-label="Close builder">&times;</button>
             </div>
 
-            <div className="flex-1 overflow-y-auto px-6 py-4 grid grid-cols-1 lg:grid-cols-3 gap-6">
-              <div className="lg:col-span-2 space-y-4">
+            <div className="grid flex-1 grid-cols-1 gap-6 overflow-y-auto px-6 py-4 lg:grid-cols-3">
+              <div className="space-y-4 lg:col-span-2">
                 <div className="flex items-center gap-3">
                   <input
                     type="text"
                     placeholder="Search products..."
                     value={builderSearch}
                     onChange={(e) => setBuilderSearch(e.target.value)}
-                    className="flex-1 border rounded px-3 py-2"
+                    className="flex-1 rounded-md border border-border bg-surface px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
                   />
-                  <div className="text-sm text-gray-500">{builderProducts.length} products</div>
+                  <div className="text-sm text-muted-foreground">{builderProducts.length} products</div>
                 </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
                   {builderFilteredProducts.map((product) => (
                     <button
                       key={product.id}
                       onClick={() => addBuilderItem(product)}
                       type="button"
-                      className={`border rounded-lg p-4 text-left hover:shadow transition ${
-                        product.stock > 0 || builderType === 'quote' ? 'bg-white' : 'bg-gray-100 cursor-not-allowed'
+                      className={`rounded-lg border border-border p-4 text-left transition hover:bg-muted/20 ${
+                        product.stock > 0 || builderType === 'quote' ? 'bg-surface' : 'bg-muted/20 cursor-not-allowed'
                       }`}
                       disabled={product.stock <= 0 && builderType === 'invoice'}
                     >
-                      <div className="font-semibold text-gray-800">{product.name}</div>
-                      <div className="text-sm text-gray-500 mb-2">{product.category} &gt; {product.subcategory}</div>
-                      <div className="flex justify-between text-sm">
+                      <div className="font-semibold text-foreground">{product.name}</div>
+                      <div className="mb-2 text-sm text-muted-foreground">{product.category} &gt; {product.subcategory}</div>
+                      <div className="flex justify-between text-sm text-foreground">
                         <span>{formatCurrency(product.price)}</span>
-                        <span className={product.stock > 5 ? 'text-green-600' : 'text-red-600'}>
+                        <span className={product.stock > 5 ? 'text-success' : 'text-red-500'}>
                           {product.stock} in stock
                         </span>
                       </div>
@@ -1132,13 +1164,13 @@ export default function Invoices() {
                 </div>
               </div>
 
-              <div className="bg-gray-50 rounded-lg border p-4 space-y-4">
+              <div className="rounded-lg border border-border bg-surface-muted p-4 space-y-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">Customer</label>
+                  <label className="block text-sm font-semibold text-foreground">Customer</label>
                   <select
                     value={builderSelectedCustomer}
                     onChange={(e) => setBuilderSelectedCustomer(e.target.value)}
-                    className="mt-1 block w-full border rounded px-3 py-2"
+                    className="mt-1 block w-full rounded-md border border-border bg-surface px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
                   >
                     {builderCustomers.map((customer) => (
                       <option key={customer.id} value={customer.id}>{customer.name}</option>
@@ -1146,29 +1178,29 @@ export default function Invoices() {
                   </select>
                 </div>
 
-                <div className="space-y-3 max-h-64 overflow-y-auto">
-                  {builderCart.length === 0 && <p className="text-center text-gray-500 text-sm">No items yet</p>}
+                <div className="max-h-64 space-y-3 overflow-y-auto">
+                  {builderCart.length === 0 && <p className="text-center text-sm text-muted-foreground">No items yet</p>}
                   {builderCart.map((item) => (
-                    <div key={item.id} className="bg-white border rounded-md p-3">
-                      <div className="font-semibold text-sm">{item.name}</div>
-                      <div className="flex items-center justify-between text-sm text-gray-500 mt-1">
+                    <div key={item.id} className="rounded-md border border-border bg-surface px-3 py-2">
+                      <div className="text-sm font-semibold text-foreground">{item.name}</div>
+                      <div className="mt-1 flex items-center justify-between text-xs text-muted-foreground">
                         <span>{formatCurrency(item.price)} x {item.quantity}</span>
-                        <button onClick={() => decrementBuilderItem(item.id)} className="text-red-500 hover:underline text-xs">Remove</button>
+                        <button onClick={() => decrementBuilderItem(item.id)} className="text-red-500 hover:underline">Remove</button>
                       </div>
                     </div>
                   ))}
                 </div>
 
-                <div className="border-t pt-3 space-y-2 text-sm">
+                <div className="space-y-2 border-t border-border pt-3 text-sm text-foreground">
                   <div className="flex justify-between">
                     <span>Subtotal</span>
                     <span>{formatCurrency(builderSubtotal)}</span>
                   </div>
-                  <div className="flex justify-between text-gray-500">
+                  <div className="flex justify-between text-muted-foreground">
                     <span>Tax ({builderGstRate}%)</span>
                     <span>{formatCurrency(builderTax)}</span>
                   </div>
-                  <div className="flex justify-between font-semibold text-base">
+                  <div className="flex justify-between text-base font-semibold">
                     <span>Total</span>
                     <span>{formatCurrency(builderTotal)}</span>
                   </div>
@@ -1177,7 +1209,7 @@ export default function Invoices() {
                 <button
                   onClick={submitBuilder}
                   disabled={builderSaving}
-                  className="w-full bg-blue-600 text-white px-4 py-2 rounded-md font-semibold hover:bg-blue-700 disabled:bg-gray-400"
+                  className="w-full rounded-md bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground transition hover:bg-primary/90 disabled:bg-muted/20 disabled:text-muted-foreground"
                 >
                   {builderSaving ? 'Saving...' : builderType === 'invoice' ? 'Create Invoice' : 'Create Quote'}
                 </button>
