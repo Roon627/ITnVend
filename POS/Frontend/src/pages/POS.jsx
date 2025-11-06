@@ -46,24 +46,23 @@ export default function POS() {
     paymentBank: '',
   });
 
-  const resetPaymentDetails = useCallback(() => {
-    setPaymentReference('');
-    setPaymentSlipPath(null);
-    setPaymentSlipPreview(null);
-    setPaymentSlipUploading(false);
-  }, []);
-
-  const closePaymentModal = useCallback(() => {
-    setShowPaymentModal(false);
-    resetPaymentDetails();
-  }, [resetPaymentDetails]);
-  const [showCustomerModal, setShowCustomerModal] = useState(false);
-  const [newCustomer, setNewCustomer] = useState({ name: '', email: '', phone: '' });
-  const [quantityInput, setQuantityInput] = useState({});
+  // UI state
   const [activeTab, setActiveTab] = useState('products'); // products, history, held
   const [expandedHistoryId, setExpandedHistoryId] = useState(null);
   const [historyEditingId, setHistoryEditingId] = useState(null);
+  const [shiftStartedAt, setShiftStartedAt] = useState(() => {
+    try { return localStorage.getItem('pos_shift_started_at') || ''; } catch { return ''; }
+  });
+  const [shiftId, setShiftId] = useState(() => {
+    try { return localStorage.getItem('pos_shift_id') || null; } catch { return null; }
+  });
+  const [shiftPending, setShiftPending] = useState(false);
+  const [cartOpenMobile, setCartOpenMobile] = useState(false);
+  const [showCustomerModal, setShowCustomerModal] = useState(false);
+  const [newCustomer, setNewCustomer] = useState({ name: '', email: '', phone: '' });
+  const [quantityInput, setQuantityInput] = useState({});
 
+  // Contexts and refs
   const { settings: globalSettings, formatCurrency } = useSettings();
   const toast = useToast();
   const { user } = useAuth();
@@ -75,15 +74,17 @@ export default function POS() {
     ? customers.find((c) => String(c.id) === String(selectedCustomerId)) || null
     : null;
 
-  const [shiftStartedAt, setShiftStartedAt] = useState(() => {
-    try { return localStorage.getItem('pos_shift_started_at') || ''; } catch { return ''; }
-  });
-  const [shiftId, setShiftId] = useState(() => {
-    try { return localStorage.getItem('pos_shift_id') || null; } catch { return null; }
-  });
-  const [shiftPending, setShiftPending] = useState(false);
-  // Mobile cart/drawer state: hidden by default on small screens
-  const [cartOpenMobile, setCartOpenMobile] = useState(false);
+  const resetPaymentDetails = useCallback(() => {
+    setPaymentReference('');
+    setPaymentSlipPath(null);
+    setPaymentSlipPreview(null);
+    setPaymentSlipUploading(false);
+  }, []);
+
+  const closePaymentModal = useCallback(() => {
+    setShowPaymentModal(false);
+    resetPaymentDetails();
+  }, [resetPaymentDetails]);
 
   const formatShiftRelative = (iso) => {
     if (!iso) return '';
@@ -95,26 +96,21 @@ export default function POS() {
       if (mins < 60) return `${mins}m ago`;
       if (mins < 1440) return `${Math.floor(mins / 60)}h ago`;
       return `${Math.floor(mins / 1440)}d ago`;
-  } catch { return ''; }
+    } catch { return ''; }
   };
 
   const humanizeLabel = (value) => {
-    if (!value) return '—';
-    return String(value)
-      .replace(/_/g, ' ')
-      .replace(/\b\w/g, (char) => char.toUpperCase());
+    if (value == null) return '';
+    const s = String(value);
+    // Replace underscores/dashes with spaces, split camelCase, collapse spaces
+    const spaced = s
+      .replace(/[_-]+/g, ' ')
+      .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+      .replace(/\s+/g, ' ')
+      .trim();
+    // Capitalize words
+    return spaced.replace(/\w\S*/g, (w) => w.charAt(0).toUpperCase() + w.substr(1).toLowerCase());
   };
-
-  
-
-  
-
-  useEffect(() => {
-    const isTransferPayment = paymentMethod === 'bank_transfer' || paymentMethod === 'transfer';
-    if (!isTransferPayment) {
-      resetPaymentDetails();
-    }
-  }, [paymentMethod, resetPaymentDetails]);
 
   const handlePaymentSlipUpload = async (file) => {
     if (!file) return;
@@ -807,22 +803,11 @@ export default function POS() {
   const isTransferPayment = paymentMethod === 'bank_transfer' || paymentMethod === 'transfer';
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      {/* Keyboard Shortcuts Help (styled) */}
-  <div className="accent-gradient text-white text-sm py-2 px-4 text-center shadow-md">
-        <span className="font-semibold">Keyboard Shortcuts:</span>
-        <span className="mx-2">F1 / f: Search</span>
-        <span className="mx-2">F2: Products</span>
-        <span className="mx-2">F3: History</span>
-        <span className="mx-2">F4: Hold</span>
-        <span className="mx-2">F5: Payment</span>
-        <span className="mx-2">c: Focus Cart</span>
-      </div>
-
-      <main className="p-4 sm:p-6">
-  <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 lg:gap-8">
+    <div className="p-4 md:p-6 lg:p-8 bg-background min-h-screen space-y-6">
+      <main>
+        <div className="grid grid-cols-1 lg:grid-cols-[2fr_1fr] gap-6">
           {/* Left Panel - Products/Categories/History */}
-          <div className="lg:col-span-3">
+          <div>
             {/* Mobile cart toggle */}
             <div className="mb-4 lg:hidden flex justify-end">
               <button
@@ -835,59 +820,67 @@ export default function POS() {
               </button>
             </div>
             {/* Tab Navigation */}
-            <div className="bg-white rounded-xl shadow-lg p-4 mb-6">
-              <div className="flex flex-wrap items-center gap-2 sm:gap-4 border-b overflow-x-auto pb-2">
+            <div className="flex items-center justify-between bg-surface border border-border rounded-lg px-4 py-2 mb-6 shadow-sm">
+              <div className="flex gap-4 overflow-x-auto text-sm font-medium text-muted-foreground">
                 <button
                   onClick={() => setActiveTab('products')}
-                  className={`whitespace-nowrap py-2 px-4 font-medium ${activeTab === 'products' ? 'border-b-2 border-blue-500 text-blue-600' : 'text-gray-500'}`}
+                  className={`pb-2 border-b-2 border-transparent hover:text-foreground hover:border-primary transition ${activeTab === 'products' ? 'text-foreground border-primary font-semibold' : ''}`}
                 >
                   Products (F2)
                 </button>
                 <button
                   onClick={() => setActiveTab('history')}
-                  className={`whitespace-nowrap py-2 px-4 font-medium ${activeTab === 'history' ? 'border-b-2 border-blue-500 text-blue-600' : 'text-gray-500'}`}
+                  className={`pb-2 border-b-2 border-transparent hover:text-foreground hover:border-primary transition ${activeTab === 'history' ? 'text-foreground border-primary font-semibold' : ''}`}
                 >
                   History (F3)
                 </button>
                 <button
                   onClick={() => setActiveTab('held')}
-                  className={`whitespace-nowrap py-2 px-4 font-medium ${activeTab === 'held' ? 'border-b-2 border-blue-500 text-blue-600' : 'text-gray-500'}`}
+                  className={`pb-2 border-b-2 border-transparent hover:text-foreground hover:border-primary transition ${activeTab === 'held' ? 'text-foreground border-primary font-semibold' : ''}`}
                 >
                   Held Orders ({heldOrders.length})
                 </button>
               </div>
+
+              <div className="text-xs text-muted-foreground font-mono opacity-70 hover:opacity-100 transition">
+                Shortcuts: F1 Search | F2 Products | F3 History | F4 Hold | F5 Payment | C Focus Cart
+              </div>
             </div>
 
             {activeTab === 'products' && (
-              <div className="bg-white rounded-xl shadow-lg p-6">
+              <div className="bg-surface border border-border rounded-lg p-4 shadow-sm">
                 {/* Search and Category Filters */}
-                <div className="flex flex-col sm:flex-row gap-4 mb-6">
-                  <div className="flex-1">
+                <div className="flex flex-wrap md:flex-nowrap gap-3 items-center justify-between bg-surface border border-border rounded-lg p-3 shadow-sm mb-6">
+                  <div className="relative flex-1">
                     <input
                       ref={searchInputRef}
                       type="text"
                       placeholder="Search products... (F1)"
                       value={productSearchTerm}
                       onChange={(e) => setProductSearchTerm(e.target.value)}
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      className="w-full pl-10 pr-3 py-2 text-sm border border-border rounded-md bg-background text-foreground focus:ring-primary focus:border-primary"
                     />
+                    {/* Simple search icon */}
+                    <svg className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                      <path d="M21 21l-4.35-4.35" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                      <circle cx="11" cy="11" r="5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
                   </div>
-                  <div>
-                    <select
-                      value={selectedCategory}
-                      onChange={(e) => setSelectedCategory(e.target.value)}
-                      className="px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    >
-                      <option value="">All Categories</option>
-                      {Object.keys(categories).map(category => (
-                        <option key={category} value={category}>{category}</option>
-                      ))}
-                    </select>
-                  </div>
+
+                  <select
+                    value={selectedCategory}
+                    onChange={(e) => setSelectedCategory(e.target.value)}
+                    className="text-sm border border-border rounded-md bg-background text-foreground px-3 py-2 focus:ring-primary focus:border-primary"
+                  >
+                    <option value="">All Categories</option>
+                    {Object.keys(categories).map(category => (
+                      <option key={category} value={category}>{category}</option>
+                    ))}
+                  </select>
                 </div>
 
-                {/* Products Grid - larger cards with images and click-to-add */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-6">
+                {/* Products Grid - responsive cards */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-5">
                   {filteredProducts.map((p) => {
                     const imageSrc = resolveMediaUrl(
                       p.image_source || p.imageUrl || p.image || p.image_url || null
@@ -899,59 +892,55 @@ export default function POS() {
                         tabIndex={0}
                         onKeyDown={(e) => { if (e.key === 'Enter') addToCart(p); }}
                         onClick={() => addToCart(p)}
-                        className={`border rounded-lg overflow-hidden bg-white flex flex-col transition-all duration-200 cursor-pointer ${p.stock > 0 ? 'hover:shadow-2xl hover:scale-105' : 'opacity-60 grayscale'}`}
+                        className={`bg-surface border border-border rounded-lg shadow-sm hover:shadow-md transition-transform hover:scale-[1.01] overflow-hidden flex flex-col ${p.stock > 0 ? '' : 'opacity-60 grayscale'}`}
                         aria-label={`Add ${p.name} to cart`}
                       >
                       {/* Image (if present) */}
                       {imageSrc ? (
-                        <img src={imageSrc} alt={p.name} className="h-40 w-full object-cover" />
+                        <img src={imageSrc} alt={p.name} className="w-full h-48 object-cover transition-transform hover:scale-105" />
                       ) : (
-                        <div className="h-40 w-full bg-gray-100 flex items-center justify-center text-gray-400">No image</div>
-                      ) }
+                        <div className="w-full h-48 bg-muted/10 flex items-center justify-center text-muted-foreground">No image</div>
+                      )}
 
-                      <div className="p-4 flex-1 flex flex-col">
+                      <div className="p-4 space-y-2 flex-1 flex flex-col">
                         <div className="flex justify-between items-start gap-2">
-                          <h3 className="font-bold text-lg text-gray-800 truncate">{p.name}</h3>
-                          <p className="text-blue-600 font-bold">{formatCurrency(p.price)}</p>
+                          <h3 className="font-semibold text-foreground truncate">{p.name}</h3>
+                          <p className="font-bold text-foreground">{formatCurrency(p.price)}</p>
                         </div>
-                        <p className={`mt-1 text-sm font-medium ${p.stock > 10 ? 'text-green-600' : p.stock > 0 ? 'text-yellow-600' : 'text-red-600'}`}>
+                        <p className={`text-xs ${p.stock > 10 ? 'text-emerald-600' : p.stock > 0 ? 'text-amber-600' : 'text-rose-600'}`}>
                           {p.stock > 0 ? `${p.stock} in stock` : 'Out of stock'}
                         </p>
                         {p.category && (
-                          <span className="inline-block bg-gray-50 text-gray-800 text-xs px-2 py-1 rounded mt-2">
-                            {p.category}
-                          </span>
+                          <p className="text-xs text-muted-foreground">{p.category}</p>
                         )}
 
                         {p.stock > 0 && (
-                          <div className="mt-4 flex flex-wrap items-center gap-3">
-                            <input
-                              onClick={(e) => e.stopPropagation()}
-                              type="number"
-                              min="1"
-                              max={p.stock}
-                              value={quantityInput[p.id] || 1}
-                              onChange={(e) => setQuantityInput(prev => ({ ...prev, [p.id]: parseInt(e.target.value) || 1 }))}
-                              className="w-20 px-2 py-1 border border-gray-300 rounded text-center text-sm"
-                              aria-label={`Quantity for ${p.name}`}
-                            />
-
-                            <button
-                              onClick={(e) => { e.stopPropagation(); addToCart(p, quantityInput[p.id] || 1); }}
-                              className="flex-1 accent-btn px-4 py-2 rounded-md font-semibold min-w-[120px]"
-                            >
-                              Add
-                            </button>
-
-                            <div className="flex items-center gap-2">
+                          <div className="flex items-center justify-between mt-2">
+                            <div className="flex items-center rounded-md border border-border overflow-hidden">
+                              <input
+                                onClick={(e) => e.stopPropagation()}
+                                type="number"
+                                min="1"
+                                max={p.stock}
+                                value={quantityInput[p.id] || 1}
+                                onChange={(e) => setQuantityInput(prev => ({ ...prev, [p.id]: parseInt(e.target.value) || 1 }))}
+                                className="w-12 text-center text-sm bg-background text-foreground border-none"
+                              />
                               <button
                                 onClick={(e) => { e.stopPropagation(); addToCart(p, 5); }}
                                 title="Quick add 5"
-                                className="w-12 h-10 bg-gray-100 rounded-md text-sm hover:bg-gray-200"
+                                className="px-3 text-sm font-medium bg-muted text-foreground hover:bg-muted/70"
                               >
                                 +5
                               </button>
                             </div>
+
+                            <button
+                              onClick={(e) => { e.stopPropagation(); addToCart(p, quantityInput[p.id] || 1); }}
+                              className="px-4 py-2 bg-primary text-primary-foreground rounded-md text-sm font-semibold hover:bg-primary/90"
+                            >
+                              Add
+                            </button>
                           </div>
                         )}
                       </div>
@@ -963,96 +952,117 @@ export default function POS() {
             )}
 
             {activeTab === 'history' && (
-              <div className="bg-white rounded-xl shadow-lg p-6">
-                <h3 className="text-xl font-semibold mb-4">Transaction History</h3>
-                <div className="space-y-4 max-h-96 overflow-y-auto">
-                  {transactionHistory.map((transaction) => {
-                    const items = Array.isArray(transaction.items) ? transaction.items : [];
-                    const statusLabel = humanizeLabel(transaction.status);
-                    const paymentLabel = Array.isArray(transaction.payment_methods) && transaction.payment_methods.length > 0
-                      ? transaction.payment_methods.map(humanizeLabel).join(', ')
-                      : '';
-                    const isExpanded = expandedHistoryId === transaction.id;
-                    const typeIsQuote = (transaction.type || '').toLowerCase() === 'quote';
-                    return (
-                      <div key={transaction.id} className="border rounded-lg p-4 bg-white/70">
-                        <div className="flex justify-between items-start gap-3">
-                          <div>
-                            <p className="font-semibold text-gray-800">{transaction.customer_name || 'Walk-in customer'}</p>
-                            <p className="text-sm text-gray-600">
-                              {transaction.created_at ? new Date(transaction.created_at).toLocaleString() : '—'}
-                            </p>
-                            <p className="text-xs text-gray-500 mt-1">Status: {statusLabel}</p>
-                          </div>
-                          <div className="text-right">
-                            <p className="font-bold text-lg text-gray-900">{formatCurrency(transaction.total)}</p>
-                            <span
-                              className={`px-2 py-1 rounded text-xs font-semibold uppercase ${
-                                typeIsQuote ? 'bg-blue-100 text-blue-800' : 'bg-green-100 text-green-800'
-                              }`}
-                            >
-                              {humanizeLabel(transaction.type)}
-                            </span>
-                            <button
-                              onClick={() => toggleHistoryDetails(transaction.id)}
-                              className="block text-xs text-blue-600 hover:underline mt-2"
-                            >
-                              {isExpanded ? 'Hide details' : 'View details'}
-                            </button>
-                          </div>
-                        </div>
-                        <div className="text-sm text-gray-600 mt-2">
-                          {items.length} items • {statusLabel}
-                          {paymentLabel && (
-                            <span className="ml-1">• Payment: {paymentLabel}</span>
-                          )}
-                        </div>
-                        {isExpanded && (
-                          <div className="mt-3 border-t pt-3 space-y-2 text-sm text-gray-700">
-                            {items.length > 0 ? (
-                              items.map((item, idx) => (
-                                <div key={`${transaction.id}-${idx}`} className="flex justify-between">
-                                  <span>{item.product_name || `#${item.product_id || '-'}`}</span>
-                                  <span className="text-gray-500">
-                                    {item.quantity} × {formatCurrency(item.price)}
-                                  </span>
-                                </div>
-                              ))
-                            ) : (
-                              <p className="text-gray-500">No line items recorded.</p>
+              <div className="flex-1 flex flex-col p-4 md:p-6 lg:p-8 bg-background space-y-4">
+                <div className="max-w-5xl mx-auto w-full">
+                  <header className="mb-4">
+                    <div className="space-y-2">
+                      <span className="inline-flex items-center gap-2 rounded-full bg-primary/10 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-primary">TRANSACTIONS</span>
+                      <div>
+                        <h1 className="text-3xl font-bold text-foreground">Transaction History</h1>
+                        <p className="text-sm text-muted-foreground">View recent invoices, payments, and cancelled transactions.</p>
+                      </div>
+                    </div>
+                    <div className="border-b border-border mt-3"></div>
+                  </header>
+
+                  <div className="max-w-5xl mx-auto w-full">
+                    <div className="bg-white rounded-xl shadow-sm border border-border overflow-hidden">
+                      <div className="overflow-y-auto max-h-[60vh] space-y-3 p-4 scrollbar-hide">
+                        {transactionHistory.length > 0 ? (
+                          transactionHistory.map((transaction) => {
+                        const items = Array.isArray(transaction.items) ? transaction.items : [];
+                        const statusLabel = humanizeLabel(transaction.status);
+                        const paymentLabel = Array.isArray(transaction.payment_methods) && transaction.payment_methods.length > 0
+                          ? transaction.payment_methods.map(humanizeLabel).join(', ')
+                          : '';
+                        const isExpanded = expandedHistoryId === transaction.id;
+                        const typeIsQuote = (transaction.type || '').toLowerCase() === 'quote';
+                        const statusRaw = (transaction.status || '').toLowerCase();
+
+                        return (
+                          <div
+                            key={transaction.id}
+                            className={`bg-white border border-border rounded-lg shadow-sm hover:shadow-md transition p-4 flex flex-col sm:flex-row sm:items-center justify-between`}
+                            style={{ maxWidth: '100%' }}
+                          >
+                            <div className="flex-1">
+                              <h3 className="font-semibold text-foreground">{transaction.customer_name || 'Walk-in customer'}</h3>
+                              <p className="text-xs text-muted-foreground">{transaction.created_at ? new Date(transaction.created_at).toLocaleString() : '—'}</p>
+                              <p className="text-sm mt-1 text-muted-foreground">{items.length} items • {statusLabel}{paymentLabel ? ` • Payment: ${paymentLabel}` : ''}</p>
+                            </div>
+
+                            <div className="flex flex-col sm:items-end mt-3 sm:mt-0">
+                              <p className="text-lg font-semibold text-foreground">{formatCurrency(transaction.total)}</p>
+                              <span className={`text-xs font-medium mt-0.5 ${
+                                statusRaw === 'paid' ? 'text-emerald-600' : statusRaw === 'cancelled' ? 'text-rose-600' : 'text-amber-600'
+                              }`}>{(transaction.status || '').toUpperCase()}</span>
+
+                              <div className="flex gap-3 mt-2 text-xs flex-wrap justify-end">
+                                <button onClick={() => openHistoryPdf(transaction.id)} className="text-primary hover:underline">Receipt</button>
+                                {canManageTransactions && (
+                                  <>
+                                    <button onClick={() => openHistoryEditor(transaction.id)} className="text-muted-foreground hover:underline">Edit</button>
+                                    <button onClick={() => handleHistoryDelete(transaction.id)} className="text-rose-500 hover:underline">Delete</button>
+                                  </>
+                                )}
+                                <button onClick={() => toggleHistoryDetails(transaction.id)} className="text-muted-foreground hover:underline">{isExpanded ? 'Hide' : 'Details'}</button>
+                              </div>
+                            </div>
+
+                            {isExpanded && (
+                              <div className="w-full mt-3 border-t pt-3 text-sm text-muted-foreground">
+                                {items.length > 0 ? (
+                                  items.map((item, idx) => (
+                                    <div key={`${transaction.id}-${idx}`} className="flex justify-between py-1">
+                                      <span>{item.product_name || `#${item.product_id || '-'}`}</span>
+                                      <span className="text-muted-foreground">{item.quantity} × {formatCurrency(item.price)}</span>
+                                    </div>
+                                  ))
+                                ) : (
+                                  <p className="text-muted-foreground">No line items recorded.</p>
+                                )}
+                              </div>
                             )}
                           </div>
-                        )}
-                        <div className="mt-4 flex justify-end gap-3 text-sm">
-                          <button
-                            onClick={() => openHistoryPdf(transaction.id)}
-                            className="text-blue-600 hover:underline"
-                          >
-                            Receipt
-                          </button>
-                          {canManageTransactions && (
-                            <>
-                              <button
-                                onClick={() => openHistoryEditor(transaction.id)}
-                                className="text-indigo-600 hover:underline"
-                              >
-                                Edit
-                              </button>
-                              <button
-                                onClick={() => handleHistoryDelete(transaction.id)}
-                                className="text-red-600 hover:underline"
-                              >
-                                Delete
-                              </button>
-                            </>
-                          )}
+                        );
+                      })
+                    ) : (
+                      <div className="text-center py-20 text-muted-foreground">
+                        <svg className="w-10 h-10 mx-auto mb-3 text-muted-foreground/50" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                          <path d="M3 7v10a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                          <path d="M8 3v4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                          <path d="M16 3v4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                        </svg>
+                        <p>No transactions found yet</p>
+                        <p className="text-sm">Create invoices to see them appear here.</p>
+                      </div>
+                    )}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Summary container under the history to add visual weight */}
+                  <div className="mt-4 max-w-5xl mx-auto w-full">
+                    <div className="bg-white border border-border rounded-lg p-4 shadow-sm">
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                        <div>
+                          <div className="text-xs text-muted-foreground">Total transactions</div>
+                          <div className="text-lg font-semibold text-foreground">{transactionHistory.length}</div>
+                        </div>
+
+                        <div>
+                          <div className="text-xs text-muted-foreground">Total value</div>
+                          <div className="text-lg font-semibold text-foreground">{formatCurrency(transactionHistory.reduce((s, t) => s + (Number(t.total) || 0), 0))}</div>
+                        </div>
+
+                        <div>
+                          <div className="text-xs text-muted-foreground">Cancelled</div>
+                          <div className="text-lg font-semibold text-rose-600">{transactionHistory.filter(t => (t.status || '').toLowerCase() === 'cancelled').length}</div>
                         </div>
                       </div>
-                    );
-                  })}
-                  {transactionHistory.length === 0 && (
-                    <p className="text-gray-500 text-center py-8">No transactions yet</p>
-                  )}
+                      <p className="text-xs text-muted-foreground mt-3">Tip: Use filters to narrow results. Click a transaction to view details or print a receipt.</p>
+                    </div>
+                  </div>
                 </div>
               </div>
             )}
@@ -1095,7 +1105,7 @@ export default function POS() {
 
           {/* Right Panel - Cart and Customer */}
           <div className={`row-start-1 lg:row-auto ${cartOpenMobile ? '' : 'hidden lg:block'}`}>
-            <div id="pos-cart-panel" className="bg-white rounded-xl shadow-lg p-6 lg:sticky lg:top-6 lg:col-start-4">
+            <div id="pos-cart-panel" className="bg-surface border border-border rounded-lg shadow-sm p-4 lg:sticky lg:top-6">
               {/* Close button for mobile */}
               <div className="flex justify-end lg:hidden mb-4">
                 <button onClick={() => setCartOpenMobile(false)} className="px-3 py-1 text-sm text-gray-500 rounded hover:bg-gray-100">Close</button>
@@ -1104,7 +1114,7 @@ export default function POS() {
                 <div className="mb-4 flex items-center justify-between gap-3">
                   {shiftStartedAt ? (
                     <div className="flex items-center gap-3">
-                      <div className="px-3 py-2 bg-yellow-50 text-yellow-800 rounded-md text-sm font-medium" title={new Date(shiftStartedAt).toLocaleString()}>
+                      <div className="px-3 py-2 bg-muted/10 text-muted-foreground rounded-md text-sm font-medium" title={new Date(shiftStartedAt).toLocaleString()}>
                         Shift started {formatShiftRelative(shiftStartedAt)}
                       </div>
                       <button
@@ -1131,7 +1141,7 @@ export default function POS() {
                             console.debug('Failed to stop shift', e?.message || e);
                           } finally { setShiftPending(false); }
                         }}
-                        className="px-3 py-2 bg-gray-100 text-gray-800 rounded-md text-sm hover:bg-gray-200"
+                        className="px-3 py-2 bg-surface text-foreground rounded-md text-sm border border-border hover:bg-muted/50"
                         disabled={shiftPending}
                       >
                         {shiftPending ? 'Closing…' : 'End shift'}
@@ -1172,7 +1182,7 @@ export default function POS() {
                           console.debug('Failed to start shift', e?.message || e);
                         } finally { setShiftPending(false); }
                       }}
-                      className="px-3 py-2 bg-yellow-500 text-white rounded-md text-sm hover:bg-yellow-600"
+                      className="px-3 py-2 bg-primary text-primary-foreground rounded-md text-sm hover:bg-primary/90"
                       disabled={shiftPending}
                     >
                       {shiftPending ? 'Starting…' : 'Start shift'}
@@ -1185,7 +1195,7 @@ export default function POS() {
                   <label className="block text-sm font-medium text-gray-700">Customer</label>
                   <button
                     onClick={() => setShowCustomerModal(true)}
-                    className="text-blue-600 hover:text-blue-800 text-sm font-medium"
+                    className="text-primary hover:underline text-sm font-medium"
                   >
                     + Add Customer
                   </button>
@@ -1196,12 +1206,12 @@ export default function POS() {
                     placeholder="Search customers..."
                     value={customerSearchTerm}
                     onChange={(e) => setCustomerSearchTerm(e.target.value)}
-                    className="flex-1 px-3 py-2 border border-gray-300 rounded-md text-sm"
+                    className="flex-1 px-3 py-2 border border-border rounded-md text-sm bg-background text-foreground"
                   />
                   <select
                     value={selectedCustomerId}
                     onChange={(e) => setSelectedCustomerId(e.target.value)}
-                    className="flex-1 px-3 py-2 border border-gray-300 rounded-md text-sm"
+                    className="flex-1 px-3 py-2 border border-border rounded-md text-sm bg-background text-foreground"
                   >
                     {filteredCustomers.map((c) => (
                       <option key={c.id} value={c.id}>{c.name}</option>
@@ -1229,7 +1239,7 @@ export default function POS() {
                     <p className="text-gray-500 text-center py-8">Your cart is empty</p>
                   )}
                   {cart.map((item) => (
-                    <div key={item.id} className="flex justify-between items-center bg-gray-50 p-3 rounded-lg">
+                      <div key={item.id} className="flex justify-between items-center bg-surface p-3 rounded-lg border border-border">
                       <div className="flex-1">
                         <p className="font-semibold text-sm">{item.name}</p>
                         <p className="text-xs text-gray-600">{formatCurrency(item.price)} each</p>
@@ -1250,12 +1260,12 @@ export default function POS() {
                             +
                           </button>
                         </div>
-                        <div className="text-right min-w-16">
-                          <p className="font-bold text-sm">{formatCurrency(item.price * item.quantity)}</p>
-                        </div>
+                          <div className="text-right min-w-16">
+                            <p className="font-bold text-sm text-foreground">{formatCurrency(item.price * item.quantity)}</p>
+                          </div>
                         <button
                           onClick={() => removeFromCart(item.id)}
-                          className="text-red-500 hover:text-red-700 font-bold text-lg ml-2"
+                            className="text-red-500 hover:text-red-700 font-bold text-lg ml-2"
                         >
                           ×
                         </button>
@@ -1267,7 +1277,7 @@ export default function POS() {
 
               {/* Totals and Actions */}
               {cart.length > 0 && (
-                <div className="border-t pt-4">
+                <div className="border-t pt-4 border-border">
                   <div className="space-y-2 mb-4">
                     <div className="flex justify-between text-sm">
                       <span>Subtotal</span>
@@ -1287,7 +1297,7 @@ export default function POS() {
                     {isPreorderCart ? (
                       <button
                         onClick={() => setShowPreorderModal(true)}
-                        className="w-full accent-btn px-4 py-3 rounded-lg font-bold text-lg"
+                        className="w-full bg-primary text-primary-foreground font-semibold py-2 rounded-md mb-3 hover:bg-primary/90"
                       >
                         Finalize Preorder
                       </button>
@@ -1295,7 +1305,7 @@ export default function POS() {
                       <button
                         ref={payNowBtnRef}
                         onClick={() => setShowPaymentModal(true)}
-                        className="w-full accent-btn px-4 py-3 rounded-lg font-bold text-lg"
+                        className="w-full bg-primary text-primary-foreground font-semibold py-2 rounded-md mb-3 hover:bg-primary/90"
                         aria-label="Pay Now"
                       >
                         Pay Now (F5)
@@ -1304,13 +1314,13 @@ export default function POS() {
                     <button
                       onClick={() => handleCheckout('quote')}
                       disabled={isPreorderCart}
-                      className={`w-full btn-secondary px-4 py-3 rounded-lg font-semibold${isPreorderCart ? ' opacity-50 cursor-not-allowed' : ''}`}
+                      className={`w-full border border-border px-4 py-2 rounded-md font-semibold ${isPreorderCart ? ' opacity-50 cursor-not-allowed' : ''}`}
                     >
                       Generate Quote
                     </button>
                     <button
                       onClick={handleHoldOrder}
-                      className="w-full accent-outline px-4 py-3 rounded-lg font-semibold"
+                      className="w-full border border-border px-4 py-2 rounded-md font-semibold"
                     >
                       Hold Order (F4)
                     </button>
@@ -1322,6 +1332,14 @@ export default function POS() {
         </div>
       </main>
 
+
+      {/* Mobile sticky cart bar */}
+      {cart.length > 0 && (
+        <div className="lg:hidden fixed bottom-0 left-0 right-0 p-3 bg-surface border-t border-border shadow-md flex items-center gap-3">
+          <div className="flex-1 text-sm font-medium text-foreground">{cart.length} items • {formatCurrency(totalWithTax)}</div>
+          <button onClick={() => setCartOpenMobile(true)} className="px-4 py-2 bg-primary text-primary-foreground rounded-md">Go to Cart</button>
+        </div>
+      )}
       {/* Preorder Prompt */}
       {showPreorderPrompt && pendingPreorderProduct && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">

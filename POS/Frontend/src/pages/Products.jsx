@@ -1474,23 +1474,28 @@ export default function Products() {
 
   return (
     <div className="p-6 space-y-6">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold text-slate-900">Products</h1>
-          <p className="text-sm text-slate-500">
-            Manage catalog inventory, pricing, and technical specifications.
-          </p>
+      <section className="rounded-2xl border border-slate-200/70 bg-white/80 p-6 shadow-sm shadow-blue-100/50 backdrop-blur">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="space-y-2">
+              <span className="inline-flex items-center gap-2 rounded-full bg-blue-50 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-blue-600">PRODUCTS</span>
+              <div>
+                <h1 className="text-2xl font-semibold text-slate-900">Products</h1>
+                <p className="text-sm text-slate-500">
+                  Manage catalog inventory, pricing, and technical specifications.
+                </p>
+              </div>
+            </div>
+          <div>
+            <button
+              type="button"
+              onClick={openCreateModal}
+              className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-md font-semibold shadow hover:bg-blue-700"
+            >
+              <FaPlus /> Add product
+            </button>
+          </div>
         </div>
-        <div>
-          <button
-            type="button"
-            onClick={openCreateModal}
-            className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-md font-semibold shadow hover:bg-blue-700"
-          >
-            <FaPlus /> Add product
-          </button>
-        </div>
-      </div>
+      </section>
       {/* Add product moved to modal: click the button above to open the product editor */}
 
       <section className="space-y-6 rounded-lg bg-white p-6 shadow-sm">

@@ -51,6 +51,34 @@ export default function Invoices() {
   const [typeFilter, setTypeFilter] = useState('all');
 
   const [showBuilder, setShowBuilder] = useState(false);
+  const [builderType, setBuilderType] = useState('invoice');
+  const [builderProducts, setBuilderProducts] = useState([]);
+  const [builderCustomers, setBuilderCustomers] = useState([]);
+  const [builderSelectedCustomer, setBuilderSelectedCustomer] = useState('');
+  const [builderCart, setBuilderCart] = useState([]);
+  const [builderSearch, setBuilderSearch] = useState('');
+  const [builderSaving, setBuilderSaving] = useState(false);
+  const [statusUpdatingId, setStatusUpdatingId] = useState(null);
+  const [convertingId, setConvertingId] = useState(null);
+  const [selectedIds, setSelectedIds] = useState(new Set());
+  const [selectAll, setSelectAll] = useState(false);
+  const [bulkStatus, setBulkStatus] = useState('');
+  const [bulkProcessing, setBulkProcessing] = useState(false);
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [outletFilter, setOutletFilter] = useState('all');
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
+  const [outlets, setOutlets] = useState([]);
+  const [savedViews, setSavedViews] = useState([]);
+  const [editingInvoiceId, setEditingInvoiceId] = useState(null);
+  const UI_VIEW_KEY = 'ui_view_mode';
+  const [viewMode, setViewMode] = useState(() => {
+    try {
+      return localStorage.getItem(UI_VIEW_KEY) || 'table';
+    } catch {
+      return 'table';
+    }
+  });
   // help moved to central Help page; keep a small link here instead
   const [shiftStartedAt, setShiftStartedAt] = useState(() => {
     try { return localStorage.getItem('pos_shift_started_at') || ''; } catch { return ''; }
@@ -104,6 +132,14 @@ export default function Invoices() {
       }
   });
   // format a short relative label for shift badge
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(UI_VIEW_KEY, viewMode);
+    } catch {
+      // ignore persistence errors
+    }
+  }, [viewMode]);
   const formatShiftRelative = (iso) => {
     if (!iso) return '';
     try {
@@ -118,44 +154,6 @@ export default function Invoices() {
       return '';
     }
   };
-  const [builderType, setBuilderType] = useState('invoice');
-  const [builderProducts, setBuilderProducts] = useState([]);
-  const [builderCustomers, setBuilderCustomers] = useState([]);
-  const [builderSelectedCustomer, setBuilderSelectedCustomer] = useState('');
-  const [builderCart, setBuilderCart] = useState([]);
-  const [builderSearch, setBuilderSearch] = useState('');
-  const [builderSaving, setBuilderSaving] = useState(false);
-  const [statusUpdatingId, setStatusUpdatingId] = useState(null);
-  const [convertingId, setConvertingId] = useState(null);
-  const [selectedIds, setSelectedIds] = useState(new Set());
-  const [selectAll, setSelectAll] = useState(false);
-  const [bulkStatus, setBulkStatus] = useState('');
-  const [bulkProcessing, setBulkProcessing] = useState(false);
-  const [statusFilter, setStatusFilter] = useState('all');
-  const [outletFilter, setOutletFilter] = useState('all');
-  const [dateFrom, setDateFrom] = useState('');
-  const [dateTo, setDateTo] = useState('');
-  const [outlets, setOutlets] = useState([]);
-  const [savedViews, setSavedViews] = useState([]);
-  const [editingInvoiceId, setEditingInvoiceId] = useState(null);
-  // Use a global UI preference key so the view mode can be shared across pages
-  const UI_VIEW_KEY = 'ui_view_mode';
-  const [viewMode, setViewMode] = useState(() => {
-    try {
-      return localStorage.getItem(UI_VIEW_KEY) || 'table';
-    } catch {
-      return 'table';
-    }
-  }); // 'table' or 'cards'
-
-  // persist view preference globally
-  useEffect(() => {
-    try {
-      localStorage.setItem(UI_VIEW_KEY, viewMode);
-    } catch {
-      // ignore
-    }
-  }, [viewMode]);
 
   const invoiceSummary = useMemo(() => {
     if (!Array.isArray(invoices) || invoices.length === 0) {
@@ -170,6 +168,7 @@ export default function Invoices() {
         monthRevenue: 0,
       };
     }
+
     const invoiceDocs = invoices.filter((doc) => doc.type !== 'quote');
     const quoteDocs = invoices.filter((doc) => doc.type === 'quote');
     const invoiceTotal = invoiceDocs.reduce((sum, doc) => sum + (Number(doc.total) || 0), 0);
@@ -179,12 +178,14 @@ export default function Invoices() {
     const quoteTotal = quoteDocs.reduce((sum, doc) => sum + (Number(doc.total) || 0), 0);
     const acceptedQuoteDocs = quoteDocs.filter((doc) => (doc.status || '') === 'accepted');
     const acceptedQuoteTotal = acceptedQuoteDocs.reduce((sum, doc) => sum + (Number(doc.total) || 0), 0);
+
     const monthStart = new Date();
     monthStart.setDate(1);
     monthStart.setHours(0, 0, 0, 0);
     const monthRevenue = invoiceDocs
       .filter((doc) => doc.created_at && new Date(doc.created_at) >= monthStart)
       .reduce((sum, doc) => sum + (Number(doc.total) || 0), 0);
+
     return {
       invoiceCount: invoiceDocs.length,
       invoiceTotal,
@@ -632,33 +633,23 @@ export default function Invoices() {
   }, [invoices, searchTerm, typeFilter, statusFilter, outletFilter, dateFrom, dateTo]);
 
   return (
-    <div className="min-h-screen bg-background p-6">
-      <div className="mx-auto w-full max-w-7xl space-y-6 pb-24">
-        <header className="rounded-2xl border border-border bg-surface p-6 shadow-sm">
-          <div className="flex flex-col gap-6 md:flex-row md:items-start md:justify-between">
-            <div className="space-y-3">
-              <span className="inline-flex items-center gap-2 rounded-full bg-primary/10 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-primary">
+    <div className="p-4 md:p-6 lg:p-8 space-y-6 bg-background min-h-screen">
+      <div className="mx-auto w-full max-w-7xl space-y-6 pb-12">
+        <section className="rounded-lg border border-border bg-surface p-5 shadow-sm sm:p-6">
+          <div className="flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
+            <div className="space-y-4">
+              <span className="inline-flex items-center gap-2 rounded-full border border-primary/30 bg-primary/10 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-primary">
                 INVOICE HUB
               </span>
               <div className="space-y-2">
-                <h1 className="text-2xl font-bold text-foreground md:text-3xl">Invoices &amp; Quotes</h1>
-                <div className="flex flex-wrap items-center gap-3 text-sm text-muted-foreground">
-                  <p className="max-w-2xl">
-                    Track billing, monitor outstanding balances, and convert quotes without leaving the console.
-                  </p>
-                  <a
-                    href="/help"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-xs font-semibold uppercase tracking-wide text-primary hover:text-primary"
-                  >
-                    Help
-                  </a>
-                </div>
+                <h1 className="text-2xl md:text-3xl font-bold text-foreground">Invoices &amp; Quotes</h1>
+                <p className="max-w-2xl text-sm text-muted-foreground">
+                  Track billing, monitor outstanding balances, and convert quotes without leaving the console.
+                </p>
               </div>
               {shiftStartedAt ? (
                 <div
-                  className="hidden w-max items-center gap-2 rounded-full bg-muted/20 px-3 py-1 text-xs font-semibold text-muted-foreground md:inline-flex"
+                  className="hidden w-max items-center gap-2 rounded-full bg-muted/20 px-3 py-1 text-xs font-semibold text-muted-foreground lg:inline-flex"
                   aria-live="polite"
                   title={new Date(shiftStartedAt).toLocaleString()}
                 >
@@ -666,24 +657,24 @@ export default function Invoices() {
                 </div>
               ) : null}
             </div>
-            <div className="flex w-full flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-end md:w-auto">
+            <div className="flex w-full flex-col gap-4 sm:flex-row sm:flex-wrap sm:items-center sm:justify-end lg:w-auto">
               <div className="grid w-full grid-cols-1 gap-2 sm:grid-cols-2">
                 <button
                   onClick={() => openBuilder('invoice')}
-                  className="w-full rounded-full bg-primary px-5 py-2 text-sm font-semibold text-primary-foreground shadow-sm transition hover:bg-primary/90 focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 focus:ring-offset-background"
+                  className="w-full rounded-md bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground shadow-sm transition hover:bg-primary/90 focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 focus:ring-offset-background"
                   title="Open the invoice builder: add products, select customer, and create an invoice"
                 >
                   New Invoice
                 </button>
                 <button
                   onClick={() => openBuilder('quote')}
-                  className="w-full rounded-full border border-border bg-surface px-5 py-2 text-sm font-semibold text-foreground shadow-sm transition hover:bg-muted/20 focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 focus:ring-offset-background"
+                  className="w-full rounded-md border border-border bg-background px-4 py-2 text-sm font-semibold text-foreground shadow-sm transition hover:bg-muted/20 focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 focus:ring-offset-background"
                   title="Open the quote builder: prepare a quote you can send or convert later"
                 >
                   New Quote
                 </button>
               </div>
-              <div className="flex w-full items-center justify-between gap-2 rounded-full border border-border bg-surface px-2 py-1 shadow-sm sm:w-auto sm:justify-center">
+              <div className="flex w-full items-center justify-between gap-2 rounded-md border border-border bg-surface px-2 py-1 shadow-sm sm:w-auto sm:justify-center">
                 <button
                   onClick={() => setViewMode('table')}
                   className={`flex items-center gap-2 rounded-md px-3 py-1 text-sm font-semibold transition ${
@@ -709,9 +700,17 @@ export default function Invoices() {
                   <span className="hidden sm:inline">Cards</span>
                 </button>
               </div>
+              <a
+                href="/help"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex w-full items-center justify-center rounded-md border border-border bg-background px-4 py-2 text-sm font-semibold text-foreground transition hover:bg-muted/20 focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 focus:ring-offset-background sm:w-auto"
+              >
+                Help &amp; Guides
+              </a>
               {shiftStartedAt ? (
                 <div
-                  className="w-full rounded-full bg-muted/20 px-3 py-2 text-center text-sm font-medium text-muted-foreground shadow-sm sm:w-auto md:hidden"
+                  className="w-full rounded-md bg-muted/20 px-3 py-2 text-center text-sm font-medium text-muted-foreground shadow-sm sm:w-auto lg:hidden"
                   aria-live="polite"
                   title={new Date(shiftStartedAt).toLocaleString()}
                 >
@@ -720,513 +719,537 @@ export default function Invoices() {
               ) : null}
             </div>
           </div>
-        </header>
-      {/* Help moved to the central Help page - click the link above to open full guidance */}
+        </section>
 
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        {summaryCards.map((card) => (
-          <div key={card.key} className="rounded-xl border border-border bg-surface p-5 shadow-sm">
-            <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{card.title}</div>
-            <div className="mt-2 text-2xl font-bold text-foreground">{card.primary}</div>
-            <div className="mt-1 text-sm font-semibold text-primary">{card.secondary}</div>
-            <div className="mt-2 text-xs text-muted-foreground">{card.footnote}</div>
-          </div>
-        ))}
-      </div>
-
-      <div className="space-y-5 rounded-2xl border border-border bg-surface p-5 shadow-sm">
-        <div className="space-y-4">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Document type</p>
-            <div className="mt-2 flex flex-wrap items-center gap-2">
-              {typeChips.map((chip) => (
-                <button
-                  key={chip.value}
-                  onClick={() => setTypeFilter(chip.value)}
-                  className={`rounded-full px-3 py-1.5 text-xs font-semibold transition ${
-                    typeFilter === chip.value
-                      ? 'bg-primary text-primary-foreground shadow-sm'
-                      : 'bg-muted/20 text-muted-foreground hover:text-foreground'
-                  }`}
-                >
-                  {chip.label}
-                  <span className="ml-2 text-[11px] font-semibold text-muted-foreground">{chip.count}</span>
-                </button>
-              ))}
+        <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          {summaryCards.map((card) => (
+            <div
+              key={card.key}
+              className="bg-surface border border-border rounded-lg p-4 shadow-sm transition hover:shadow"
+            >
+              <div className="text-sm text-muted-foreground uppercase tracking-wide">{card.title}</div>
+              <div className="mt-2 text-2xl font-bold text-foreground">{card.primary}</div>
+              <div className="mt-1 text-sm font-semibold text-primary">{card.secondary}</div>
+              <div className="mt-2 text-sm text-muted-foreground">{card.footnote}</div>
             </div>
-          </div>
+          ))}
+        </section>
 
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Status</p>
-            <div className="mt-2 flex flex-wrap items-center gap-2">
-              <button
-                onClick={() => setStatusFilter('all')}
-                className={`rounded-full px-3 py-1.5 text-xs font-semibold transition ${
-                  statusFilter === 'all'
-                    ? 'bg-primary text-primary-foreground shadow-sm'
-                    : 'bg-muted/20 text-muted-foreground hover:text-foreground'
-                }`}
-              >
-                All statuses
-                <span className="ml-2 text-[11px] font-semibold text-muted-foreground">{invoices.length}</span>
-              </button>
-              {statusChips
-                .filter((opt) => statusCounts[opt.value] || statusFilter === opt.value)
-                .map((opt) => (
+        <section className="bg-surface border border-border rounded-lg p-4 sm:p-5 space-y-4">
+          <div className="grid gap-4 md:grid-cols-2">
+            <div>
+              <p className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Document type</p>
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                {typeChips.map((chip) => (
                   <button
-                    key={opt.value}
-                    onClick={() => setStatusFilter(opt.value)}
+                    key={chip.value}
+                    onClick={() => setTypeFilter(chip.value)}
                     className={`rounded-full px-3 py-1.5 text-xs font-semibold transition ${
-                      statusFilter === opt.value
+                      typeFilter === chip.value
                         ? 'bg-primary text-primary-foreground shadow-sm'
                         : 'bg-muted/20 text-muted-foreground hover:text-foreground'
                     }`}
+                    type="button"
                   >
-                    {opt.label}
-                    <span className="ml-2 text-[11px] font-semibold text-muted-foreground">
-                      {statusCounts[opt.value] || 0}
-                    </span>
+                    {chip.label}
+                    <span className="ml-2 text-[11px] font-semibold text-muted-foreground">{chip.count}</span>
                   </button>
                 ))}
+              </div>
             </div>
-          </div>
-        </div>
-
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-          <label className="flex flex-col gap-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-            Search
-            <input
-              type="text"
-              placeholder="Customer, invoice number, amount..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full rounded-md border border-border bg-surface px-3 py-2 text-sm text-foreground shadow-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary"
-            />
-          </label>
-          <label className="flex flex-col gap-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-            Outlet
-            <select
-              value={outletFilter}
-              onChange={(e) => setOutletFilter(e.target.value)}
-              className="w-full rounded-md border border-border bg-surface px-3 py-2 text-sm text-foreground shadow-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary"
-            >
-              <option value="all">Any outlet</option>
-              {outlets.map((o) => (
-                <option key={o.id} value={o.name}>
-                  {o.name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="flex flex-col gap-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-            From
-            <input
-              type="date"
-              value={dateFrom}
-              onChange={(e) => setDateFrom(e.target.value)}
-              className="w-full rounded-md border border-border bg-surface px-3 py-2 text-sm text-foreground shadow-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary"
-            />
-          </label>
-          <label className="flex flex-col gap-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-            To
-            <input
-              type="date"
-              value={dateTo}
-              onChange={(e) => setDateTo(e.target.value)}
-              className="w-full rounded-md border border-border bg-surface px-3 py-2 text-sm text-foreground shadow-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary"
-            />
-          </label>
-        </div>
-
-        {savedViews.length > 0 && (
-          <div className="flex flex-wrap items-center gap-2 rounded-xl border border-border bg-surface-muted px-4 py-2">
-            <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Saved views</span>
-            {savedViews.map((view) => (
-              <span
-                key={view.id}
-                className="inline-flex items-center gap-2 rounded-full border border-border bg-surface px-3 py-1 text-xs text-muted-foreground shadow-sm"
-              >
-                <button onClick={() => loadView(view)} className="font-semibold text-foreground hover:text-primary">
-                  {view.name}
-                </button>
+            <div>
+              <p className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Status</p>
+              <div className="mt-3 flex flex-wrap items-center gap-2">
                 <button
-                  onClick={() => deleteView(view.id)}
-                  className="text-muted-foreground hover:text-red-500"
+                  onClick={() => setStatusFilter('all')}
+                  className={`rounded-full px-3 py-1.5 text-xs font-semibold transition ${
+                    statusFilter === 'all'
+                      ? 'bg-primary text-primary-foreground shadow-sm'
+                      : 'bg-muted/20 text-muted-foreground hover:text-foreground'
+                  }`}
                   type="button"
-                  aria-label={`Remove saved view ${view.name}`}
                 >
-                  &times;
+                  All statuses
+                  <span className="ml-2 text-[11px] font-semibold text-muted-foreground">{invoices.length}</span>
                 </button>
-              </span>
-            ))}
-          </div>
-        )}
-
-  <div className="flex flex-col gap-3 border-t border-border pt-2 sm:flex-row sm:items-center sm:justify-between">
-          <div className="text-xs text-muted-foreground">
-            Showing {filteredInvoices.length} of {invoices.length} documents
-          </div>
-          <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
-            <div className="flex flex-col gap-2 sm:flex-row">
-              <button onClick={resetFilters} className="rounded-md border border-border px-3 py-1 text-xs font-semibold text-muted-foreground transition hover:bg-muted/20">
-                Reset filters
-              </button>
-              <button onClick={saveCurrentView} className="rounded-md border border-border px-3 py-1 text-xs font-semibold text-muted-foreground transition hover:bg-muted/20">
-                Save view
-              </button>
+                {statusChips
+                  .filter((opt) => statusCounts[opt.value] || statusFilter === opt.value)
+                  .map((opt) => (
+                    <button
+                      key={opt.value}
+                      onClick={() => setStatusFilter(opt.value)}
+                      className={`rounded-full px-3 py-1.5 text-xs font-semibold transition ${
+                        statusFilter === opt.value
+                          ? 'bg-primary text-primary-foreground shadow-sm'
+                          : 'bg-muted/20 text-muted-foreground hover:text-foreground'
+                      }`}
+                      type="button"
+                    >
+                      {opt.label}
+                      <span className="ml-2 text-[11px] font-semibold text-muted-foreground">
+                        {statusCounts[opt.value] || 0}
+                      </span>
+                    </button>
+                  ))}
+              </div>
             </div>
-            <div className="flex sm:border-l sm:border-border sm:pl-3">
-              <button onClick={exportCsv} className="rounded-md bg-primary px-3 py-1 text-xs font-semibold text-primary-foreground transition hover:bg-primary/90">
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <label className="flex flex-col gap-2 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+              Search
+              <input
+                type="text"
+                placeholder="Customer, invoice number, amount..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary"
+              />
+            </label>
+            <label className="flex flex-col gap-2 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+              Outlet
+              <select
+                value={outletFilter}
+                onChange={(e) => setOutletFilter(e.target.value)}
+                className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary"
+              >
+                <option value="all">Any outlet</option>
+                {outlets.map((o) => (
+                  <option key={o.id} value={o.name}>
+                    {o.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="flex flex-col gap-2 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+              From
+              <input
+                type="date"
+                value={dateFrom}
+                onChange={(e) => setDateFrom(e.target.value)}
+                className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary"
+              />
+            </label>
+            <label className="flex flex-col gap-2 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+              To
+              <input
+                type="date"
+                value={dateTo}
+                onChange={(e) => setDateTo(e.target.value)}
+                className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary"
+              />
+            </label>
+          </div>
+
+          {savedViews.length > 0 && (
+            <div className="flex flex-wrap items-center gap-2 rounded-md border border-border bg-muted/20 px-4 py-2">
+              <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Saved views</span>
+              {savedViews.map((view) => (
+                <span
+                  key={view.id}
+                  className="inline-flex items-center gap-2 rounded-full border border-border bg-background px-3 py-1 text-xs text-muted-foreground shadow-sm"
+                >
+                  <button onClick={() => loadView(view)} className="font-semibold text-foreground hover:text-primary" type="button">
+                    {view.name}
+                  </button>
+                  <button
+                    onClick={() => deleteView(view.id)}
+                    className="text-muted-foreground hover:text-red-500"
+                    type="button"
+                    aria-label={`Remove saved view ${view.name}`}
+                  >
+                    x
+                  </button>
+                </span>
+              ))}
+            </div>
+          )}
+
+          <div className="flex flex-col gap-3 border-t border-border pt-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
+            <div className="text-xs text-muted-foreground">
+              Showing {filteredInvoices.length} of {invoices.length} documents
+            </div>
+            <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+              <div className="flex flex-col gap-2 sm:flex-row">
+                <button onClick={resetFilters} className="rounded-md border border-border px-4 py-2 text-sm font-semibold text-muted-foreground transition hover:bg-muted/20" type="button">
+                  Reset filters
+                </button>
+                <button onClick={saveCurrentView} className="rounded-md border border-border px-4 py-2 text-sm font-semibold text-muted-foreground transition hover:bg-muted/20" type="button">
+                  Save view
+                </button>
+              </div>
+              <button onClick={exportCsv} className="rounded-md bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground transition hover:bg-primary/90" type="button">
                 Export CSV
               </button>
             </div>
           </div>
-        </div>
-      </div>
+        </section>
 
-      <div className="mb-3 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-        <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
-          <button
-            onClick={() => toggleSelectAll(filteredInvoices)}
-            className="rounded-md border border-border bg-surface px-3 py-1 text-sm text-foreground transition hover:bg-muted/20"
-          >
-            {selectAll ? 'Unselect all' : 'Select visible'}
-          </button>
-
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-2 sm:border-l sm:border-border sm:pl-3">
-            <select
-              value={bulkStatus}
-              onChange={(e) => setBulkStatus(e.target.value)}
-              className="rounded-md border border-border bg-surface px-2 py-1 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
-              disabled={bulkProcessing}
-            >
-              <option value="">Bulk set status</option>
-              <optgroup label="Invoice">
-                {STATUS_OPTIONS.invoice.map((o) => (
-                  <option key={o.value} value={o.value}>{o.label}</option>
-                ))}
-              </optgroup>
-              <optgroup label="Quote">
-                {STATUS_OPTIONS.quote.map((o) => (
-                  <option key={o.value} value={o.value}>{o.label}</option>
-                ))}
-              </optgroup>
-            </select>
-            <button onClick={applyBulkStatus} className="rounded-md bg-primary px-3 py-1 text-sm font-semibold text-primary-foreground transition hover:bg-primary/90 disabled:bg-muted/20 disabled:text-muted-foreground" disabled={bulkProcessing}>
-              {bulkProcessing ? 'Applying...' : 'Apply'}
-            </button>
-          </div>
-
-          <div className="flex sm:border-l sm:border-border sm:pl-3">
-            <button onClick={bulkDownloadPdfs} className="rounded-md border border-border bg-surface px-3 py-1 text-sm text-foreground transition hover:bg-muted/20">
-              Download PDFs
-            </button>
-          </div>
-        </div>
-        <div className="text-sm text-muted-foreground">{selectedIds.size} selected</div>
-      </div>
-
-      {viewMode === 'table' ? (
-        <div className="rounded-2xl border border-border bg-surface shadow-sm">
-          <div className="overflow-x-auto">
-            <table className="min-w-[960px] w-full divide-y divide-border">
-              <thead className="bg-surface-muted text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                <tr>
-                  <th className="p-4">
-                    <input
-                      type="checkbox"
-                      checked={selectAll}
-                      onChange={() => toggleSelectAll(filteredInvoices)}
-                    />
-                  </th>
-                  <th className="p-4">ID</th>
-                  <th className="p-4">Type</th>
-                  <th className="p-4">Customer</th>
-                  <th className="p-4">Date</th>
-                  <th className="p-4">Total</th>
-                  <th className="p-4">Status</th>
-                  <th className="p-4">Outlet</th>
-                  <th className="p-4 text-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border text-sm text-foreground">
-                {filteredInvoices.map((invoice) => {
-                  const docType = invoice.type === 'quote' ? 'quote' : 'invoice';
-                  const statusOptions = STATUS_OPTIONS[docType] || [];
-                  const statusBadgeClass = STATUS_BADGE_CLASSES[invoice.status] || 'bg-muted/20 text-muted-foreground';
-                  return (
-                    <tr key={invoice.id} className="transition hover:bg-muted/20">
-                      <td className="p-4">
-                        <input
-                          type="checkbox"
-                          checked={selectedIds.has(invoice.id)}
-                          onChange={() => toggleSelectId(invoice.id)}
-                        />
-                      </td>
-                      <td className="p-4 whitespace-nowrap font-medium">#{invoice.id}</td>
-                      <td className="p-4 whitespace-nowrap">
-                        <span
-                          className={`rounded-full px-2 py-1 text-xs font-semibold uppercase ${
-                            invoice.type === 'quote' ? 'bg-primary/10 text-primary' : 'bg-success text-primary-foreground'
-                          }`}
-                        >
-                          {invoice.type || 'invoice'}
-                        </span>
-                      </td>
-                      <td className="p-4 whitespace-nowrap">{invoice.customer_name || '-'}</td>
-                      <td className="p-4 whitespace-nowrap text-muted-foreground">
-                        {new Date(invoice.created_at).toLocaleDateString()}
-                      </td>
-                      <td className="p-4 whitespace-nowrap font-semibold">{formatCurrency(invoice.total)}</td>
-                      <td className="p-4 whitespace-nowrap">
-                        <div className="flex flex-col gap-1">
-                          <span className={`w-max rounded-full px-2 py-1 text-xs font-semibold uppercase ${statusBadgeClass}`}>
-                            {formatStatusLabel(invoice.status)}
-                          </span>
-                          <select
-                            value={invoice.status || ''}
-                            onChange={(e) => handleStatusChange(invoice, e.target.value)}
-                            className="rounded-md border border-border bg-surface px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-primary disabled:bg-muted/20"
-                            disabled={!canManageTransactions || statusUpdatingId === invoice.id}
-                          >
-                            {(!invoice.status || invoice.status === '') && <option value="">Set status</option>}
-                            {statusOptions.map((option) => (
-                              <option key={option.value} value={option.value}>
-                                {option.label}
-                              </option>
-                            ))}
-                          </select>
-                          {statusUpdatingId === invoice.id && (
-                            <span className="text-[10px] uppercase tracking-wide text-muted-foreground">Updating...</span>
-                          )}
-                        </div>
-                      </td>
-                      <td className="p-4 whitespace-nowrap text-muted-foreground">{invoice.outlet_name || '-'}</td>
-                      <td className="p-4 whitespace-nowrap text-right">
-                        <div className="flex items-center justify-end gap-3 text-xs font-semibold">
-                          {canManageTransactions && (
-                            <button
-                              onClick={() => openInvoiceEditor(invoice.id)}
-                              className="text-primary hover:underline"
-                            >
-                              Edit
-                            </button>
-                          )}
-                          <button
-                            onClick={async () => {
-                              try {
-                                const linkResp = await api.post(`/invoices/${invoice.id}/pdf-link`);
-                                window.open(linkResp.url, '_blank');
-                              } catch (err) {
-                                push('Failed to open PDF', 'error');
-                                console.debug(err);
-                              }
-                            }}
-                            className="text-primary hover:underline"
-                          >
-                            PDF
-                          </button>
-                          {canManageTransactions && invoice.type === 'quote' && (
-                            <button
-                              onClick={() => handleConvertQuote(invoice)}
-                              className="text-success hover:underline disabled:text-muted-foreground"
-                              disabled={convertingId === invoice.id}
-                            >
-                              {convertingId === invoice.id ? 'Converting...' : 'Convert'}
-                            </button>
-                          )}
-                          {canManageTransactions && (
-                            <button
-                              onClick={() => handleDelete(invoice.id)}
-                              className="text-red-500 hover:underline"
-                            >
-                              Delete
-                            </button>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-                {filteredInvoices.length === 0 && (
-                  <tr>
-                    <td colSpan={9} className="p-6 text-center text-muted-foreground">No records found.</td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      ) : (
-        <div className="overflow-hidden rounded-2xl border border-border bg-surface p-4 shadow-sm sm:p-5">
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {filteredInvoices.length === 0 && (
-              <div className="col-span-full rounded-lg border border-border bg-surface-muted p-6 text-center text-muted-foreground">
-                No records found.
-              </div>
-            )}
-            {filteredInvoices.map((invoice) => {
-              const statusBadgeClass = STATUS_BADGE_CLASSES[invoice.status] || 'bg-muted/20 text-muted-foreground';
-              return (
-                <div key={invoice.id} className="rounded-lg border border-border bg-surface p-4 transition hover:bg-muted/20">
-                  <div className="flex items-start justify-between">
-                    <div className="space-y-1">
-                      <div className="text-sm text-muted-foreground">#{invoice.id} · <span className="uppercase text-xs font-semibold text-foreground">{invoice.type || 'invoice'}</span></div>
-                      <div className="text-lg font-semibold text-foreground">{invoice.customer_name || '-'}</div>
-                      <div className="text-sm text-muted-foreground">{new Date(invoice.created_at).toLocaleDateString()}</div>
-                    </div>
-                    <div className="text-right">
-                      <div className="text-lg font-bold text-foreground">{formatCurrency(invoice.total)}</div>
-                      <div className={`mt-2 inline-block rounded-full px-2 py-1 text-xs font-semibold ${statusBadgeClass}`}>
-                        {formatStatusLabel(invoice.status)}
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="mt-4 flex items-center justify-between text-sm">
-                    <div className="text-muted-foreground">{invoice.outlet_name || '-'}</div>
-                    <div className="flex items-center gap-3 text-xs font-semibold">
-                      <button
-                        onClick={async () => {
-                          try {
-                            const linkResp = await api.post(`/invoices/${invoice.id}/pdf-link`);
-                            window.open(linkResp.url, '_blank');
-                          } catch (err) {
-                            push('Failed to open PDF', 'error');
-                            console.debug(err);
-                          }
-                        }}
-                        className="text-primary"
-                      >
-                        PDF
-                      </button>
-                      {canManageTransactions && (
-                        <>
-                          <button onClick={() => openInvoiceEditor(invoice.id)} className="text-primary">Edit</button>
-                          <button onClick={() => handleDelete(invoice.id)} className="text-red-500">Delete</button>
-                        </>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      {showBuilder && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
-          <div className="flex max-h-[90vh] w-full max-w-5xl flex-col overflow-hidden rounded-2xl border border-border bg-surface shadow-xl">
-            <div className="flex items-center justify-between border-b border-border px-6 py-4">
-              <div className="space-y-1">
-                <h2 className="text-xl font-semibold text-foreground">{builderType === 'invoice' ? 'Create Invoice' : 'Create Quote'}</h2>
-                <p className="text-sm text-muted-foreground">
-                  Steps: search products and click to add them, then pick a customer on the right, then review totals and save. Use the cart to remove items before publishing.
-                </p>
-              </div>
-              <button onClick={() => setShowBuilder(false)} className="text-lg text-muted-foreground transition hover:text-foreground" aria-label="Close builder">&times;</button>
-            </div>
-
-            <div className="grid flex-1 grid-cols-1 gap-6 overflow-y-auto px-6 py-4 lg:grid-cols-3">
-              <div className="space-y-4 lg:col-span-2">
-                <div className="flex items-center gap-3">
-                  <input
-                    type="text"
-                    placeholder="Search products..."
-                    value={builderSearch}
-                    onChange={(e) => setBuilderSearch(e.target.value)}
-                    className="flex-1 rounded-md border border-border bg-surface px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
-                  />
-                  <div className="text-sm text-muted-foreground">{builderProducts.length} products</div>
-                </div>
-                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
-                  {builderFilteredProducts.map((product) => (
-                    <button
-                      key={product.id}
-                      onClick={() => addBuilderItem(product)}
-                      type="button"
-                      className={`rounded-lg border border-border p-4 text-left transition hover:bg-muted/20 ${
-                        product.stock > 0 || builderType === 'quote' ? 'bg-surface' : 'bg-muted/20 cursor-not-allowed'
-                      }`}
-                      disabled={product.stock <= 0 && builderType === 'invoice'}
-                    >
-                      <div className="font-semibold text-foreground">{product.name}</div>
-                      <div className="mb-2 text-sm text-muted-foreground">{product.category} &gt; {product.subcategory}</div>
-                      <div className="flex justify-between text-sm text-foreground">
-                        <span>{formatCurrency(product.price)}</span>
-                        <span className={product.stock > 5 ? 'text-success' : 'text-red-500'}>
-                          {product.stock} in stock
-                        </span>
-                      </div>
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div className="rounded-lg border border-border bg-surface-muted p-4 space-y-4">
-                <div>
-                  <label className="block text-sm font-semibold text-foreground">Customer</label>
-                  <select
-                    value={builderSelectedCustomer}
-                    onChange={(e) => setBuilderSelectedCustomer(e.target.value)}
-                    className="mt-1 block w-full rounded-md border border-border bg-surface px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
-                  >
-                    {builderCustomers.map((customer) => (
-                      <option key={customer.id} value={customer.id}>{customer.name}</option>
-                    ))}
-                  </select>
-                </div>
-
-                <div className="max-h-64 space-y-3 overflow-y-auto">
-                  {builderCart.length === 0 && <p className="text-center text-sm text-muted-foreground">No items yet</p>}
-                  {builderCart.map((item) => (
-                    <div key={item.id} className="rounded-md border border-border bg-surface px-3 py-2">
-                      <div className="text-sm font-semibold text-foreground">{item.name}</div>
-                      <div className="mt-1 flex items-center justify-between text-xs text-muted-foreground">
-                        <span>{formatCurrency(item.price)} x {item.quantity}</span>
-                        <button onClick={() => decrementBuilderItem(item.id)} className="text-red-500 hover:underline">Remove</button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-
-                <div className="space-y-2 border-t border-border pt-3 text-sm text-foreground">
-                  <div className="flex justify-between">
-                    <span>Subtotal</span>
-                    <span>{formatCurrency(builderSubtotal)}</span>
-                  </div>
-                  <div className="flex justify-between text-muted-foreground">
-                    <span>Tax ({builderGstRate}%)</span>
-                    <span>{formatCurrency(builderTax)}</span>
-                  </div>
-                  <div className="flex justify-between text-base font-semibold">
-                    <span>Total</span>
-                    <span>{formatCurrency(builderTotal)}</span>
-                  </div>
-                </div>
-
-                <button
-                  onClick={submitBuilder}
-                  disabled={builderSaving}
-                  className="w-full rounded-md bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground transition hover:bg-primary/90 disabled:bg-muted/20 disabled:text-muted-foreground"
+        <section className="bg-surface border border-border rounded-lg p-4 sm:p-5 space-y-4">
+          <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
+            <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
+              <button
+                onClick={() => toggleSelectAll(filteredInvoices)}
+                className="rounded-md border border-border bg-background px-4 py-2 text-sm font-semibold text-foreground transition hover:bg-muted/20"
+                type="button"
+              >
+                {selectAll ? 'Unselect all' : 'Select visible'}
+              </button>
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                <select
+                  value={bulkStatus}
+                  onChange={(e) => setBulkStatus(e.target.value)}
+                  className="rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary"
+                  disabled={bulkProcessing}
                 >
-                  {builderSaving ? 'Saving...' : builderType === 'invoice' ? 'Create Invoice' : 'Create Quote'}
+                  <option value="">Bulk set status</option>
+                  <optgroup label="Invoice">
+                    {STATUS_OPTIONS.invoice.map((o) => (
+                      <option key={o.value} value={o.value}>{o.label}</option>
+                    ))}
+                  </optgroup>
+                  <optgroup label="Quote">
+                    {STATUS_OPTIONS.quote.map((o) => (
+                      <option key={o.value} value={o.value}>{o.label}</option>
+                    ))}
+                  </optgroup>
+                </select>
+                <button
+                  onClick={applyBulkStatus}
+                  className="rounded-md bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground transition hover:bg-primary/90 disabled:bg-muted/20 disabled:text-muted-foreground"
+                  disabled={bulkProcessing}
+                  type="button"
+                >
+                  {bulkProcessing ? 'Applying...' : 'Apply'}
                 </button>
               </div>
+              <button
+                onClick={bulkDownloadPdfs}
+                className="rounded-md border border-border bg-background px-4 py-2 text-sm font-semibold text-foreground transition hover:bg-muted/20"
+                type="button"
+              >
+                Download PDFs
+              </button>
+            </div>
+            <div className="text-sm text-muted-foreground">{selectedIds.size} selected</div>
+          </div>
+        </section>
+
+        {viewMode === 'table' ? (
+          <section className="space-y-4">
+            <div className="overflow-x-auto border border-border rounded-lg shadow-sm bg-surface">
+              <table className="min-w-[960px] w-full divide-y divide-border">
+                <thead className="bg-muted/20 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  <tr>
+                    <th className="p-4">
+                      <input
+                        type="checkbox"
+                        checked={selectAll}
+                        onChange={() => toggleSelectAll(filteredInvoices)}
+                      />
+                    </th>
+                    <th className="p-4">ID</th>
+                    <th className="p-4">Type</th>
+                    <th className="p-4">Customer</th>
+                    <th className="p-4">Date</th>
+                    <th className="p-4">Total</th>
+                    <th className="p-4">Status</th>
+                    <th className="p-4">Outlet</th>
+                    <th className="p-4 text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border text-sm text-foreground">
+                  {filteredInvoices.map((invoice) => {
+                    const docType = invoice.type === 'quote' ? 'quote' : 'invoice';
+                    const statusOptions = STATUS_OPTIONS[docType] || [];
+                    const statusBadgeClass = STATUS_BADGE_CLASSES[invoice.status] || 'bg-muted/20 text-muted-foreground';
+                    return (
+                      <tr key={invoice.id} className="transition hover:bg-muted/20">
+                        <td className="p-4">
+                          <input
+                            type="checkbox"
+                            checked={selectedIds.has(invoice.id)}
+                            onChange={() => toggleSelectId(invoice.id)}
+                          />
+                        </td>
+                        <td className="p-4 whitespace-nowrap font-semibold">#{invoice.id}</td>
+                        <td className="p-4 whitespace-nowrap">
+                          <span
+                            className={`rounded-full px-2 py-1 text-xs font-semibold uppercase ${
+                              invoice.type === 'quote' ? 'bg-primary/10 text-primary' : 'bg-success text-primary-foreground'
+                            }`}
+                          >
+                            {invoice.type || 'invoice'}
+                          </span>
+                        </td>
+                        <td className="p-4 whitespace-nowrap">{invoice.customer_name || '-'}</td>
+                        <td className="p-4 whitespace-nowrap text-muted-foreground">
+                          {new Date(invoice.created_at).toLocaleDateString()}
+                        </td>
+                        <td className="p-4 whitespace-nowrap font-semibold">{formatCurrency(invoice.total)}</td>
+                        <td className="p-4 whitespace-nowrap">
+                          <div className="flex flex-col gap-1">
+                            <span className={`w-max rounded-full px-2 py-1 text-xs font-semibold uppercase ${statusBadgeClass}`}>
+                              {formatStatusLabel(invoice.status)}
+                            </span>
+                            <select
+                              value={invoice.status || ''}
+                              onChange={(e) => handleStatusChange(invoice, e.target.value)}
+                              className="rounded-md border border-border bg-background px-2 py-1 text-xs focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary disabled:bg-muted/20"
+                              disabled={!canManageTransactions || statusUpdatingId === invoice.id}
+                            >
+                              {(!invoice.status || invoice.status === '') && <option value="">Set status</option>}
+                              {statusOptions.map((option) => (
+                                <option key={option.value} value={option.value}>
+                                  {option.label}
+                                </option>
+                              ))}
+                            </select>
+                            {statusUpdatingId === invoice.id && (
+                              <span className="text-[10px] uppercase tracking-wide text-muted-foreground">Updating...</span>
+                            )}
+                          </div>
+                        </td>
+                        <td className="p-4 whitespace-nowrap text-muted-foreground">{invoice.outlet_name || '-'}</td>
+                        <td className="p-4 whitespace-nowrap text-right">
+                          <div className="flex items-center justify-end gap-3 text-xs font-semibold">
+                            {canManageTransactions && (
+                              <button
+                                onClick={() => openInvoiceEditor(invoice.id)}
+                                className="text-primary hover:underline"
+                                type="button"
+                              >
+                                Edit
+                              </button>
+                            )}
+                            <button
+                              onClick={async () => {
+                                try {
+                                  const linkResp = await api.post(`/invoices/${invoice.id}/pdf-link`);
+                                  window.open(linkResp.url, '_blank');
+                                } catch (err) {
+                                  push('Failed to open PDF', 'error');
+                                  console.debug(err);
+                                }
+                              }}
+                              className="text-primary hover:underline"
+                              type="button"
+                            >
+                              PDF
+                            </button>
+                            {canManageTransactions && invoice.type === 'quote' && (
+                              <button
+                                onClick={() => handleConvertQuote(invoice)}
+                                className="text-success hover:underline disabled:text-muted-foreground"
+                                disabled={convertingId === invoice.id}
+                                type="button"
+                              >
+                                {convertingId === invoice.id ? 'Converting...' : 'Convert'}
+                              </button>
+                            )}
+                            {canManageTransactions && (
+                              <button
+                                onClick={() => handleDelete(invoice.id)}
+                                className="text-red-500 hover:underline"
+                                type="button"
+                              >
+                                Delete
+                              </button>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                  {filteredInvoices.length === 0 && (
+                    <tr>
+                      <td colSpan={9} className="p-6 text-center text-muted-foreground">No records found.</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        ) : (
+          <section className="space-y-4">
+            <div className="rounded-lg border border-border bg-surface p-4 shadow-sm sm:p-5">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+                {filteredInvoices.length === 0 && (
+                  <div className="col-span-full rounded-md border border-border bg-muted/20 p-6 text-center text-muted-foreground">
+                    No records found.
+                  </div>
+                )}
+                {filteredInvoices.map((invoice) => {
+                  const statusBadgeClass = STATUS_BADGE_CLASSES[invoice.status] || 'bg-muted/20 text-muted-foreground';
+                  return (
+                    <div key={invoice.id} className="rounded-md border border-border bg-background p-4 transition hover:bg-muted/20">
+                      <div className="flex flex-col gap-4">
+                        <div className="flex flex-col gap-1">
+                          <div className="text-sm text-muted-foreground">#{invoice.id}</div>
+                          <div className="text-lg font-semibold text-foreground">{invoice.customer_name || '-'}</div>
+                          <div className="text-sm text-muted-foreground">{new Date(invoice.created_at).toLocaleDateString()}</div>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <div className="text-lg font-bold text-foreground">{formatCurrency(invoice.total)}</div>
+                          <span className={`rounded-full px-2 py-1 text-xs font-semibold uppercase ${statusBadgeClass}`}>
+                            {formatStatusLabel(invoice.status)}
+                          </span>
+                        </div>
+                        <div className="flex flex-wrap items-center justify-between gap-3 text-xs font-semibold">
+                          <span className="text-muted-foreground">{invoice.outlet_name || '-'}</span>
+                          <div className="flex flex-wrap items-center gap-3">
+                            <button
+                              onClick={async () => {
+                                try {
+                                  const linkResp = await api.post(`/invoices/${invoice.id}/pdf-link`);
+                                  window.open(linkResp.url, '_blank');
+                                } catch (err) {
+                                  push('Failed to open PDF', 'error');
+                                  console.debug(err);
+                                }
+                              }}
+                              className="text-primary"
+                              type="button"
+                            >
+                              PDF
+                            </button>
+                            {canManageTransactions && (
+                              <>
+                                <button onClick={() => openInvoiceEditor(invoice.id)} className="text-primary" type="button">Edit</button>
+                                <button onClick={() => handleDelete(invoice.id)} className="text-red-500" type="button">Delete</button>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </section>
+        )}
+
+        {showBuilder && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm px-4">
+            <div className="relative w-full max-w-2xl sm:max-h-[90vh] overflow-auto rounded-xl border border-border bg-surface p-6 text-foreground shadow-md sm:shadow-lg shadow-[0_2px_20px_rgba(0,0,0,0.05)] transition-all duration-200">
+              <div className="flex items-start justify-between gap-4">
+                <div className="space-y-2">
+                  <h2 className="text-xl font-semibold">{builderType === 'invoice' ? 'Create Invoice' : 'Create Quote'}</h2>
+                  <p className="text-sm text-muted-foreground">
+                    Steps: search products and click to add them, then pick a customer on the right, then review totals and save. Use the cart to remove items before publishing.
+                  </p>
+                </div>
+                <button
+                  onClick={() => setShowBuilder(false)}
+                  type="button"
+                  className="inline-flex h-9 w-9 items-center justify-center rounded-md bg-muted/20 text-muted-foreground transition hover:bg-muted/30 hover:text-foreground"
+                  aria-label="Close builder"
+                >
+                  <span aria-hidden="true">×</span>
+                </button>
+              </div>
+
+              <div className="mt-6 grid grid-cols-1 gap-6 md:grid-cols-2">
+                <div className="space-y-4">
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
+                    <input
+                      type="text"
+                      placeholder="Search products..."
+                      value={builderSearch}
+                      onChange={(e) => setBuilderSearch(e.target.value)}
+                      className="flex-1 rounded-md border border-border bg-background px-3 py-2 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary"
+                    />
+                    <div className="text-sm text-muted-foreground">{builderProducts.length} products</div>
+                  </div>
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                    {builderFilteredProducts.map((product) => (
+                      <button
+                        key={product.id}
+                        onClick={() => addBuilderItem(product)}
+                        type="button"
+                        className={`rounded-md border border-border bg-background p-4 text-left transition hover:bg-muted/20 ${
+                          product.stock > 0 || builderType === 'quote' ? '' : 'cursor-not-allowed'
+                        }`}
+                        disabled={product.stock <= 0 && builderType === 'invoice'}
+                      >
+                        <div className="font-semibold">{product.name}</div>
+                        <div className="mb-2 text-sm text-muted-foreground">{product.category} &gt; {product.subcategory}</div>
+                        <div className="flex justify-between text-sm">
+                          <span>{formatCurrency(product.price)}</span>
+                          <span className={product.stock > 5 ? 'text-success' : 'text-red-500'}>
+                            {product.stock} in stock
+                          </span>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="space-y-4 rounded-lg border border-border bg-surface p-4">
+                  <div>
+                    <label className="block text-sm font-semibold">Customer</label>
+                    <select
+                      value={builderSelectedCustomer}
+                      onChange={(e) => setBuilderSelectedCustomer(e.target.value)}
+                      className="mt-1 block w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary"
+                    >
+                      {builderCustomers.map((customer) => (
+                        <option key={customer.id} value={customer.id}>{customer.name}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="max-h-60 space-y-3 overflow-y-auto">
+                    {builderCart.length === 0 && <p className="text-center text-sm text-muted-foreground">No items yet</p>}
+                    {builderCart.map((item) => (
+                      <div key={item.id} className="rounded-md border border-border bg-background px-3 py-2">
+                        <div className="text-sm font-semibold">{item.name}</div>
+                        <div className="mt-1 flex items-center justify-between text-xs text-muted-foreground">
+                          <span>{formatCurrency(item.price)} x {item.quantity}</span>
+                          <button onClick={() => decrementBuilderItem(item.id)} className="text-red-500 hover:underline" type="button">Remove</button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="space-y-2 border-t border-border pt-3 text-sm">
+                    <div className="flex justify-between">
+                      <span>Subtotal</span>
+                      <span>{formatCurrency(builderSubtotal)}</span>
+                    </div>
+                    <div className="flex justify-between text-muted-foreground">
+                      <span>Tax ({builderGstRate}%)</span>
+                      <span>{formatCurrency(builderTax)}</span>
+                    </div>
+                    <div className="flex justify-between text-base font-semibold">
+                      <span>Total</span>
+                      <span>{formatCurrency(builderTotal)}</span>
+                    </div>
+                  </div>
+
+                  <button
+                    onClick={submitBuilder}
+                    disabled={builderSaving}
+                    className="w-full rounded-md bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground transition hover:bg-primary/90 disabled:bg-muted/20 disabled:text-muted-foreground"
+                    type="button"
+                  >
+                    {builderSaving ? 'Saving...' : builderType === 'invoice' ? 'Create Invoice' : 'Create Quote'}
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        )}
 
-      {editingInvoiceId && (
-        <InvoiceEditModal
-          invoiceId={editingInvoiceId}
-          onClose={() => setEditingInvoiceId(null)}
-          onSaved={() => { setEditingInvoiceId(null); loadInvoices(); }}
-        />
-      )}
+        {editingInvoiceId && (
+          <InvoiceEditModal
+            invoiceId={editingInvoiceId}
+            onClose={() => setEditingInvoiceId(null)}
+            onSaved={() => { setEditingInvoiceId(null); loadInvoices(); }}
+          />
+        )}
+      </div>
     </div>
-  </div>
   );
 }
