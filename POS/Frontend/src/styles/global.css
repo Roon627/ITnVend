@@ -371,3 +371,76 @@ a:hover {
   border: 1px solid var(--color-primary-border);
   color: var(--color-primary-strong);
 }
+
+/* Theme-aware utility aliases for POS surfaces */
+.bg-background {
+  background-color: var(--color-bg) !important;
+}
+
+.bg-surface {
+  background-color: var(--color-surface) !important;
+}
+
+.bg-surface-muted {
+  background-color: var(--color-surface-muted) !important;
+}
+
+.text-foreground {
+  color: var(--color-text) !important;
+}
+
+.text-muted-foreground {
+  color: var(--color-muted) !important;
+}
+
+.text-primary {
+  color: var(--color-primary) !important;
+}
+
+.text-primary-foreground {
+  color: var(--color-on-primary) !important;
+}
+
+.border-border {
+  border-color: var(--color-border) !important;
+}
+
+.bg-primary {
+  background-color: var(--color-primary) !important;
+}
+
+.bg-primary-strong {
+  background-color: var(--color-primary-strong) !important;
+}
+
+.bg-primary\/10 {
+  background-color: var(--color-primary-soft) !important;
+  color: var(--color-primary-strong) !important;
+}
+
+.bg-muted\/20 {
+  background-color: var(--color-surface-muted) !important;
+}
+
+.hover\:bg-primary\/90:hover {
+  background-color: var(--color-primary-strong) !important;
+}
+
+.hover\:bg-muted\/20:hover {
+  background-color: var(--color-surface-muted) !important;
+}
+
+.focus\:border-primary:focus,
+.focus\:border-primary:focus-visible {
+  border-color: var(--color-primary) !important;
+}
+
+.focus\:ring-primary:focus,
+.focus\:ring-primary:focus-visible {
+  --tw-ring-color: var(--color-primary) !important;
+}
+
+.focus\:ring-offset-background:focus,
+.focus\:ring-offset-background:focus-visible {
+  --tw-ring-offset-color: var(--color-bg) !important;
+}
