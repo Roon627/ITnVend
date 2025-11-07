@@ -2013,6 +2013,7 @@ app.post('/api/products', authMiddleware, requireRole('cashier'), async (req, re
         vendorId,
     } = req.body;
 
+
     if (!name || price == null) return res.status(400).json({ error: 'Missing fields' });
 
     const normalizedPrice = parseFloat(price);
@@ -2038,6 +2039,22 @@ app.post('/api/products', authMiddleware, requireRole('cashier'), async (req, re
     const colorIdInt = colorId ? parseInt(colorId, 10) : null;
     const rawAvailabilityStatus = availabilityStatus ?? req.body?.availability_status;
     const normalizedAvailabilityStatus = normalizeEnum(rawAvailabilityStatus, AVAILABILITY_STATUSES, null) || (availableForPreorder ? 'preorder' : 'in_stock');
+    const rawVendorId = vendorId ?? req.body?.vendor_id;
+    let vendorIdInt = null;
+    if (rawVendorId !== undefined && rawVendorId !== null && rawVendorId !== '') {
+        const parsedVendorId = parseInt(rawVendorId, 10);
+        if (!Number.isFinite(parsedVendorId)) {
+            return res.status(400).json({ error: 'Invalid vendor selected' });
+        }
+        const vendorRow = await db.get('SELECT id, status FROM vendors WHERE id = ?', [parsedVendorId]);
+        if (!vendorRow) {
+            return res.status(400).json({ error: 'Vendor not found' });
+        }
+        if ((vendorRow.status || '').toLowerCase() !== 'active') {
+            return res.status(400).json({ error: 'Vendor must be active before assigning products' });
+        }
+        vendorIdInt = vendorRow.id;
+    }
 
     let resolvedCategoryId = categoryId ? parseInt(categoryId, 10) : null;
     let resolvedSubcategoryId = subcategoryId ? parseInt(subcategoryId, 10) : null;
@@ -2128,6 +2145,12 @@ app.post('/api/products', authMiddleware, requireRole('cashier'), async (req, re
             ]
         );
 
+        let vendorNameForResponse = null;
+        if (vendorIdInt) {
+            const vendorRow = await db.get('SELECT legal_name FROM vendors WHERE id = ?', [vendorIdInt]);
+            vendorNameForResponse = vendorRow?.legal_name || null;
+        }
+
         const tagRows = await syncProductTags(lastID, tags);
 
         await cacheService.invalidateProducts();
@@ -2171,6 +2194,8 @@ app.post('/api/products', authMiddleware, requireRole('cashier'), async (req, re
             year: normalizedYear,
             auto_sku: normalizedAutoSku,
             availability_status: normalizedAvailabilityStatus,
+            vendor_id: vendorIdInt,
+            vendor_name: vendorNameForResponse,
             tags: tagRows,
         });
     } catch (err) {
@@ -2206,6 +2231,7 @@ app.put('/api/products/:id', authMiddleware, requireRole('cashier'), async (req,
         tags,
         materialId,
         colorId,
+    vendorId,
         audience,
         deliveryType,
         warrantyTerm,
@@ -2390,6 +2416,12 @@ app.put('/api/products/:id', authMiddleware, requireRole('cashier'), async (req,
             ]
         );
 
+        let vendorNameForResponse = null;
+        if (vendorIdInt) {
+            const vendorRow = await db.get('SELECT legal_name FROM vendors WHERE id = ?', [vendorIdInt]);
+            vendorNameForResponse = vendorRow?.legal_name || null;
+        }
+
         let tagRows;
         if (Array.isArray(tags)) {
             tagRows = await syncProductTags(id, tags);
@@ -2445,6 +2477,8 @@ app.put('/api/products/:id', authMiddleware, requireRole('cashier'), async (req,
             year: normalizedYear,
             auto_sku: autoFlag,
             availability_status: normalizedAvailabilityStatus,
+            vendor_id: vendorIdInt,
+            vendor_name: vendorNameForResponse,
             tags: tagRows,
         });
     } catch (err) {
@@ -3478,6 +3512,20 @@ app.get('/api/vendors', authMiddleware, requireRole('cashier'), async (req, res)
     }
 });
 
+// Get a single vendor by id
+app.get('/api/vendors/:id', authMiddleware, requireRole('cashier'), async (req, res) => {
+    const { id } = req.params;
+    try {
+        const vendor = await db.get('SELECT * FROM vendors WHERE id = ?', [id]);
+        if (!vendor) return res.status(404).json({ error: 'Vendor not found' });
+        const productCount = await db.get('SELECT COUNT(*) as c FROM products WHERE vendor_id = ?', [vendor.id]);
+        vendor.product_count = productCount?.c || 0;
+        res.json(vendor);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
 // Update vendor status (approve/reject)
 app.put('/api/vendors/:id/status', authMiddleware, requireRole(['manager','admin']), async (req, res) => {
     const { id } = req.params;
@@ -3528,19 +3576,27 @@ app.put('/api/vendors/:id/status', authMiddleware, requireRole(['manager','admin
 // Public vendor listings for eStore / marketing surfaces
 app.get('/api/public/vendors', async (req, res) => {
     try {
-        const limit = Math.min(Math.max(parseInt(req.query.limit || '12', 10), 1), 50);
+        const limit = Math.min(Math.max(parseInt(req.query.limit || '12', 10), 1), 100);
         const sort = req.query.sort === 'recent' ? 'recent' : 'trending';
         const orderBy = sort === 'recent' ? 'v.created_at DESC' : 'product_count DESC, v.created_at DESC';
+        const search = (req.query.search || req.query.q || '').toString().trim();
+        const params = [];
+        let where = 'WHERE v.status = \'active\'';
+        if (search) {
+            where += ' AND (LOWER(v.legal_name) LIKE ? OR LOWER(IFNULL(v.tagline,\'\')) LIKE ?)';
+            const term = `%${search.toLowerCase()}%`;
+            params.push(term, term);
+        }
         const rows = await db.all(
             `SELECT v.id, v.slug, v.legal_name, v.tagline, v.public_description, v.logo_url, v.website, v.hero_image,
                     COUNT(p.id) AS product_count
              FROM vendors v
              LEFT JOIN products p ON p.vendor_id = v.id
-             WHERE v.status = 'active'
+             ${where}
              GROUP BY v.id
              ORDER BY ${orderBy}
              LIMIT ?`,
-            [limit]
+            [...params, limit]
         );
         res.json(rows || []);
     } catch (err) {
@@ -3558,6 +3614,47 @@ app.get('/api/public/vendors/:slug', async (req, res) => {
         const productCount = await db.get('SELECT COUNT(*) as c FROM products WHERE vendor_id = ?', [vendor.id]);
         vendor.product_count = productCount?.c || 0;
         res.json(vendor);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+function mapProductForPublic(row) {
+    return {
+        id: row.id,
+        name: row.name,
+        price: row.price,
+        stock: row.stock,
+        category: row.category,
+        subcategory: row.subcategory,
+        image: row.image,
+        image_source: row.image_source,
+        description: row.description,
+        short_description: row.short_description,
+        sku: row.sku,
+        barcode: row.barcode,
+        preorder_enabled: row.preorder_enabled,
+        preorder_eta: row.preorder_eta,
+        availability_status: row.availability_status || (row.preorder_enabled ? 'preorder' : 'in_stock'),
+        vendor_id: row.vendor_id,
+        vendor_name: row.vendor_name,
+        vendor_slug: row.vendor_slug,
+    };
+}
+
+app.get('/api/public/vendors/:slug/products', async (req, res) => {
+    try {
+        const vendor = await db.get('SELECT id FROM vendors WHERE slug = ? AND status = ?', [req.params.slug, 'active']);
+        if (!vendor) return res.status(404).json({ error: 'Vendor not found' });
+        const rows = await db.all(
+            `SELECT p.*, v.slug AS vendor_slug, v.legal_name AS vendor_name
+             FROM products p
+             LEFT JOIN vendors v ON p.vendor_id = v.id
+             WHERE p.vendor_id = ?
+             ORDER BY p.name COLLATE NOCASE`,
+            [vendor.id]
+        );
+        res.json((rows || []).map(mapProductForPublic));
     } catch (err) {
         res.status(500).json({ error: err.message });
     }

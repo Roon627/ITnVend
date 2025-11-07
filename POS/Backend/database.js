@@ -788,11 +788,12 @@ export async function setupDatabase() {
     await ensureColumn(db, 'vendors', 'status', "TEXT DEFAULT 'pending'");
     // optional link to customers table when vendor is approved
     await ensureColumn(db, 'vendors', 'customer_id', 'INTEGER');
-    await ensureColumn(db, 'vendors', 'slug', 'TEXT UNIQUE');
+    await ensureColumn(db, 'vendors', 'slug', 'TEXT');
     await ensureColumn(db, 'vendors', 'tagline', 'TEXT');
     await ensureColumn(db, 'vendors', 'public_description', 'TEXT');
     await ensureColumn(db, 'vendors', 'hero_image', 'TEXT');
     await ensureVendorSlugs(db);
+    await db.run('CREATE UNIQUE INDEX IF NOT EXISTS idx_vendors_slug ON vendors(slug)');
 
     // Casual sellers / one-time listings (lightweight flow)
     await db.exec(`

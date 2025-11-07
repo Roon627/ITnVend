@@ -223,7 +223,26 @@ Tell me which of the follow-up items you'd like me to implement next and I will 
 - Create an easy `npm run dev:server` nodemon task and wire it into the Docker compose for dev hot-reload
 - Add `POS/Backend/.env.example` and `README` sections with explicit env var descriptions
 
--- End of README --
+Recent updates (2025-11-07)
+---------------------------------------
+Backend
+- `products.availability_status` is now formalized in the schema (auto-added via `ensureColumn`), backfilled for preorder items, and always included in `/api/products` responses.
+- Vendor slugs are upgraded safely: the column is added without a UNIQUE constraint, then enforced through `idx_vendors_slug`. `POST /api/products` now validates `vendorId` (must reference an active vendor) before inserts so storefront vendor pages stay in sync with POS data.
+- Public marketplace endpoints (`GET /api/public/vendors` with optional `sort/limit`, and `GET /api/public/vendors/:slug`) power the new storefront experiences by returning slug, branding (logo/hero), tagline, description, and live product counts.
+
+POS / Admin frontend
+- Product modals expose both availability status and vendor linkages. Draft/original payloads keep `vendorId`, so edits detect vendor changes correctly and the quick “stock-only” flow still works.
+- Product insight panels reuse the same `AvailabilityTag` badge that appears on the storefront so internal users see identical status cues. Vendor names show in the insight metadata when a product is linked.
+
+Storefront / Market Hub
+- Added a shared `AvailabilityTag` component used by `ProductCard`, `ProductPreviewModal`, and `ProductDetail` so every card/detail view shows “PREORDER / THROUGH VENDOR / USED / IN STOCK” in the top-left corner of the hero image.
+- Home now features a “Trending vendors” rail fed by `/api/public/vendors?sort=trending`. Each tile uses the new `VendorCard` component and links to `/vendors/:slug`.
+- Introduced `VendorProfile.jsx` and routed `/vendors/:slug`. Vendor pages display hero + logo, tagline, description, and a live product grid (reusing `ProductCard`). Vendors without items show “This vendor is just getting started” to set expectations.
+
+Testing notes
+- Backend: restarting `npm start` in `POS/Backend` applies the slug/index migration safely on SQLite. Creating a product with an inactive vendor now returns a 400, preventing inconsistent storefront data.
+- POS: open Products → edit/add, assign an active vendor, and confirm the badge + vendor selection persist through saves.
+- Storefront: visit `/` to see the Trending Vendors list, click a vendor to reach `/vendors/<slug>`, and verify the grid matches the POS inventory. Product cards/modals/details should all display the availability badge.
 
 Recent updates (2025-11-05)
 ---------------------------------------

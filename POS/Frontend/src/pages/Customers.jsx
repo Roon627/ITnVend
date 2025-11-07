@@ -363,18 +363,36 @@ export default function Customers() {
     setDetailModalOpen(true);
     setDetailSaving(false);
     try {
-      const data = await api.get(`/customers/${customer.id}`);
-      const normalized = data || {};
-      setDetailForm({
-        id: normalized.id,
-        name: normalized.name || '',
-        email: normalized.email || '',
-        phone: normalized.phone || '',
-        address: normalized.address || '',
-        gst_number: normalized.gst_number || normalized.tax_number || '',
-        registration_number: normalized.registration_number || normalized.reg_number || '',
-        is_business: Boolean(normalized.is_business || normalized.isBusiness || normalized.company),
-      });
+      let data;
+      // support vendor rows which are represented as id: `vendor-<id>` in the list
+      if (typeof customer.id === 'string' && customer.id.startsWith('vendor-')) {
+        const vid = Number(customer.id.split('-')[1]);
+        data = await api.get(`/vendors/${vid}`);
+        const v = data || customer.raw || {};
+        setDetailForm({
+          id: `vendor-${v.id}`,
+          name: v.legal_name || v.contact_person || `Vendor ${v.id}`,
+          email: v.email || '',
+          phone: v.phone || '',
+          address: v.address || '',
+          gst_number: v.gst_number || v.tax_number || '',
+          registration_number: v.registration_number || v.reg_number || '',
+          is_business: true,
+        });
+      } else {
+        data = await api.get(`/customers/${customer.id}`);
+        const normalized = data || {};
+        setDetailForm({
+          id: normalized.id,
+          name: normalized.name || '',
+          email: normalized.email || '',
+          phone: normalized.phone || '',
+          address: normalized.address || '',
+          gst_number: normalized.gst_number || normalized.tax_number || '',
+          registration_number: normalized.registration_number || normalized.reg_number || '',
+          is_business: Boolean(normalized.is_business || normalized.isBusiness || normalized.company),
+        });
+      }
     } catch (err) {
       console.error('Failed to load customer', err);
       toast.push('Failed to load customer details', 'error');

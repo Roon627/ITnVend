@@ -5,6 +5,7 @@ import { useCart } from '../components/CartContext';
 import { useSettings } from '../components/SettingsContext';
 import { resolveMediaUrl } from '../lib/media';
 import { withPreorderFlags, isPreorderProduct } from '../lib/preorder';
+import AvailabilityTag from '../components/AvailabilityTag';
 
 export default function ProductDetail() {
   const { id } = useParams();
@@ -38,6 +39,10 @@ export default function ProductDetail() {
 
   const imageSrc = resolveMediaUrl(product.image || product.image_source || product.imageUrl);
   const preorder = isPreorderProduct(product);
+  const availabilityStatus =
+    product.availability_status ||
+    product.availabilityStatus ||
+    (preorder ? 'preorder' : 'in_stock');
 
   const handlePreorder = () => {
     const params = new URLSearchParams();
@@ -63,7 +68,8 @@ export default function ProductDetail() {
         </div>
 
         <div className="grid gap-10 rounded-3xl border border-white/60 bg-white/90 p-6 shadow-rose-100 sm:p-10 lg:grid-cols-[1.1fr_0.9fr]">
-          <div className="flex items-center justify-center rounded-2xl bg-gradient-to-br from-white via-rose-50 to-sky-50 p-6 shadow-inner">
+          <div className="relative flex items-center justify-center rounded-2xl bg-gradient-to-br from-white via-rose-50 to-sky-50 p-6 shadow-inner">
+            <AvailabilityTag availabilityStatus={availabilityStatus} className="top-4 left-4" />
             {imageSrc ? (
               <img
                 src={imageSrc}

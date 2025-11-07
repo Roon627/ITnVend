@@ -3,6 +3,7 @@ import { FaShoppingCart } from 'react-icons/fa';
 import { resolveMediaUrl } from '../lib/media';
 import ProductPreviewModal from './ProductPreviewModal';
 import { isPreorderProduct } from '../lib/preorder';
+import AvailabilityTag from './AvailabilityTag';
 
 // Dark-styled product card used across Home and PublicProducts
 export default function ProductCard({ product, onAdd = () => {}, formatCurrency = (n) => n }) {
@@ -10,16 +11,16 @@ export default function ProductCard({ product, onAdd = () => {}, formatCurrency 
   const [previewOpen, setPreviewOpen] = useState(false);
 
   const isPreorder = isPreorderProduct(product);
+  const availabilityStatus =
+    product.availability_status ||
+    product.availabilityStatus ||
+    (isPreorder ? 'preorder' : 'in_stock');
 
   return (
     <>
       <article className="group flex flex-col overflow-hidden rounded-2xl border border-slate-200/40 bg-gradient-to-br from-white via-rose-50 to-sky-50 text-slate-900 shadow-lg shadow-rose-200/40 transition hover:-translate-y-1 hover:shadow-rose-300/70">
         <div className="relative h-44 overflow-hidden">
-          {isPreorder && (
-            <span className="absolute left-3 top-3 z-10 inline-flex items-center gap-1 rounded-full bg-rose-500/90 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-white shadow">
-              Preorder
-            </span>
-          )}
+          <AvailabilityTag availabilityStatus={availabilityStatus} />
           {image ? (
             <img
               src={image}

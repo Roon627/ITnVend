@@ -6,8 +6,10 @@ import { useCart } from '../components/CartContext';
 import { useSettings } from '../components/SettingsContext';
 import ProductCard from '../components/ProductCard';
 import { mapPreorderFlags } from '../lib/preorder';
+import VendorCard from '../components/VendorCard';
 
 const CATEGORY_LIMIT = 6;
+const TRENDING_VENDOR_LIMIT = 6;
 
 const VALUE_PILLARS = [
   { title: 'POS besties', copy: 'Every Market Hub item talks directly to the POS so inventory, carts, and invoices stay in perfect harmony.' },
@@ -18,6 +20,7 @@ const VALUE_PILLARS = [
 export default function Home() {
   const [products, setProducts] = useState([]);
   const [categories, setCategories] = useState([]);
+  const [trendingVendors, setTrendingVendors] = useState([]);
   const { addToCart, cartCount } = useCart();
   const { formatCurrency } = useSettings();
 
@@ -42,6 +45,15 @@ export default function Home() {
         setCategories(list.slice(0, CATEGORY_LIMIT));
       })
       .catch(() => setCategories([]));
+  }, []);
+
+  useEffect(() => {
+    api
+      .get('/public/vendors', { params: { sort: 'trending', limit: TRENDING_VENDOR_LIMIT } })
+      .then((list) => {
+        setTrendingVendors(Array.isArray(list) ? list : []);
+      })
+      .catch(() => setTrendingVendors([]));
   }, []);
 
   const hasCatalogue = useMemo(() => categories.length > 0, [categories]);
@@ -190,6 +202,42 @@ export default function Home() {
             )}
           </div>
         </section>
+
+        {trendingVendors.length > 0 && (
+          <section className="bg-gradient-to-br from-rose-50 via-white to-sky-50 py-16">
+            <div className="container mx-auto px-6">
+              <div className="mb-10 flex flex-wrap items-center justify-between gap-4">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.4em] text-rose-300">Trusted partners</p>
+                  <h2 className="mt-2 text-3xl font-bold text-slate-900 sm:text-4xl">Trending vendors</h2>
+                  <p className="mt-2 max-w-2xl text-slate-500">
+                    These partners have the most live products on the market hub right now. Tap through to see their curated shelves.
+                  </p>
+                </div>
+                <div className="flex flex-wrap gap-3">
+                  <Link
+                    to="/vendors"
+                    className="inline-flex items-center gap-2 rounded-full border border-rose-200 bg-white px-5 py-2 text-sm font-semibold text-rose-500 transition hover:bg-rose-50"
+                  >
+                    Browse all vendors
+                    <FaArrowRight />
+                  </Link>
+                  <Link
+                    to="/vendor-onboarding"
+                    className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-5 py-2 text-sm font-semibold text-slate-500 transition hover:bg-slate-50"
+                  >
+                    Become a vendor
+                  </Link>
+                </div>
+              </div>
+              <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-3">
+                {trendingVendors.map((vendor) => (
+                  <VendorCard key={vendor.id} vendor={vendor} />
+                ))}
+              </div>
+            </div>
+          </section>
+        )}
 
         <section className="relative overflow-hidden bg-gradient-to-br from-sky-300 via-indigo-300 to-rose-300 py-16 text-white">
           <div className="absolute inset-y-0 right-0 w-1/2 bg-[radial-gradient(circle,_rgba(255,255,255,0.25)_0%,transparent_60%)] opacity-60" />

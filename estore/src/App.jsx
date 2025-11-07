@@ -16,6 +16,8 @@ import ShopAndShip from "./pages/ShopAndShip";
 import Socials from "./pages/Socials";
 import Footer from "./components/Footer";
 import PublicNavbar from "./components/PublicNavbar";
+import VendorProfile from "./pages/VendorProfile";
+import VendorDirectory from "./pages/VendorDirectory";
 
 function PublicLayout({ children }) {
   return (
@@ -48,7 +50,9 @@ function App() {
         <Route path="/checkout" element={<PublicLayout><Checkout /></PublicLayout>} />
         <Route path="/confirmation" element={<PublicLayout><OrderConfirmation /></PublicLayout>} />
         <Route path="/vendor-onboarding" element={<PublicLayout><VendorOnboarding /></PublicLayout>} />
-  <Route path="/sell" element={<PublicLayout><SellWithUs /></PublicLayout>} />
+        <Route path="/sell" element={<PublicLayout><SellWithUs /></PublicLayout>} />
+        <Route path="/vendors" element={<PublicLayout><VendorDirectory /></PublicLayout>} />
+        <Route path="/vendors/:slug" element={<PublicLayout><VendorProfile /></PublicLayout>} />
         <Route path="/contact" element={<PublicLayout><Contact /></PublicLayout>} />
         <Route path="/shop-and-ship" element={<PublicLayout><ShopAndShip /></PublicLayout>} />
   <Route path="/socials" element={<PublicLayout><Socials /></PublicLayout>} />

@@ -9,7 +9,8 @@ const NAV_LINKS = [
   { to: '/market', label: 'Market Hub' },
   { to: '/sell', label: 'Sell with us' },
   { to: '/shop-and-ship', label: 'Shop & Ship' },
-  { to: '/vendor-onboarding', label: 'Vendors' },
+  { to: '/vendors', label: 'Vendor directory' },
+  { to: '/vendor-onboarding', label: 'Apply as vendor' },
   { to: '/privacy', label: 'Trust Center' },
 ];
 

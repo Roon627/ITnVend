@@ -68,6 +68,12 @@ const normalizeAvailabilityStatus = (value, fallback = 'in_stock') => {
   return AVAILABILITY_STATUS_LABELS[normalized] ? normalized : fallback;
 };
 
+const normalizeVendorId = (value) => {
+  if (value === undefined || value === null || value === '') return null;
+  const parsed = parseInt(value, 10);
+  return Number.isFinite(parsed) ? parsed : null;
+};
+
 function normalizeKey(key) {
   return key.toLowerCase().replace(/[^a-z0-9]/g, '');
 }
@@ -248,6 +254,7 @@ function ProductInsight({ product, formatCurrency, onTagClick }) {
   const availabilityLabel = AVAILABILITY_STATUS_LABELS[availabilityStatus] || AVAILABILITY_STATUS_LABELS.in_stock;
   const meta = [
     { label: 'Availability', value: availabilityLabel },
+    { label: 'Vendor', value: product.vendor_name || product.vendorName || (product.vendor_id ? `#${product.vendor_id}` : null) },
     { label: 'Brand', value: product.brand || product.brandName || product.brand_id || product.brandId },
     { label: 'Material', value: product.material || product.materialName || product.materialId },
     { label: 'Color', value: product.color || product.colorName || product.colorId },
@@ -351,7 +358,29 @@ function ProductInsight({ product, formatCurrency, onTagClick }) {
   );
 }
 
-function ProductModal({ open, draft, onClose, onChange, onSave, onUploadImage, uploading, saving, stockChanged, stockReason, onStockReasonChange, categoryTree, lookups, onTagsChanged }) {
+function ProductModal({
+  open,
+  draft,
+  onClose,
+  onChange,
+  onSave,
+  onUploadImage,
+  uploading,
+  saving,
+  stockChanged,
+  stockReason,
+  onStockReasonChange,
+  categoryTree,
+  lookups,
+  onTagsChanged,
+  vendors = [],
+  createBrand = async () => false,
+  createMaterial = async () => false,
+  createColor = async () => false,
+  createCategoryRoot = async () => false,
+  createSubcategory = async () => false,
+  createSubsubcategory = async () => false,
+}) {
   const fileInputRef = useRef(null);
   const modalRef = useRef(null);
   const [modalVisible, setModalVisible] = useState(false);
@@ -493,6 +522,24 @@ function ProductModal({ open, draft, onClose, onChange, onSave, onUploadImage, u
                 <div className="mt-1">
                   <SelectField labelHidden value={draft.type || ''} onChange={(v) => handleFieldChange('type')({ target: { value: v } })} options={[{id:'physical',name:'Physical'},{id:'digital',name:'Digital'}]} placeholder="Select type" />
                 </div>
+              </div>
+
+              <div>
+                <label className="text-sm font-medium text-slate-600">Vendor (optional)</label>
+                <SelectField
+                  value={draft.vendorId || ''}
+                  onChange={(v) => handleFieldChange('vendorId')({ target: { value: v } })}
+                  options={[
+                    { id: '', name: 'Not linked' },
+                    ...vendors.map((vendor) => ({
+                      id: String(vendor.id),
+                      name: vendor.legal_name || vendor.contact_person || vendor.email || `Vendor #${vendor.id}`,
+                    })),
+                  ]}
+                  placeholder={vendors.length ? 'Select vendor' : 'No active vendors'}
+                  disabled={!vendors.length}
+                />
+                <p className="mt-1 text-xs text-slate-500">Linked vendors become visible on the store.</p>
               </div>
 
               <div>
@@ -786,6 +833,7 @@ export default function Products() {
   const [_adding, setAdding] = useState(false);
   const [loading, setLoading] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState(null);
+  const [activeVendors, setActiveVendors] = useState([]);
 
   const [modalOpen, setModalOpen] = useState(false);
   const [modalDraft, setModalDraft] = useState(null);
@@ -828,6 +876,15 @@ export default function Products() {
     }
   }, []);
 
+  const fetchActiveVendors = useCallback(async () => {
+    try {
+      const list = await api.get('/vendors', { params: { status: 'active' } });
+      setActiveVendors(Array.isArray(list) ? list : []);
+    } catch (err) {
+      console.debug('Failed to load active vendors', err?.message || err);
+    }
+  }, []);
+
   const fetchProducts = useCallback(async () => {
     setLoading(true);
     try {
@@ -856,7 +913,8 @@ export default function Products() {
 
   useEffect(() => {
     fetchLookupsAndTree();
-  }, [fetchLookupsAndTree]);
+    fetchActiveVendors();
+  }, [fetchLookupsAndTree, fetchActiveVendors]);
 
   const handleModalFieldChange = (key, value, updatedDraft) => {
     // Allow callers to provide a fully-assembled draft to perform atomic updates
@@ -1075,6 +1133,7 @@ export default function Products() {
         preorderReleaseDate: form.availableForPreorder ? form.preorderReleaseDate || null : null,
         preorderNotes: form.availableForPreorder ? form.preorderNotes || null : null,
         preorderEta: form.availableForPreorder ? form.preorderEta || null : null,
+        vendorId: normalizeVendorId(form.vendorId),
       };
       const created = await api.post('/products', payload);
       toast.push('Product added', 'info');
@@ -1149,6 +1208,7 @@ export default function Products() {
       brandId: product.brand_id || product.brandId || '',
       materialId: product.material_id || product.materialId || '',
       colorId: product.color_id || product.colorId || '',
+      vendorId: product.vendor_id ? String(product.vendor_id) : (product.vendorId ? String(product.vendorId) : ''),
       availabilityStatus: normalizeAvailabilityStatus(product.availability_status || product.availabilityStatus || (product.preorder_enabled ? 'preorder' : null)),
       audience: product.audience || '',
       deliveryType: product.delivery_type || product.deliveryType || '',
@@ -1183,6 +1243,7 @@ export default function Products() {
       brandId: product.brand_id || product.brandId || '',
       materialId: product.material_id || product.materialId || '',
       colorId: product.color_id || product.colorId || '',
+      vendorId: product.vendor_id ? String(product.vendor_id) : (product.vendorId ? String(product.vendorId) : ''),
       availabilityStatus: normalizeAvailabilityStatus(product.availability_status || product.availabilityStatus || (product.preorder_enabled ? 'preorder' : null)),
       audience: product.audience || '',
       deliveryType: product.delivery_type || product.deliveryType || '',
@@ -1232,6 +1293,7 @@ export default function Products() {
           preorderReleaseDate: modalDraft.availableForPreorder ? modalDraft.preorderReleaseDate || null : null,
           preorderNotes: modalDraft.availableForPreorder ? modalDraft.preorderNotes || null : null,
           preorderEta: modalDraft.availableForPreorder ? modalDraft.preorderEta || null : null,
+          vendorId: normalizeVendorId(modalDraft.vendorId),
         };
         const created = await api.post('/products', payload);
         toast.push('Product added', 'info');
@@ -1280,6 +1342,7 @@ export default function Products() {
         preorderReleaseDate: modalDraft.availableForPreorder ? modalDraft.preorderReleaseDate || null : null,
         preorderNotes: modalDraft.availableForPreorder ? modalDraft.preorderNotes || null : null,
         preorderEta: modalDraft.availableForPreorder ? modalDraft.preorderEta || null : null,
+        vendorId: normalizeVendorId(modalDraft.vendorId),
       };
 
       // Detect if only stock changed compared to original draft
@@ -1305,6 +1368,7 @@ export default function Products() {
             preorderReleaseDate: modalOriginalDraft.availableForPreorder ? modalOriginalDraft.preorderReleaseDate || null : null,
             preorderNotes: modalOriginalDraft.availableForPreorder ? modalOriginalDraft.preorderNotes || null : null,
             preorderEta: modalOriginalDraft.availableForPreorder ? modalOriginalDraft.preorderEta || null : null,
+            vendorId: normalizeVendorId(modalOriginalDraft.vendorId),
           };
           const changedKeys = Object.keys(payload).filter((k) => {
             const a = payload[k] == null ? null : payload[k];
@@ -1895,6 +1959,7 @@ export default function Products() {
         onStockReasonChange={setModalStockReason}
         categoryTree={categoryTree}
         lookups={lookups}
+        vendors={activeVendors}
         onTagsChanged={fetchLookupsAndTree}
         createBrand={createBrand}
         createMaterial={createMaterial}

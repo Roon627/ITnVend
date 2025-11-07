@@ -3,6 +3,7 @@ import Modal from './Modal';
 import ImageCarousel from './ImageCarousel';
 import { resolveMediaUrl } from '../lib/media';
 import { isPreorderProduct } from '../lib/preorder';
+import AvailabilityTag from './AvailabilityTag';
 
 export default function ProductPreviewModal({ open, product, onClose, onAdd, formatCurrency }) {
   if (!open || !product) return null;
@@ -15,11 +16,16 @@ export default function ProductPreviewModal({ open, product, onClose, onAdd, for
   const uniq = [...new Set(images.filter(Boolean))];
 
   const preorder = isPreorderProduct(product);
+  const availabilityStatus =
+    product.availability_status ||
+    product.availabilityStatus ||
+    (preorder ? 'preorder' : 'in_stock');
 
   return (
     <Modal open={open} onClose={onClose} labelledBy={`preview-${product.id}`} className="max-w-4xl md:max-w-6xl">
       <div id={`preview-${product.id}`} className="grid gap-6 lg:grid-cols-[1.1fr_0.9fr] p-4 sm:p-6">
-        <div className="flex items-center justify-center bg-gradient-to-br from-white via-rose-50 to-sky-50 p-4">
+        <div className="relative flex items-center justify-center bg-gradient-to-br from-white via-rose-50 to-sky-50 p-4">
+          <AvailabilityTag availabilityStatus={availabilityStatus} />
           {uniq.length ? (
             <ImageCarousel images={uniq} alt={product.name} />
           ) : (
