@@ -131,6 +131,101 @@ function createRateLimiter({ windowMs = 60 * 60 * 1000, max = 20, keyFn = (req) 
     };
 }
 
+function resolveSlipFilePath(row) {
+    const uploadsRoot = path.join(process.cwd(), 'uploads');
+    const raw = row?.storage_path || row?.storage_key || '';
+    if (!raw) return null;
+    if (/^(https?:\/\/|s3:\/\/)/i.test(raw)) return null;
+    if (path.isAbsolute(raw)) return raw;
+    if (raw.startsWith('/uploads/')) {
+        const rel = raw.replace(/^\/uploads\//, '').replace(/\//g, path.sep);
+        return path.join(uploadsRoot, rel);
+    }
+    const normalized = raw.replace(/^\/+/, '').replace(/\//g, path.sep);
+    return path.join(uploadsRoot, normalized);
+}
+
+function guessSlipMimetype(filenameOrPath) {
+    const ext = (path.extname(filenameOrPath || '') || '').toLowerCase();
+    switch (ext) {
+        case '.png':
+            return 'image/png';
+        case '.jpg':
+        case '.jpeg':
+            return 'image/jpeg';
+        case '.gif':
+            return 'image/gif';
+        case '.pdf':
+            return 'application/pdf';
+        case '.webp':
+            return 'image/webp';
+        default:
+            return null;
+    }
+}
+
+function extractQueuedMetadata(validationResult) {
+    if (!validationResult) return {};
+    try {
+        const parsed = JSON.parse(validationResult);
+        return parsed && typeof parsed === 'object' ? parsed : {};
+    } catch (err) {
+        return {};
+    }
+}
+
+async function markSlipRecoveryFailed(db, row, meta, reason) {
+    const nowIso = new Date().toISOString();
+    const payload = {
+        ...(meta || {}),
+        stage: 'recovery_failed',
+        error: reason,
+        failedAt: nowIso,
+    };
+    try {
+        await db.run(
+            `UPDATE slips SET status = ?, validation_result = ?, updated_at = ? WHERE id = ?`,
+            ['failed', JSON.stringify(payload), nowIso, row.id]
+        );
+    } catch (err) {
+        console.warn('Unable to mark slip recovery failure', row?.id, err);
+    }
+}
+
+async function recoverSlipJobs(db, queue) {
+    if (!db || !queue) return;
+    try {
+        const rows = await db.all(
+            `SELECT id, filename, storage_path, storage_key, validation_result FROM slips WHERE status = 'processing'`
+        );
+        if (!rows || rows.length === 0) return;
+        console.info(`Recovering ${rows.length} slip(s) left in processing state`);
+        for (const row of rows) {
+            const meta = extractQueuedMetadata(row.validation_result);
+            const filePath = resolveSlipFilePath(row);
+            if (!filePath) {
+                await markSlipRecoveryFailed(db, row, meta, 'Original slip file path unavailable for recovery');
+                continue;
+            }
+            try {
+                const buffer = await fs.promises.readFile(filePath);
+                queue.enqueue({
+                    id: row.id,
+                    buffer,
+                    mimetype: guessSlipMimetype(row.filename || filePath),
+                    transactionId: meta?.transactionId || null,
+                    expectedAmount: meta?.expectedAmount ?? null,
+                });
+            } catch (err) {
+                console.warn('Failed to queue recovered slip', row.id, err);
+                await markSlipRecoveryFailed(db, row, meta, err?.message || 'Unable to read slip file');
+            }
+        }
+    } catch (err) {
+        console.warn('Slip recovery query failed', err);
+    }
+}
+
 app.use('/api/validate-slip', authMiddleware, requireRole(['accounts', 'manager', 'admin']), validateSlipRouter);
 // Public endpoint for storefront slip pre-validation (accepts data URL JSON)
 app.use('/api/validate-slip-public', validateSlipPublicRouter);
@@ -165,6 +260,7 @@ let db;
 let JWT_SECRET = null;
 
 const AUDIENCE_OPTIONS = ['men', 'women', 'unisex'];
+const AVAILABILITY_STATUSES = ['in_stock', 'preorder', 'vendor', 'used'];
 const DELIVERY_TYPES = ['instant_download', 'shipping', 'pickup'];
 const WARRANTY_TERMS = ['none', '1_year', 'lifetime'];
 const PREORDER_STATUSES = ['pending', 'accepted', 'processing', 'received', 'ready', 'completed', 'cancelled'];
@@ -1115,6 +1211,7 @@ async function startServer() {
             }
         });
         try { app.set('slipProcessingQueue', slipProcessingQueue); } catch (e) { /* ignore */ }
+        await recoverSlipJobs(db, slipProcessingQueue);
         // ensure settings has jwt_secret column (safe add)
         try { await db.run("ALTER TABLE settings ADD COLUMN jwt_secret TEXT"); } catch (e) { /* ignore if exists */ }
         // load or create JWT secret (persist in settings row)
@@ -1877,6 +1974,7 @@ app.post('/api/products', authMiddleware, requireRole('cashier'), async (req, re
         year,
         category,
         subcategory,
+        availabilityStatus,
     } = req.body;
 
     if (!name || price == null) return res.status(400).json({ error: 'Missing fields' });
@@ -1902,6 +2000,8 @@ app.post('/api/products', authMiddleware, requireRole('cashier'), async (req, re
     const brandIdInt = brandId ? parseInt(brandId, 10) : null;
     const materialIdInt = materialId ? parseInt(materialId, 10) : null;
     const colorIdInt = colorId ? parseInt(colorId, 10) : null;
+    const rawAvailabilityStatus = availabilityStatus ?? req.body?.availability_status;
+    const normalizedAvailabilityStatus = normalizeEnum(rawAvailabilityStatus, AVAILABILITY_STATUSES, null) || (availableForPreorder ? 'preorder' : 'in_stock');
 
     let resolvedCategoryId = categoryId ? parseInt(categoryId, 10) : null;
     let resolvedSubcategoryId = subcategoryId ? parseInt(subcategoryId, 10) : null;
@@ -1953,9 +2053,9 @@ app.post('/api/products', authMiddleware, requireRole('cashier'), async (req, re
                 preorder_release_date, preorder_notes, short_description, type,
                 brand_id, category_id, subcategory_id, subsubcategory_id,
                 material_id, color_id, audience, delivery_type, warranty_term,
-                preorder_eta, year, auto_sku
+                preorder_eta, year, auto_sku, availability_status
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             [
                 name,
                 normalizedPrice,
@@ -1987,6 +2087,7 @@ app.post('/api/products', authMiddleware, requireRole('cashier'), async (req, re
                 normalizedEta,
                 normalizedYear,
                 normalizedAutoSku,
+                normalizedAvailabilityStatus,
             ]
         );
 
@@ -2032,6 +2133,7 @@ app.post('/api/products', authMiddleware, requireRole('cashier'), async (req, re
             preorder_eta: normalizedEta,
             year: normalizedYear,
             auto_sku: normalizedAutoSku,
+            availability_status: normalizedAvailabilityStatus,
             tags: tagRows,
         });
     } catch (err) {
@@ -2073,6 +2175,7 @@ app.put('/api/products/:id', authMiddleware, requireRole('cashier'), async (req,
         year,
         category,
         subcategory,
+        availabilityStatus,
     } = req.body;
 
     try {
@@ -2103,6 +2206,14 @@ app.put('/api/products/:id', authMiddleware, requireRole('cashier'), async (req,
         const brandIdInt = brandId !== undefined ? (brandId ? parseInt(brandId, 10) : null) : (existing.brand_id ?? null);
         const materialIdInt = materialId !== undefined ? (materialId ? parseInt(materialId, 10) : null) : (existing.material_id ?? null);
         const colorIdInt = colorId !== undefined ? (colorId ? parseInt(colorId, 10) : null) : (existing.color_id ?? null);
+        let normalizedAvailabilityStatus = existing.availability_status || 'in_stock';
+        if (availabilityStatus !== undefined || Object.prototype.hasOwnProperty.call(req.body || {}, 'availability_status')) {
+            const rawAvailability = availabilityStatus !== undefined ? availabilityStatus : req.body?.availability_status;
+            const candidate = normalizeEnum(rawAvailability, AVAILABILITY_STATUSES, null);
+            if (candidate) {
+                normalizedAvailabilityStatus = candidate;
+            }
+        }
 
         let resolvedCategoryId = categoryId !== undefined ? (categoryId ? parseInt(categoryId, 10) : null) : (existing.category_id ?? null);
         let resolvedSubcategoryId = subcategoryId !== undefined ? (subcategoryId ? parseInt(subcategoryId, 10) : null) : (existing.subcategory_id ?? null);
@@ -2187,7 +2298,8 @@ app.put('/api/products/:id', authMiddleware, requireRole('cashier'), async (req,
                 warranty_term = ?,
                 preorder_eta = ?,
                 year = ?,
-                auto_sku = ?
+                auto_sku = ?,
+                availability_status = ?
              WHERE id = ?`,
             [
                 updatedName,
@@ -2220,6 +2332,7 @@ app.put('/api/products/:id', authMiddleware, requireRole('cashier'), async (req,
                 normalizedEta,
                 normalizedYear,
                 autoFlag,
+                normalizedAvailabilityStatus,
                 id,
             ]
         );
@@ -2278,6 +2391,7 @@ app.put('/api/products/:id', authMiddleware, requireRole('cashier'), async (req,
             preorder_eta: normalizedEta,
             year: normalizedYear,
             auto_sku: autoFlag,
+            availability_status: normalizedAvailabilityStatus,
             tags: tagRows,
         });
     } catch (err) {

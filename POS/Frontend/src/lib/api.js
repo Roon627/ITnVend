@@ -167,15 +167,16 @@ const apiClient = {
     if (!transactionId || !transactionId.toString().trim()) {
       return Promise.reject(new Error('Transaction ID is required.'));
     }
-    if (expectedAmount === undefined || expectedAmount === null || expectedAmount === '') {
-      return Promise.reject(new Error('Expected amount is required.'));
-    }
     if (!file) {
       return Promise.reject(new Error('Slip file is required.'));
     }
     const formData = new FormData();
     formData.append('transactionId', transactionId);
-    formData.append('expectedAmount', expectedAmount);
+    const normalizedAmount = expectedAmount === undefined || expectedAmount === null ? '' : expectedAmount;
+    const amountAsString = normalizedAmount.toString ? normalizedAmount.toString().trim() : String(normalizedAmount).trim();
+    if (amountAsString) {
+      formData.append('expectedAmount', amountAsString);
+    }
     formData.append('file', file);
     return fetchWithRetry('/validate-slip', {
       method: 'POST',

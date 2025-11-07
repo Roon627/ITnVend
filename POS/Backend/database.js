@@ -132,7 +132,8 @@ export async function setupDatabase() {
             track_inventory INTEGER DEFAULT 1,
             preorder_enabled INTEGER DEFAULT 0,
             preorder_release_date TEXT,
-            preorder_notes TEXT
+            preorder_notes TEXT,
+            availability_status TEXT DEFAULT 'in_stock'
         );
 
         -- Customers (extended for business details)
@@ -152,6 +153,12 @@ export async function setupDatabase() {
 
         // add customer_type column non-destructively
         await ensureColumn(db, 'customers', 'customer_type', "TEXT DEFAULT 'regular'");
+        await ensureColumn(db, 'products', 'availability_status', "TEXT DEFAULT 'in_stock'");
+        try {
+            await db.run("UPDATE products SET availability_status = 'preorder' WHERE preorder_enabled = 1 AND (availability_status IS NULL OR availability_status = '' OR availability_status = 'in_stock')");
+        } catch (err) {
+            console.warn('Failed to backfill availability_status for preorder items', err?.message || err);
+        }
 
         await db.exec(`
 

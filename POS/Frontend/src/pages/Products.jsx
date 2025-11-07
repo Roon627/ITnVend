@@ -10,6 +10,7 @@ import { resolveMediaUrl } from '../lib/media';
 import SelectField from '../components/SelectField';
 import TagChips from '../components/TagChips';
 import SpecPreview from '../components/SpecPreview';
+import AvailabilityTag from '../components/AvailabilityTag';
 import { makeSku } from '../lib/sku';
 
 const EMPTY_FORM = {
@@ -45,6 +46,25 @@ const EMPTY_FORM = {
   tags: [],
   model: '',
   year: '',
+  availabilityStatus: 'in_stock',
+};
+
+const AVAILABILITY_STATUS_OPTIONS = [
+  { id: 'in_stock', name: 'In Stock' },
+  { id: 'preorder', name: 'Preorder' },
+  { id: 'vendor', name: 'Through Vendor' },
+  { id: 'used', name: 'Used' },
+];
+
+const AVAILABILITY_STATUS_LABELS = AVAILABILITY_STATUS_OPTIONS.reduce((map, option) => {
+  map[option.id] = option.name;
+  return map;
+}, {});
+
+const normalizeAvailabilityStatus = (value, fallback = 'in_stock') => {
+  if (value == null) return fallback;
+  const normalized = value.toString().toLowerCase();
+  return AVAILABILITY_STATUS_LABELS[normalized] ? normalized : fallback;
 };
 
 function normalizeKey(key) {
@@ -223,7 +243,10 @@ function ProductInsight({ product, formatCurrency, onTagClick }) {
   }
   const previewSrc = resolveMediaUrl(product.image_source || product.imageUrl || product.image);
   const tagList = Array.isArray(product.tags) ? product.tags : [];
+  const availabilityStatus = normalizeAvailabilityStatus(product.availability_status || product.availabilityStatus || (product.preorder_enabled ? 'preorder' : null));
+  const availabilityLabel = AVAILABILITY_STATUS_LABELS[availabilityStatus] || AVAILABILITY_STATUS_LABELS.in_stock;
   const meta = [
+    { label: 'Availability', value: availabilityLabel },
     { label: 'Brand', value: product.brand || product.brandName || product.brand_id || product.brandId },
     { label: 'Material', value: product.material || product.materialName || product.materialId },
     { label: 'Color', value: product.color || product.colorName || product.colorId },
@@ -239,11 +262,14 @@ function ProductInsight({ product, formatCurrency, onTagClick }) {
     <div className="bg-white rounded-lg border p-4">
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <div className="md:col-span-1">
-          {previewSrc ? (
-            <img src={previewSrc} alt={product.name} className="w-full h-44 md:h-56 object-cover rounded-md border" />
-          ) : (
-            <div className="w-full h-44 md:h-56 rounded-md border border-dashed flex items-center justify-center text-slate-400 text-sm">No image</div>
-          )}
+          <div className="relative">
+            {previewSrc ? (
+              <img src={previewSrc} alt={product.name} className="w-full h-44 md:h-56 object-cover rounded-md border" />
+            ) : (
+              <div className="w-full h-44 md:h-56 rounded-md border border-dashed flex items-center justify-center text-slate-400 text-sm">No image</div>
+            )}
+            <AvailabilityTag availabilityStatus={availabilityStatus} />
+          </div>
         </div>
 
         <div className="md:col-span-3">
@@ -504,7 +530,7 @@ function ProductModal({ open, draft, onClose, onChange, onSave, onUploadImage, u
             </div>
 
             <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-        <label className="text-sm font-medium text-slate-600">
+                <label className="text-sm font-medium text-slate-600">
           Price
                 <input
                   value={draft.price}
@@ -533,6 +559,24 @@ function ProductModal({ open, draft, onClose, onChange, onSave, onUploadImage, u
                   className="mt-1 w-full rounded-md border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
               </label>
+            </div>
+
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <div>
+                <label className="text-sm font-medium text-slate-600">Availability status</label>
+                <select
+                  value={draft.availabilityStatus || 'in_stock'}
+                  onChange={handleFieldChange('availabilityStatus')}
+                  className="mt-1 w-full rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  {AVAILABILITY_STATUS_OPTIONS.map((option) => (
+                    <option key={option.id} value={option.id}>
+                      {option.name}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-xs text-slate-500 mt-1">Displayed on POS and storefront cards.</p>
+              </div>
             </div>
 
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
@@ -1025,6 +1069,7 @@ export default function Products() {
         barcode: form.barcode || null,
         cost: form.cost ? parseFloat(form.cost) : 0,
         trackInventory: form.trackInventory,
+        availabilityStatus: normalizeAvailabilityStatus(form.availabilityStatus),
         availableForPreorder: form.availableForPreorder,
         preorderReleaseDate: form.availableForPreorder ? form.preorderReleaseDate || null : null,
         preorderNotes: form.availableForPreorder ? form.preorderNotes || null : null,
@@ -1103,6 +1148,7 @@ export default function Products() {
       brandId: product.brand_id || product.brandId || '',
       materialId: product.material_id || product.materialId || '',
       colorId: product.color_id || product.colorId || '',
+      availabilityStatus: normalizeAvailabilityStatus(product.availability_status || product.availabilityStatus || (product.preorder_enabled ? 'preorder' : null)),
       audience: product.audience || '',
       deliveryType: product.delivery_type || product.deliveryType || '',
       warrantyTerm: product.warranty_term || product.warrantyTerm || '',
@@ -1136,6 +1182,7 @@ export default function Products() {
       brandId: product.brand_id || product.brandId || '',
       materialId: product.material_id || product.materialId || '',
       colorId: product.color_id || product.colorId || '',
+      availabilityStatus: normalizeAvailabilityStatus(product.availability_status || product.availabilityStatus || (product.preorder_enabled ? 'preorder' : null)),
       audience: product.audience || '',
       deliveryType: product.delivery_type || product.deliveryType || '',
       warrantyTerm: product.warranty_term || product.warrantyTerm || '',
@@ -1179,6 +1226,7 @@ export default function Products() {
           model: modalDraft.model || null,
           cost: modalDraft.cost ? parseFloat(modalDraft.cost) : 0,
           trackInventory: modalDraft.trackInventory,
+          availabilityStatus: normalizeAvailabilityStatus(modalDraft.availabilityStatus),
           availableForPreorder: modalDraft.availableForPreorder,
           preorderReleaseDate: modalDraft.availableForPreorder ? modalDraft.preorderReleaseDate || null : null,
           preorderNotes: modalDraft.availableForPreorder ? modalDraft.preorderNotes || null : null,
@@ -1226,6 +1274,7 @@ export default function Products() {
         barcode: modalDraft.barcode || null,
         cost: modalDraft.cost ? parseFloat(modalDraft.cost) : 0,
         trackInventory: modalDraft.trackInventory,
+        availabilityStatus: normalizeAvailabilityStatus(modalDraft.availabilityStatus),
         availableForPreorder: modalDraft.availableForPreorder,
         preorderReleaseDate: modalDraft.availableForPreorder ? modalDraft.preorderReleaseDate || null : null,
         preorderNotes: modalDraft.availableForPreorder ? modalDraft.preorderNotes || null : null,
@@ -1250,6 +1299,7 @@ export default function Products() {
             barcode: modalOriginalDraft.barcode || null,
             cost: modalOriginalDraft.cost ? parseFloat(modalOriginalDraft.cost) : 0,
             trackInventory: modalOriginalDraft.trackInventory,
+            availabilityStatus: normalizeAvailabilityStatus(modalOriginalDraft.availabilityStatus),
             availableForPreorder: modalOriginalDraft.availableForPreorder,
             preorderReleaseDate: modalOriginalDraft.availableForPreorder ? modalOriginalDraft.preorderReleaseDate || null : null,
             preorderNotes: modalOriginalDraft.availableForPreorder ? modalOriginalDraft.preorderNotes || null : null,

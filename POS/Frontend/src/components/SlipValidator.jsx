@@ -124,12 +124,10 @@ export default function SlipValidator({ onFileSelected, showInlinePreview = true
 
   const handleSubmit = async (event) => {
     event.preventDefault();
-    if (!transactionId.trim()) {
+    const trimmedTransactionId = transactionId.trim();
+    const normalizedExpected = expectedAmount !== undefined && expectedAmount !== null ? expectedAmount.toString().trim() : '';
+    if (!trimmedTransactionId) {
       toast.push('Enter the transaction ID to validate.', 'warning');
-      return;
-    }
-    if (!expectedAmount.toString().trim()) {
-      toast.push('Enter the expected payment amount.', 'warning');
       return;
     }
     if (!file) {
@@ -139,7 +137,7 @@ export default function SlipValidator({ onFileSelected, showInlinePreview = true
     setProcessing(true);
     setResult(null);
     try {
-      const response = await api.validateSlip(transactionId.trim(), expectedAmount.toString().trim(), file);
+      const response = await api.validateSlip(trimmedTransactionId, normalizedExpected || undefined, file);
       // basic slip-type detection using OCR text
       const looksLikeSlip = detectSlipType(response?.extractedText || '', response?.confidence);
       if (!looksLikeSlip) {
@@ -156,8 +154,8 @@ export default function SlipValidator({ onFileSelected, showInlinePreview = true
       try {
         api
           .saveSlip(file, {
-            transactionId: transactionId.trim(),
-            expectedAmount: expectedAmount.toString().trim(),
+            transactionId: trimmedTransactionId,
+            expectedAmount: normalizedExpected || undefined,
             source: 'pos',
           })
           .then((saveResp) => {
@@ -180,7 +178,7 @@ export default function SlipValidator({ onFileSelected, showInlinePreview = true
       }
 
       // frontend double-check of amount in addition to backend
-      const amountOk = checkAmountMatch(response?.detectedAmount, expectedAmount);
+      const amountOk = normalizedExpected ? checkAmountMatch(response?.detectedAmount, normalizedExpected) : null;
       if (amountOk === false) {
         // non-blocking toast notifying manual review will follow
         toast.push("Amount doesn't match, but we'll double-check it manually.", 'info');
@@ -319,7 +317,9 @@ export default function SlipValidator({ onFileSelected, showInlinePreview = true
             onRetry={async () => {
               setProcessing(true);
               try {
-                const resp = await api.validateSlip(transactionId.trim(), expectedAmount.toString().trim(), file);
+                const retryTx = transactionId.trim();
+                const retryExpected = expectedAmount !== undefined && expectedAmount !== null ? expectedAmount.toString().trim() : '';
+                const resp = await api.validateSlip(retryTx, retryExpected || undefined, file);
                 setResult(resp);
               } catch (e) {
                 console.error('Slip retry failed', e);

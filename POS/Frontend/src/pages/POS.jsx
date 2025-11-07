@@ -4,8 +4,20 @@ import { useToast } from '../components/ToastContext';
 import { useSettings } from '../components/SettingsContext';
 import { useAuth } from '../components/AuthContext';
 import InvoiceEditModal from '../components/InvoiceEditModal';
+import AvailabilityTag from '../components/AvailabilityTag';
 import { useStockUpdates, useOrderUpdates, useWebSocketRoom, useWebSocketEvent } from '../hooks/useWebSocket';
 import { resolveMediaUrl } from '../lib/media';
+
+const AVAILABILITY_STATUS_VALUES = new Set(['in_stock', 'preorder', 'vendor', 'used']);
+
+const normalizeAvailabilityStatusValue = (value, fallback = 'in_stock') => {
+  if (value == null) return fallback;
+  const normalized = value.toString().toLowerCase();
+  if (AVAILABILITY_STATUS_VALUES.has(normalized)) {
+    return normalized;
+  }
+  return fallback;
+};
 
 export default function POS() {
   const [products, setProducts] = useState([]);
@@ -28,23 +40,6 @@ export default function POS() {
   const [paymentSlipPath, setPaymentSlipPath] = useState(null);
   const [paymentSlipPreview, setPaymentSlipPreview] = useState(null);
   const [paymentSlipUploading, setPaymentSlipUploading] = useState(false);
-  const [isPreorderCart, setIsPreorderCart] = useState(false);
-  const [showPreorderPrompt, setShowPreorderPrompt] = useState(false);
-  const [pendingPreorderProduct, setPendingPreorderProduct] = useState(null);
-  const [pendingPreorderQuantity, setPendingPreorderQuantity] = useState(1);
-  const [showPreorderModal, setShowPreorderModal] = useState(false);
-  const [preorderSubmitting, setPreorderSubmitting] = useState(false);
-  const [preorderForm, setPreorderForm] = useState({
-    customerName: '',
-    customerEmail: '',
-    customerPhone: '',
-    deliveryAddress: '',
-    notes: '',
-    exchangeRate: 15.42,
-    paymentReference: '',
-    paymentDate: '',
-    paymentBank: '',
-  });
 
   // UI state
   const [activeTab, setActiveTab] = useState('products'); // products, history, held
@@ -191,26 +186,7 @@ export default function POS() {
     setCartOpenMobile(false);
   }, [activeTab]);
 
-  useEffect(() => {
-    if (!selectedCustomer) return;
-    setPreorderForm((prev) => ({
-      ...prev,
-      customerName: prev.customerName || selectedCustomer.name || '',
-      customerEmail: prev.customerEmail || selectedCustomer.email || '',
-      customerPhone: prev.customerPhone || selectedCustomer.phone || '',
-      deliveryAddress: prev.deliveryAddress || selectedCustomer.address || '',
-    }));
-  }, [selectedCustomer]);
-
-  useEffect(() => {
-    const candidate = Number(globalSettings?.exchange_rate || globalSettings?.outlet?.exchange_rate);
-    if (Number.isFinite(candidate) && candidate > 0) {
-      setPreorderForm((prev) => ({
-        ...prev,
-        exchangeRate: prev.exchangeRate || candidate,
-      }));
-    }
-  }, [globalSettings]);
+  // POS checkout no longer manages preorder-specific customer overrides
 
   useStockUpdates((data) => {
     // Update product stock in real-time
@@ -232,6 +208,8 @@ export default function POS() {
 
   const markPreorderFlag = useCallback((item) => {
     if (!item || typeof item !== 'object') return false;
+    const status = normalizeAvailabilityStatusValue(item.availability_status || item.availabilityStatus, null);
+    if (status === 'preorder') return true;
     const flag = item.availableForPreorder
       || item.available_for_preorder
       || item.preorder_enabled === 1
@@ -242,15 +220,17 @@ export default function POS() {
 
   const normalizeProduct = useCallback((product) => {
     if (!product || typeof product !== 'object') return product;
+    const preorderFlag = markPreorderFlag(product);
+    const availabilityStatus = normalizeAvailabilityStatusValue(
+      product.availability_status || product.availabilityStatus || (preorderFlag ? 'preorder' : null),
+      preorderFlag ? 'preorder' : 'in_stock'
+    );
     return {
       ...product,
-      availableForPreorder: markPreorderFlag(product),
+      availabilityStatus,
+      availability_status: availabilityStatus,
+      availableForPreorder: preorderFlag,
     };
-  }, [markPreorderFlag]);
-
-  const cartContainsPreorder = useCallback((items) => {
-    if (!Array.isArray(items)) return false;
-    return items.some((entry) => markPreorderFlag(entry));
   }, [markPreorderFlag]);
 
   // Hold order handler (memoized so keyboard effect can depend on it safely)
@@ -269,18 +249,13 @@ export default function POS() {
       cart,
       customerId: selectedCustomerId,
       timestamp: new Date().toISOString(),
-      preorder: cartContainsPreorder(cart)
     };
 
     const updatedHeldOrders = [...heldOrders, heldOrder];
     saveHeldOrders(updatedHeldOrders);
     setCart([]);
-    setIsPreorderCart(false);
-    setShowPreorderModal(false);
-    setShowPreorderPrompt(false);
-    setPendingPreorderProduct(null);
     toast.push('Order held successfully', 'success');
-  }, [cart, cartContainsPreorder, heldOrders, selectedCustomerId, toast]);
+  }, [cart, heldOrders, selectedCustomerId, toast]);
 
   // Keyboard shortcuts (placed after handleHoldOrder to avoid TDZ)
   useEffect(() => {
@@ -414,20 +389,17 @@ export default function POS() {
 
   // Held orders still persist locally because they are POS-specific drafts
 
-  const addToCart = (product, customQuantity = null, forcePreorder = false) => {
+  const addToCart = (product, customQuantity = null) => {
     if (!product) return;
 
-    const preorderItem = markPreorderFlag(product);
+    const availabilityStatus = normalizeAvailabilityStatusValue(
+      product.availability_status || product.availabilityStatus || (product.preorder_enabled ? 'preorder' : null),
+      'in_stock'
+    );
+    const isPreorderItem = availabilityStatus === 'preorder' || markPreorderFlag(product);
     const desiredQuantity = customQuantity || quantityInput[product.id] || 1;
 
-    if (preorderItem && !forcePreorder && !isPreorderCart) {
-      setPendingPreorderProduct(product);
-      setPendingPreorderQuantity(desiredQuantity);
-      setShowPreorderPrompt(true);
-      return;
-    }
-
-    const skipStockCheck = preorderItem || isPreorderCart;
+    const skipStockCheck = isPreorderItem;
     if (!skipStockCheck) {
       if (product.stock <= 0) {
         toast.push('This item is out of stock.', 'warning');
@@ -452,9 +424,8 @@ export default function POS() {
           i.id === product.id ? { ...i, quantity: newQuantity } : i
         );
       } else {
-        updatedCart = [...currentCart, { ...product, quantity: desiredQuantity, availableForPreorder: preorderItem }];
+        updatedCart = [...currentCart, { ...product, quantity: desiredQuantity }];
       }
-      setIsPreorderCart(cartContainsPreorder(updatedCart));
       return updatedCart;
     });
 
@@ -469,38 +440,26 @@ export default function POS() {
 
     const product = products.find(p => p.id === productId);
     const cartEntry = cart.find((item) => item.id === productId);
-    const skipStockCheck = isPreorderCart || markPreorderFlag(product) || markPreorderFlag(cartEntry);
+    const skipStockCheck = markPreorderFlag(product) || markPreorderFlag(cartEntry);
     if (!skipStockCheck && product && newQuantity > product.stock) {
       toast.push(`Only ${product.stock} items available in stock`, 'warning');
       return;
     }
 
     setCart((currentCart) =>
-      {
-        const updated = currentCart.map((item) =>
-          item.id === productId ? { ...item, quantity: newQuantity } : item
-        );
-        setIsPreorderCart(cartContainsPreorder(updated));
-        return updated;
-      }
+      currentCart.map((item) =>
+        item.id === productId ? { ...item, quantity: newQuantity } : item
+      )
     );
   };
 
   const removeFromCart = (productId) => {
-    setCart((currentCart) => {
-      const updated = currentCart.filter((i) => i.id !== productId);
-      setIsPreorderCart(cartContainsPreorder(updated));
-      return updated;
-    });
+    setCart((currentCart) => currentCart.filter((i) => i.id !== productId));
   };
 
   const clearCart = () => {
     if (cart.length > 0 && window.confirm('Are you sure you want to clear the cart?')) {
       setCart([]);
-      setIsPreorderCart(false);
-      setShowPreorderModal(false);
-      setShowPreorderPrompt(false);
-      setPendingPreorderProduct(null);
     }
   };
 
@@ -510,9 +469,7 @@ export default function POS() {
     const order = heldOrders.find(o => o.id === orderId);
     if (order) {
       setCart(order.cart);
-      setIsPreorderCart(cartContainsPreorder(order.cart));
       setSelectedCustomerId(order.customerId);
-      // Remove from held orders
       const updatedHeldOrders = heldOrders.filter(o => o.id !== orderId);
       saveHeldOrders(updatedHeldOrders);
       toast.push('Order recalled successfully', 'success');
@@ -520,10 +477,6 @@ export default function POS() {
   };
 
   const handlePayment = () => {
-    if (isPreorderCart) {
-      toast.push('Submit preorder carts via the preorder form.', 'warning');
-      return;
-    }
     const total = totalWithTax;
     const paid = parseFloat(paymentAmount) || 0;
 
@@ -542,94 +495,6 @@ export default function POS() {
     if (!selectedCustomerId || validItemsForCheckout.length === 0) {
       toast.push('Please select a customer and add items (quantity > 0) to the cart.', 'warning');
       return false;
-    }
-
-    if (isPreorderCart && normalizedType !== 'preorder') {
-      toast.push('This cart contains preorder items. Submit it as a preorder.', 'warning');
-      return false;
-    }
-
-    if (normalizedType === 'preorder') {
-      const {
-        customerName,
-        customerEmail,
-        customerPhone,
-        deliveryAddress,
-        notes,
-        exchangeRate,
-        paymentReference: preorderPaymentReference,
-        paymentDate: preorderPaymentDate,
-        paymentBank: preorderPaymentBank,
-      } = extras || {};
-
-      const nameValue = (customerName || '').trim() || selectedCustomer?.name || '';
-      const emailValue = (customerEmail || '').trim() || selectedCustomer?.email || '';
-      const phoneValue = (customerPhone || '').trim() || selectedCustomer?.phone || '';
-
-      if (!nameValue) {
-        toast.push('Customer name is required for preorders.', 'warning');
-        return false;
-      }
-      if (!emailValue) {
-        toast.push('Customer email is required for preorders.', 'warning');
-        return false;
-      }
-      const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-      if (!emailPattern.test(emailValue)) {
-        toast.push('Enter a valid email address.', 'warning');
-        return false;
-      }
-      if (!phoneValue) {
-        toast.push('Customer phone number is required for preorders.', 'warning');
-        return false;
-      }
-
-      const exchangeValue = Number(exchangeRate);
-      const payload = {
-        customerId: Number(selectedCustomerId),
-        customerName: nameValue,
-        customerEmail: emailValue,
-        customerPhone: phoneValue,
-        deliveryAddress: (deliveryAddress || '').trim() || selectedCustomer?.address || '',
-        notes: (notes || '').trim() || null,
-        exchangeRate: Number.isFinite(exchangeValue) && exchangeValue > 0 ? exchangeValue : 15.42,
-        subtotal: cartTotal,
-        taxAmount,
-        total: totalWithTax,
-        items: validItemsForCheckout.map((item) => ({
-          productId: item.id || item.product_id || null,
-          productName: item.name || item.product_name,
-          quantity: Number(item.quantity) || 0,
-          price: Number(item.price) || 0,
-        })),
-        payment: {
-          reference: (preorderPaymentReference || '').trim() || null,
-          date: (preorderPaymentDate || '').trim() || null,
-          bank: (preorderPaymentBank || '').trim() || null,
-        },
-      };
-
-      try {
-        await api.post('/preorders', payload);
-        toast.push('Preorder submitted successfully', 'success');
-        setShowPreorderModal(false);
-        setIsPreorderCart(false);
-        setCart([]);
-        setQuantityInput({});
-        setPreorderForm((prev) => ({
-          ...prev,
-          notes: '',
-          paymentReference: '',
-          paymentDate: '',
-          paymentBank: '',
-        }));
-        setPendingPreorderProduct(null);
-        return true;
-      } catch (err) {
-        const message = err?.message || 'Failed to submit preorder';
-        toast.push(message, 'error');
-        return false;
-      }
     }
 
     try {
@@ -686,41 +551,6 @@ export default function POS() {
       toast.push(normalizedType === 'invoice' ? 'Failed to create invoice' : 'Failed to create quote', 'error');
       return false;
     }
-  };
-
-  const handlePreorderSubmit = async (event) => {
-    event.preventDefault();
-    if (preorderSubmitting) return;
-    setPreorderSubmitting(true);
-    const success = await handleCheckout('preorder', preorderForm);
-    setPreorderSubmitting(false);
-    if (!success) return;
-    setShowPreorderModal(false);
-  };
-
-  const handlePreorderPromptConfirm = () => {
-    if (!pendingPreorderProduct) {
-      setShowPreorderPrompt(false);
-      return;
-    }
-    setIsPreorderCart(true);
-    setShowPreorderPrompt(false);
-    addToCart(pendingPreorderProduct, pendingPreorderQuantity, true);
-    setPendingPreorderProduct(null);
-    setShowPreorderModal(true);
-  };
-
-  const handlePreorderPromptCancel = () => {
-    setShowPreorderPrompt(false);
-    setPendingPreorderProduct(null);
-  };
-
-  const handlePreorderFieldChange = (field) => (event) => {
-    const value = event?.target?.value ?? '';
-    setPreorderForm((prev) => ({
-      ...prev,
-      [field]: value,
-    }));
   };
 
   const handleCreateCustomer = async () => {
@@ -885,6 +715,10 @@ export default function POS() {
                     const imageSrc = resolveMediaUrl(
                       p.image_source || p.imageUrl || p.image || p.image_url || null
                     );
+                    const badgeStatus = normalizeAvailabilityStatusValue(
+                      p.availabilityStatus || p.availability_status || (p.availableForPreorder ? 'preorder' : null),
+                      p.availableForPreorder ? 'preorder' : 'in_stock'
+                    );
                     return (
                       <div
                         key={p.id}
@@ -895,12 +729,14 @@ export default function POS() {
                         className={`bg-surface border border-border rounded-lg shadow-sm hover:shadow-md transition-transform hover:scale-[1.01] overflow-hidden flex flex-col ${p.stock > 0 ? '' : 'opacity-60 grayscale'}`}
                         aria-label={`Add ${p.name} to cart`}
                       >
-                      {/* Image (if present) */}
-                      {imageSrc ? (
-                        <img src={imageSrc} alt={p.name} className="w-full h-48 object-cover transition-transform hover:scale-105" />
-                      ) : (
-                        <div className="w-full h-48 bg-muted/10 flex items-center justify-center text-muted-foreground">No image</div>
-                      )}
+                      <div className="relative">
+                        {imageSrc ? (
+                          <img src={imageSrc} alt={p.name} className="w-full h-48 object-cover transition-transform hover:scale-105" />
+                        ) : (
+                          <div className="w-full h-48 bg-muted/10 flex items-center justify-center text-muted-foreground">No image</div>
+                        )}
+                        <AvailabilityTag availabilityStatus={badgeStatus} />
+                      </div>
 
                       <div className="p-4 space-y-2 flex-1 flex flex-col">
                         <div className="flex justify-between items-start gap-2">
@@ -1294,27 +1130,17 @@ export default function POS() {
                   </div>
 
                   <div className="flex flex-col gap-2">
-                    {isPreorderCart ? (
-                      <button
-                        onClick={() => setShowPreorderModal(true)}
-                        className="w-full bg-primary text-primary-foreground font-semibold py-2 rounded-md mb-3 hover:bg-primary/90"
-                      >
-                        Finalize Preorder
-                      </button>
-                    ) : (
-                      <button
-                        ref={payNowBtnRef}
-                        onClick={() => setShowPaymentModal(true)}
-                        className="w-full bg-primary text-primary-foreground font-semibold py-2 rounded-md mb-3 hover:bg-primary/90"
-                        aria-label="Pay Now"
-                      >
-                        Pay Now (F5)
-                      </button>
-                    )}
+                    <button
+                      ref={payNowBtnRef}
+                      onClick={() => setShowPaymentModal(true)}
+                      className="w-full bg-primary text-primary-foreground font-semibold py-2 rounded-md mb-3 hover:bg-primary/90"
+                      aria-label="Pay Now"
+                    >
+                      Pay Now (F5)
+                    </button>
                     <button
                       onClick={() => handleCheckout('quote')}
-                      disabled={isPreorderCart}
-                      className={`w-full border border-border px-4 py-2 rounded-md font-semibold ${isPreorderCart ? ' opacity-50 cursor-not-allowed' : ''}`}
+                      className="w-full border border-border px-4 py-2 rounded-md font-semibold"
                     >
                       Generate Quote
                     </button>
@@ -1340,200 +1166,6 @@ export default function POS() {
           <button onClick={() => setCartOpenMobile(true)} className="px-4 py-2 bg-primary text-primary-foreground rounded-md">Go to Cart</button>
         </div>
       )}
-      {/* Preorder Prompt */}
-      {showPreorderPrompt && pendingPreorderProduct && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 w-full max-w-md mx-4">
-            <h3 className="text-xl font-semibold mb-3">Start a preorder?</h3>
-            <p className="text-sm text-gray-600">
-              {pendingPreorderProduct.name} is only available as a preorder. Start a preorder cart to continue
-              and capture the customer details.
-            </p>
-            <div className="mt-4">
-              <p className="text-sm text-gray-700"><strong>Quantity:</strong> {pendingPreorderQuantity}</p>
-              <p className="text-sm text-gray-700"><strong>Price:</strong> {formatCurrency(pendingPreorderProduct.price)}</p>
-            </div>
-            <div className="flex flex-col sm:flex-row gap-2 mt-6">
-              <button
-                onClick={handlePreorderPromptConfirm}
-                className="flex-1 accent-btn px-4 py-2 rounded font-semibold"
-              >
-                Start Preorder
-              </button>
-              <button
-                onClick={handlePreorderPromptCancel}
-                className="flex-1 accent-outline px-4 py-2 rounded font-semibold"
-              >
-                Cancel
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Preorder Modal */}
-      {showPreorderModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 w-full max-w-3xl mx-4 max-h-[90vh] overflow-y-auto">
-            <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-4">
-              <div>
-                <h3 className="text-2xl font-semibold">Preorder Details</h3>
-                <p className="text-sm text-gray-600">Review the cart and fill out customer contact information.</p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setShowPreorderModal(false)}
-                className="text-sm text-gray-500 hover:text-gray-700"
-              >
-                Close
-              </button>
-            </div>
-
-            <div className="mb-6 border rounded-lg p-4 bg-gray-50">
-              <h4 className="font-semibold text-gray-800 mb-3">Cart Summary</h4>
-              <div className="space-y-2 text-sm text-gray-700">
-                {validCartItems.map((item) => (
-                  <div key={item.id} className="flex justify-between">
-                    <span>{item.name} × {item.quantity}</span>
-                    <span>{formatCurrency(Number(item.price || 0) * Number(item.quantity || 0))}</span>
-                  </div>
-                ))}
-              </div>
-              <div className="border-t mt-3 pt-3 text-sm text-gray-700 space-y-1">
-                <div className="flex justify-between">
-                  <span>Subtotal</span>
-                  <span>{formatCurrency(cartTotal)}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span>Tax ({gstRate}%)</span>
-                  <span>{formatCurrency(taxAmount)}</span>
-                </div>
-                <div className="flex justify-between font-semibold text-lg">
-                  <span>Total</span>
-                  <span>{formatCurrency(totalWithTax)}</span>
-                </div>
-              </div>
-            </div>
-
-            <form onSubmit={handlePreorderSubmit} className="space-y-6">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Customer Name *</label>
-                  <input
-                    type="text"
-                    value={preorderForm.customerName}
-                    onChange={handlePreorderFieldChange('customerName')}
-                    className="w-full px-3 py-2 border border-gray-300 rounded"
-                    required
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Customer Email *</label>
-                  <input
-                    type="email"
-                    value={preorderForm.customerEmail}
-                    onChange={handlePreorderFieldChange('customerEmail')}
-                    className="w-full px-3 py-2 border border-gray-300 rounded"
-                    required
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Customer Phone *</label>
-                  <input
-                    type="tel"
-                    value={preorderForm.customerPhone}
-                    onChange={handlePreorderFieldChange('customerPhone')}
-                    className="w-full px-3 py-2 border border-gray-300 rounded"
-                    required
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Exchange Rate</label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    value={preorderForm.exchangeRate}
-                    onChange={handlePreorderFieldChange('exchangeRate')}
-                    className="w-full px-3 py-2 border border-gray-300 rounded"
-                    min="0"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Delivery Address</label>
-                <textarea
-                  value={preorderForm.deliveryAddress}
-                  onChange={handlePreorderFieldChange('deliveryAddress')}
-                  className="w-full px-3 py-2 border border-gray-300 rounded"
-                  rows={3}
-                />
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Payment Reference</label>
-                  <input
-                    type="text"
-                    value={preorderForm.paymentReference}
-                    onChange={handlePreorderFieldChange('paymentReference')}
-                    className="w-full px-3 py-2 border border-gray-300 rounded"
-                    placeholder="Optional"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Payment Date</label>
-                  <input
-                    type="date"
-                    value={preorderForm.paymentDate}
-                    onChange={handlePreorderFieldChange('paymentDate')}
-                    className="w-full px-3 py-2 border border-gray-300 rounded"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Payment Bank</label>
-                  <input
-                    type="text"
-                    value={preorderForm.paymentBank}
-                    onChange={handlePreorderFieldChange('paymentBank')}
-                    className="w-full px-3 py-2 border border-gray-300 rounded"
-                    placeholder="Optional"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Notes</label>
-                <textarea
-                  value={preorderForm.notes}
-                  onChange={handlePreorderFieldChange('notes')}
-                  className="w-full px-3 py-2 border border-gray-300 rounded"
-                  rows={3}
-                  placeholder="Special instructions or preorder terms"
-                />
-              </div>
-
-              <div className="flex flex-col sm:flex-row sm:justify-end gap-2 pt-4 border-t">
-                <button
-                  type="button"
-                  onClick={() => setShowPreorderModal(false)}
-                  className="sm:w-auto w-full accent-outline px-4 py-2 rounded font-semibold"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={preorderSubmitting}
-                  className={`sm:w-auto w-full accent-btn px-4 py-2 rounded font-semibold${preorderSubmitting ? ' opacity-75 cursor-wait' : ''}`}
-                >
-                  {preorderSubmitting ? 'Submitting…' : 'Submit Preorder'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
       {/* Payment Modal */}
       {showPaymentModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
