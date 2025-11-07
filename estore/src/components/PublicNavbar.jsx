@@ -1,17 +1,17 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, NavLink, useLocation } from 'react-router-dom';
-import { FaBars, FaShoppingCart, FaTimes } from 'react-icons/fa';
+import { FaBars, FaShoppingCart, FaTimes, FaStore, FaHandshake, FaPaperPlane, FaListUl, FaUserFriends, FaShieldAlt } from 'react-icons/fa';
 import { useCart } from './CartContext';
 
 const POS_BRAND_LOGO = 'https://pos.itnvend.com:4000/uploads/logos/1762295200252-icons8-it-64.png.png';
 
 const NAV_LINKS = [
-  { to: '/market', label: 'Market Hub' },
-  { to: '/sell', label: 'Sell with us' },
-  { to: '/shop-and-ship', label: 'Shop & Ship' },
-  { to: '/vendors', label: 'Vendor directory' },
-  { to: '/vendor-onboarding', label: 'Apply as vendor' },
-  { to: '/privacy', label: 'Trust Center' },
+  { to: '/market', label: 'Market Hub', description: 'Fresh drops & bundles', icon: FaStore },
+  { to: '/sell', label: 'Sell with us', description: 'POS-first consignments', icon: FaHandshake },
+  { to: '/shop-and-ship', label: 'Shop & Ship', description: 'Overseas cart concierge', icon: FaPaperPlane },
+  { to: '/vendors', label: 'Vendor directory', description: 'Browse approved partners', icon: FaListUl },
+  { to: '/vendor-onboarding', label: 'Apply as vendor', description: 'Join the marketplace', icon: FaUserFriends },
+  { to: '/privacy', label: 'Trust Center', description: 'Security & policies', icon: FaShieldAlt },
 ];
 
 export default function PublicNavbar() {
@@ -57,11 +57,9 @@ export default function PublicNavbar() {
     ) : null;
 
     const cartButtonClasses = [
-      'inline-flex items-center gap-2 rounded-full border border-rose-300/60 bg-white/20 px-4 py-2 text-sm font-semibold text-rose-500 transition-colors duration-200 hover:border-rose-400 hover:bg-white/30',
-      cartCount > 0 ? 'ring-1 ring-rose-300/60' : '',
-    ]
-      .filter(Boolean)
-      .join(' ');
+      'inline-flex items-center gap-2 rounded-full border border-white/30 bg-white/10 px-4 py-2 text-sm font-semibold text-rose-600 backdrop-blur-md',
+      'shadow-[0_5px_25px_rgba(244,114,182,0.25)] transition-colors duration-200 hover:border-white/60 hover:shadow-[0_10px_35px_rgba(244,114,182,0.45)]'
+    ].join(' ');
 
     return (
       <>
@@ -105,28 +103,33 @@ export default function PublicNavbar() {
                 alt="ITnVend"
                 className="h-12 w-12 rounded-2xl border border-white/70 bg-white/80 object-contain p-2 shadow-md shadow-rose-200/40"
               />
-              <span className="flex flex-col leading-tight text-slate-800">
-                <span className="text-base font-bold sm:text-lg">ITnVend Market Hub</span>
-                <span className="text-xs text-rose-400 sm:text-sm">Retail, subscriptions &amp; smiles in sync</span>
+              <span className="flex flex-col leading-snug text-slate-900">
+                <span className="text-lg font-black tracking-tight sm:text-xl">ITnVend Market Hub</span>
+                <span className="text-[13px] text-rose-400 sm:text-sm">Retail, subscriptions &amp; smiles in sync</span>
               </span>
             </Link>
 
-          <nav className="hidden flex-1 items-center justify-center gap-6 text-sm font-semibold text-rose-500 lg:flex">
-            {filteredNavLinks.map(({ to, label }) => (
-              <NavLink
-                key={to}
-                to={to}
-                className={({ isActive }) =>
-                  `relative inline-flex items-center px-1 py-2 transition-all duration-200 ${
+          <nav className="hidden flex-1 items-center justify-center lg:flex">
+            <div className="flex w-full max-w-5xl items-center justify-between gap-3 rounded-full border border-white/60 bg-white/80 px-4 py-2 shadow-sm shadow-rose-100 backdrop-blur-lg">
+              {filteredNavLinks.map(({ to, label, description, icon: Icon }) => (
+                <NavLink
+                  key={to}
+                  to={to}
+                  className={({ isActive }) => [
+                    'group inline-flex flex-1 items-center gap-2 rounded-full border px-3 py-2 transition-all duration-200',
                     isActive
-                      ? 'text-rose-600 after:scale-x-100 after:opacity-100'
-                      : 'text-rose-500 hover:text-rose-600 after:opacity-0'
-                  } after:absolute after:-bottom-1 after:left-0 after:right-0 after:h-[2px] after:origin-center after:scale-x-0 after:rounded-full after:bg-gradient-to-r after:from-rose-400 after:to-sky-400 after:transition-all after:duration-300`
-                }
-              >
-                {label}
-              </NavLink>
-            ))}
+                      ? 'border-rose-200 bg-gradient-to-r from-rose-50 via-white to-sky-50 text-rose-600 shadow-sm'
+                      : 'border-transparent text-slate-600 hover:-translate-y-0.5 hover:border-rose-100 hover:bg-white',
+                  ].join(' ')}
+                >
+                  {Icon && <Icon size={18} className="text-rose-400 group-hover:text-rose-500" />}
+                  <span className="flex flex-col whitespace-nowrap leading-tight">
+                    <span className="text-sm font-semibold">{label}</span>
+                    {description && <span className="text-[11px] font-medium text-slate-400">{description}</span>}
+                  </span>
+                </NavLink>
+              ))}
+            </div>
           </nav>
 
           <div className="ml-auto flex items-center gap-3">
@@ -185,7 +188,7 @@ export default function PublicNavbar() {
               </button>
             </div>
             <nav className="space-y-2 text-base font-semibold text-rose-500">
-              {filteredNavLinks.map(({ to, label }) => (
+              {filteredNavLinks.map(({ to, label, description, icon: Icon }) => (
                 <NavLink
                   key={to}
                   to={to}
@@ -196,15 +199,17 @@ export default function PublicNavbar() {
                         : 'border-rose-100 bg-white hover:border-rose-200 hover:bg-rose-50/70'
                     }`
                 }
-                >
-                  {({ isActive }) => (
-                    <>
-                      <span>{label}</span>
-                      {isActive && (
-                        <span className="text-xs font-bold uppercase tracking-wider text-rose-400">Active</span>
-                      )}
-                    </>
-                  )}
+                  >
+                  <div className="flex flex-col">
+                    <span className="flex items-center gap-2 text-sm font-semibold">
+                      {Icon && <Icon size={18} className="text-rose-400" />}
+                      {label}
+                    </span>
+                    {description && <span className="text-xs font-normal text-slate-400">{description}</span>}
+                  </div>
+                  <span className="inline-flex h-6 w-6 items-center justify-center rounded-full border border-rose-200 text-xs text-rose-400">
+                    •
+                  </span>
                 </NavLink>
               ))}
             </nav>
