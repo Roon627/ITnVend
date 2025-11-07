@@ -16,6 +16,8 @@ import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
 import validateSlipRouter from './routes/validateSlip.js';
 import validateSlipPublicRouter from './routes/validateSlipPublic.js';
+import slipsRouter from './routes/slips.js';
+import { createSlipProcessingQueue } from './lib/slipProcessingQueue.js';
 
 const CERTS_DIR = path.join(process.cwd(), 'certs');
 const HTTPS_CERT_PATH = path.join(CERTS_DIR, 'pos-itnvend-com.pem');
@@ -132,6 +134,12 @@ function createRateLimiter({ windowMs = 60 * 60 * 1000, max = 20, keyFn = (req) 
 app.use('/api/validate-slip', authMiddleware, requireRole(['accounts', 'manager', 'admin']), validateSlipRouter);
 // Public endpoint for storefront slip pre-validation (accepts data URL JSON)
 app.use('/api/validate-slip-public', validateSlipPublicRouter);
+
+// serve uploaded files (slips) from /uploads - local disk storage uses this path
+app.use('/uploads', express.static(path.join(process.cwd(), 'uploads')));
+
+// Slips persistence endpoints (authenticated)
+app.use('/api/slips', authMiddleware, requireRole(['accounts', 'manager', 'admin']), slipsRouter);
 
 app.get('/', (req, res) => {
     res.send('ITnVend API is running...');
@@ -920,6 +928,13 @@ try { fs.mkdirSync(imagesDir, { recursive: true }); } catch (e) { /* ignore */ }
 app.use('/uploads', express.static(imagesDir));
 app.use('/images', express.static(imagesDir));
 
+// Serve slip uploads saved under ./uploads/slips at /uploads/slips
+try {
+    const slipsStatic = path.join(process.cwd(), 'uploads', 'slips');
+    fs.mkdirSync(slipsStatic, { recursive: true });
+    app.use('/uploads/slips', express.static(slipsStatic));
+} catch (e) { /* ignore */ }
+
 // Upload a logo as a base64 data URL and persist URL in settings.logo_url
 app.post('/api/settings/upload-logo', authMiddleware, requireRole(['admin']), async (req, res) => {
     try {
@@ -1084,7 +1099,22 @@ function normalizeUploadPath(raw) {
 
 async function startServer() {
     try {
-        db = await setupDatabase();
+    db = await setupDatabase();
+    // expose db on the express app so routes can access it via req.app.get('db')
+    try { app.set('db', db); } catch (e) { /* ignore */ }
+        const slipProcessingQueue = createSlipProcessingQueue({
+            db,
+            notify: (payload) => {
+                try {
+                    if (global.io) {
+                        global.io.emit('slips:updated', payload);
+                    }
+                } catch (notifyErr) {
+                    console.warn('Failed to broadcast slip update', notifyErr);
+                }
+            }
+        });
+        try { app.set('slipProcessingQueue', slipProcessingQueue); } catch (e) { /* ignore */ }
         // ensure settings has jwt_secret column (safe add)
         try { await db.run("ALTER TABLE settings ADD COLUMN jwt_secret TEXT"); } catch (e) { /* ignore if exists */ }
         // load or create JWT secret (persist in settings row)
@@ -1095,6 +1125,7 @@ async function startServer() {
             JWT_SECRET = crypto.randomBytes(32).toString('hex');
             try { await db.run('UPDATE settings SET jwt_secret = ? WHERE id = 1', [JWT_SECRET]); } catch (e) { /* ignore */ }
         }
+        try { app.set('JWT_SECRET', JWT_SECRET); } catch (e) { /* ignore */ }
         // ensure basic roles exist
         const existingRoles = await db.all('SELECT name FROM roles');
         const roleNames = existingRoles.map(r => r.name);

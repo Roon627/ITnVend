@@ -1,51 +1,7 @@
 import express from 'express';
-import sharp from 'sharp';
-import Tesseract from 'tesseract.js';
+import slipProcessor from '../lib/slipProcessor.js';
 
 const router = express.Router();
-
-function sanitizeText(value) {
-  if (!value) return '';
-  return value.toString().replace(/[^0-9a-z]/gi, '').toUpperCase();
-}
-
-function levenshteinDistance(a, b) {
-  const lenA = a.length;
-  const lenB = b.length;
-  if (lenA === 0) return lenB;
-  if (lenB === 0) return lenA;
-  const matrix = Array.from({ length: lenA + 1 }, () => new Array(lenB + 1).fill(0));
-  for (let i = 0; i <= lenA; i += 1) matrix[i][0] = i;
-  for (let j = 0; j <= lenB; j += 1) matrix[0][j] = j;
-  for (let i = 1; i <= lenA; i += 1) {
-    for (let j = 1; j <= lenB; j += 1) {
-      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
-      matrix[i][j] = Math.min(matrix[i - 1][j] + 1, matrix[i][j - 1] + 1, matrix[i - 1][j - 1] + cost);
-    }
-  }
-  return matrix[lenA][lenB];
-}
-
-function bestWindowDistance(needle, haystack) {
-  if (!needle.length) return 0;
-  if (!haystack.length) return needle.length;
-  if (haystack.length <= needle.length) return levenshteinDistance(needle, haystack);
-  let minDistance = Number.POSITIVE_INFINITY;
-  for (let i = 0; i <= haystack.length - needle.length; i += 1) {
-    const slice = haystack.slice(i, i + needle.length);
-    const distance = levenshteinDistance(needle, slice);
-    if (distance === 0) return 0;
-    if (distance < minDistance) minDistance = distance;
-  }
-  return minDistance;
-}
-
-async function runOcr(buffer) {
-  const result = await Tesseract.recognize(buffer, 'eng', { logger: () => {} });
-  const extractedText = result?.data?.text || '';
-  const confidence = Number(result?.data?.confidence || 0);
-  return { extractedText, confidence };
-}
 
 function dataUrlToBuffer(dataUrl) {
   if (typeof dataUrl !== 'string') return null;
@@ -69,56 +25,14 @@ router.post('/', express.json({ limit: '12mb' }), async (req, res) => {
       parsedExpectedAmount = numeric;
     }
 
-    const rawTransactionId = transactionId.toString().trim();
-    const normalizedTransactionId = sanitizeText(rawTransactionId);
-    if (!normalizedTransactionId) return res.status(400).json({ error: 'transactionId must contain alphanumeric characters' });
+  const rawTransactionId = transactionId.toString().trim();
+  if (!/[A-Za-z0-9]/.test(rawTransactionId)) return res.status(400).json({ error: 'transactionId must contain alphanumeric characters' });
 
     const buffer = dataUrlToBuffer(slip);
     if (!buffer) return res.status(400).json({ error: 'Slip must be a data URL (data:<mime>;base64,...)' });
 
-    let processedBuffer;
-    try {
-      processedBuffer = await sharp(buffer)
-        .resize({ width: 1000, withoutEnlargement: true })
-        .grayscale()
-        .normalize()
-        .toFormat('png')
-        .toBuffer();
-    } catch (imgErr) {
-      console.error('Slip preprocessing failed', imgErr);
-      return res.status(500).json({ error: 'Failed to preprocess slip image' });
-    }
-
-    let ocrResult;
-    try {
-      ocrResult = await runOcr(processedBuffer);
-    } catch (ocrErr) {
-      console.error('Slip OCR failed', ocrErr);
-      return res.status(500).json({ error: 'Failed to read slip text' });
-    }
-
-    const cleanedText = ocrResult.extractedText.replace(/\s+/g, ' ').trim();
-    const normalizedExtracted = sanitizeText(cleanedText);
-    const includes = normalizedExtracted.includes(normalizedTransactionId);
-    const distance = includes ? 0 : bestWindowDistance(normalizedTransactionId, normalizedExtracted);
-    const match = includes || distance <= 1;
-
-    const amountPattern = /(\d{1,3}(,\d{3})*(\.\d{2})?)/g;
-    const matches = cleanedText.match(amountPattern) || [];
-    const parsedAmounts = matches.map((e) => e.replace(/,/g, '')).map((e) => Number.parseFloat(e)).filter((v) => Number.isFinite(v));
-    let detectedAmount = null;
-    if (parsedAmounts.length > 0) {
-      const highest = Math.max(...parsedAmounts);
-      const lastHighestIndex = parsedAmounts.lastIndexOf(highest);
-      detectedAmount = parsedAmounts[lastHighestIndex];
-    }
-
-    let amountMatch = null;
-    if (parsedExpectedAmount !== null && detectedAmount !== null) {
-      amountMatch = Math.abs(detectedAmount - parsedExpectedAmount) <= 1;
-    }
-
-    return res.json({ match, confidence: ocrResult.confidence, extractedText: cleanedText, detectedAmount: detectedAmount !== null ? Number.parseFloat(detectedAmount.toFixed(2)) : null, expectedAmount: parsedExpectedAmount !== null ? Number.parseFloat(parsedExpectedAmount.toFixed(2)) : null, amountMatch });
+    const result = await slipProcessor.processSlip({ buffer, mimetype: null, transactionId, expectedAmount });
+    return res.json(result);
   } catch (err) {
     console.error('Public slip validation error', err);
     return res.status(500).json({ error: 'Failed to validate slip' });

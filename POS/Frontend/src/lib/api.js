@@ -182,6 +182,16 @@ const apiClient = {
       body: formData,
     });
   },
+  // Persist uploaded slip (stores metadata and file). Backend will run OCR/validation.
+  saveSlip: (file, opts = {}) => {
+    if (!file) return Promise.reject(new Error('file is required'));
+    const form = new FormData();
+    form.append('slip', file);
+    if (opts.transactionId) form.append('transactionId', opts.transactionId);
+    if (opts.expectedAmount) form.append('expectedAmount', opts.expectedAmount);
+    if (opts.source) form.append('source', opts.source);
+    return apiClient.upload('/slips', form);
+  },
 };
 
 export const api = apiClient;

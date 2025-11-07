@@ -3,7 +3,7 @@ import api from '../lib/api';
 import { useToast } from './ToastContext';
 import InlineValidationCard from './InlineValidationCard';
 
-export default function SlipValidator() {
+export default function SlipValidator({ onFileSelected, showInlinePreview = true, onSlipPersisted } = {}) {
   const toast = useToast();
   const [transactionId, setTransactionId] = useState('');
   const [expectedAmount, setExpectedAmount] = useState('');
@@ -17,6 +17,12 @@ export default function SlipValidator() {
     setFile(selected);
     setFileName(selected ? selected.name : '');
     setResult(null);
+    try {
+      const url = selected ? URL.createObjectURL(selected) : null;
+      if (typeof onFileSelected === 'function') onFileSelected(selected, url);
+    } catch (e) {
+      // ignore
+    }
   };
 
   const fileUrl = useMemo(() => (file ? URL.createObjectURL(file) : null), [file]);
@@ -146,6 +152,29 @@ export default function SlipValidator() {
 
       setResult(response);
 
+      // Persist slip for staff review (non-blocking). Backend will store file and OCR result.
+      try {
+        api
+          .saveSlip(file, {
+            transactionId: transactionId.trim(),
+            expectedAmount: expectedAmount.toString().trim(),
+            source: 'pos',
+          })
+          .then((saveResp) => {
+            if (saveResp && saveResp.id) {
+              toast.push('Slip uploaded for review.', 'success');
+              if (typeof onSlipPersisted === 'function') {
+                onSlipPersisted(saveResp);
+              }
+            }
+          })
+          .catch((e) => {
+            console.debug('Failed to persist slip (non-blocking):', e?.message || e);
+          });
+      } catch (e) {
+        // ignore persistence errors — validation already showed result
+      }
+
       if (response && response.match === false) {
         toast.push('Payment slip does not match the provided reference. Please re-check your slip or reference.', 'error');
       }
@@ -240,7 +269,7 @@ export default function SlipValidator() {
         </button>
       </form>
 
-      {file && (
+      {showInlinePreview && file && (
         <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
           <div className="flex flex-col md:flex-row gap-4 items-start">
             <div className="w-full md:w-2/3 rounded-lg overflow-hidden bg-slate-50 flex items-center justify-center p-3">

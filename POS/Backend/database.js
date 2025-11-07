@@ -193,6 +193,23 @@ export async function setupDatabase() {
             FOREIGN KEY(invoice_id) REFERENCES invoices(id)
         );
 
+        -- Payment slips persisted for staff review and validation
+        CREATE TABLE IF NOT EXISTS slips (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            filename TEXT NOT NULL,
+            storage_key TEXT,
+            storage_path TEXT,
+            source TEXT DEFAULT 'pos', -- pos | website
+            uploaded_by INTEGER,
+            uploaded_by_name TEXT,
+            ocr_text TEXT,
+            ocr_confidence REAL,
+            validation_result TEXT, -- JSON blob
+            status TEXT DEFAULT 'pending', -- pending | validated | failed
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+
         -- Settings and email configuration
         CREATE TABLE IF NOT EXISTS settings (
             id INTEGER PRIMARY KEY CHECK (id = 1),

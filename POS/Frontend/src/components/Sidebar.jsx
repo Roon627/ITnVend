@@ -14,7 +14,7 @@ import {
   FaClipboardList,
   FaTimes,
   FaInbox,
-  FaFileSignature,
+  FaImages,
 } from 'react-icons/fa';
 import { useAuth } from './AuthContext';
 import { useUI } from './UIContext';
@@ -89,9 +89,10 @@ export default function Sidebar() {
           </NavLink>
         )}
   {/* Vendor and one-time-seller direct links removed — managed inside Customers/Submissions */}
+        {/* Validate Slip moved into the unified Slips workspace; link removed from sidebar to avoid duplication. */}
         {canValidateSlips && (
-          <NavLink to="/validate-slip" className={linkClass} onClick={handleNavClick}>
-            <FaFileSignature /> {!collapsedLabelsHidden && 'Validate Slip'}
+          <NavLink to="/slips" className={linkClass} onClick={handleNavClick}>
+            <FaImages /> {!collapsedLabelsHidden && 'Slips'}
           </NavLink>
         )}
         {canViewAccounting && (

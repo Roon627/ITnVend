@@ -1,5 +1,6 @@
 // @ts-nocheck
 import React, { useState, useEffect, useCallback } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { api } from '../../lib/api';
 import { useSettings } from '../../components/SettingsContext';
 import ADashboard from './AccountingDashboard';
@@ -11,6 +12,8 @@ import FinancialReportsModule from './FinancialReports';
 
 const Accounting = () => {
   const { formatCurrency } = useSettings();
+  const navigate = useNavigate();
+  const location = useLocation();
 
   const [activeTab, setActiveTab] = useState('dashboard');
   const [chartOfAccounts, setChartOfAccounts] = useState([]);
@@ -63,7 +66,6 @@ const Accounting = () => {
     } finally {
       setLoading(false);
     }
-     
   }, [activeTab]);
 
   useEffect(() => {
@@ -110,20 +112,30 @@ const Accounting = () => {
             { id: 'accounts-receivable', label: 'Accounts Receivable', icon: '💰' },
             { id: 'accounts-payable', label: 'Accounts Payable', icon: '💳' },
             { id: 'reports', label: 'Reports', icon: '📈' },
-          ].map((tab) => (
-            <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
-              className={`flex items-center gap-2 py-2 px-4 text-sm font-medium border-b-2 transition-colors ${
-                activeTab === tab.id
-                  ? 'border-blue-600 text-blue-600 bg-blue-50'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 hover:bg-gray-50'
-              }`}
-            >
-              <span className="text-base">{tab.icon}</span>
-              {tab.label}
-            </button>
-          ))}
+            { id: 'slips', label: 'Payment Slips', icon: '🧾', external: true },
+          ].map((tab) => {
+            const isActive = tab.external ? location.pathname === '/slips' : activeTab === tab.id;
+            return (
+              <button
+                key={tab.id}
+                onClick={() => {
+                  if (tab.external) {
+                    navigate('/slips');
+                    return;
+                  }
+                  setActiveTab(tab.id);
+                }}
+                className={`flex items-center gap-2 py-2 px-4 text-sm font-medium border-b-2 transition-colors ${
+                  isActive
+                    ? 'border-blue-600 text-blue-600 bg-blue-50'
+                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 hover:bg-gray-50'
+                }`}
+              >
+                <span className="text-base">{tab.icon}</span>
+                {tab.label}
+              </button>
+            );
+          })}
         </nav>
 
         <div className="mt-4">{renderActiveTab()}</div>
