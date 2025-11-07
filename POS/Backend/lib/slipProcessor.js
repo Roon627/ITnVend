@@ -57,16 +57,63 @@ async function runOcr(buffer) {
 }
 
 function parseDetectedAmountFromText(cleanedText) {
-  const amountPattern = /(\d{1,3}(,\d{3})*(\.\d{2})?)/g;
-  const matches = cleanedText.match(amountPattern) || [];
-  const parsedAmounts = matches.map((entry) => entry.replace(/,/g, '')).map((entry) => Number.parseFloat(entry)).filter((v) => Number.isFinite(v));
-  let detectedAmount = null;
-  if (parsedAmounts.length > 0) {
-    const highest = Math.max(...parsedAmounts);
-    const lastHighestIndex = parsedAmounts.lastIndexOf(highest);
-    detectedAmount = parsedAmounts[lastHighestIndex];
+  const text = cleanedText.toLowerCase();
+  
+  const highConfidenceCandidates = [];
+
+  // Pass 1: High-confidence extraction (currency and keywords)
+  // Regex for "MVR 53.00" or "53.00 USD"
+  const currencyRegex = /((?:mvr|usd|rf|\$)\s*(\d{1,3}(?:,?\d{3})*(?:\.\d{2})?))|((\d{1,3}(?:,?\d{3})*(?:\.\d{2})?)\s*(?:mvr|usd|rf))/g;
+  let match;
+  while ((match = currencyRegex.exec(text)) !== null) {
+    const amountStr = match[2] || match[4];
+    if (amountStr) {
+      const amount = parseFloat(amountStr.replace(/,/g, ''));
+      if (!isNaN(amount) && amount > 0) {
+        highConfidenceCandidates.push(amount);
+      }
+    }
   }
-  return detectedAmount !== null ? Number.parseFloat(detectedAmount.toFixed(2)) : null;
+
+  // Regex for "Total: 53.00" or "Amoun 53.00"
+  const keywordRegex = /(?:total|amount|amoun|due)\s*:?\s*(\d{1,3}(?:,?\d{3})*(?:\.\d{2})?)/g;
+  while ((match = keywordRegex.exec(text)) !== null) {
+    const amountStr = match[1];
+    if (amountStr) {
+      const amount = parseFloat(amountStr.replace(/,/g, ''));
+      if (!isNaN(amount) && amount > 0) {
+        highConfidenceCandidates.push(amount);
+      }
+    }
+  }
+
+  // Decision 1: If we have high-confidence matches, return the largest one.
+  // This handles cases with subtotal and total, correctly picking the total.
+  if (highConfidenceCandidates.length > 0) {
+    return Math.max(...highConfidenceCandidates);
+  }
+
+  // Pass 2: Low-confidence fallback if Pass 1 failed
+  // Find all numbers, but be very careful.
+  const allNumbersRegex = /(\d{1,3}(?:,?\d{3})*(?:\.\d{2})?)/g;
+  const allNumbers = text.match(allNumbersRegex) || [];
+  
+  const lowConfidenceCandidates = allNumbers
+    .map(n => parseFloat(n.replace(/,/g, '')))
+    .filter(n => {
+      if (isNaN(n) || n <= 0) return false;
+      // Exclude numbers that are clearly not monetary values
+      if (n > 999999) return false; // Exclude very large reference numbers
+      if (n > 1900 && n < 2100) return false; // Exclude years
+      return true;
+    });
+
+  // Decision 2: If we have any candidates left, return the largest one.
+  if (lowConfidenceCandidates.length > 0) {
+    return Math.max(...lowConfidenceCandidates);
+  }
+
+  return null;
 }
 
 function parseExpectedAmount(expectedAmount) {

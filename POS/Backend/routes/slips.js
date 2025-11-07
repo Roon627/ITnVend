@@ -3,13 +3,25 @@ import multer from 'multer';
 import storage from '../storage.js';
 import path from 'path';
 import slipProcessor from '../lib/slipProcessor.js';
+import { body, validationResult } from 'express-validator';
 
 const router = express.Router();
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 16 * 1024 * 1024 } });
 
+const createSlipValidationRules = [
+  body('source').optional().isString().trim().escape(),
+  body('transactionId').optional().trim().escape(),
+  body('expectedAmount').optional().isFloat({ gt: 0 }).toFloat(),
+];
+
 // Create a slip (multipart file)
-router.post('/', upload.single('slip'), async (req, res) => {
+router.post('/', upload.single('slip'), createSlipValidationRules, async (req, res) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({ errors: errors.array() });
+  }
+
   try {
     const { source = 'pos', transactionId, expectedAmount } = req.body || {};
     if (!req.file || !req.file.buffer) return res.status(400).json({ error: 'file (slip) is required' });
@@ -214,8 +226,18 @@ router.get('/:id', async (req, res) => {
   }
 });
 
+const updateSlipValidationRules = [
+  body('status').optional().isIn(['pending', 'validated', 'rejected', 'processing', 'failed']).trim(),
+  body('validation_result').optional(),
+];
+
 // Update slip (status, validation_result)
-router.patch('/:id', async (req, res) => {
+router.patch('/:id', updateSlipValidationRules, async (req, res) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({ errors: errors.array() });
+  }
+
   try {
     const id = req.params.id;
     const { status, validation_result } = req.body || {};
