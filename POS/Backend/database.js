@@ -8,6 +8,32 @@ function convertPlaceholders(sql) {
     return sql.replace(/\?/g, () => `$${++i}`);
 }
 
+function slugifyValue(value = '') {
+    return (value || '')
+        .toString()
+        .toLowerCase()
+        .trim()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/(^-|-$)+/g, '')
+        || 'vendor';
+}
+
+async function ensureVendorSlugs(db) {
+    const rows = await db.all("SELECT id, legal_name, contact_person, email, slug FROM vendors WHERE slug IS NULL OR slug = ''");
+    for (const row of rows) {
+        const base = slugifyValue(row.legal_name || row.contact_person || row.email || `vendor-${row.id}`);
+        let candidate = base;
+        let suffix = 2;
+        while (true) {
+            const clash = await db.get('SELECT id FROM vendors WHERE slug = ? AND id != ?', [candidate, row.id]);
+            if (!clash) break;
+            candidate = `${base}-${suffix++}`;
+        }
+        await db.run('UPDATE vendors SET slug = ? WHERE id = ?', [candidate, row.id]);
+    }
+    await db.run("UPDATE vendors SET public_description = notes WHERE (public_description IS NULL OR public_description = '') AND notes IS NOT NULL AND notes != ''");
+}
+
 async function ensureColumn(db, table, column, definition) {
     const info = await db.all(`PRAGMA table_info(${table})`);
     const exists = info.some((col) => col.name === column);
@@ -385,6 +411,15 @@ export async function setupDatabase() {
             website TEXT,
             capabilities TEXT,
             notes TEXT,
+            bank_details TEXT,
+            logo_url TEXT,
+            commission_rate REAL DEFAULT 0.10,
+            status TEXT DEFAULT 'pending',
+            customer_id INTEGER,
+            slug TEXT UNIQUE,
+            tagline TEXT,
+            public_description TEXT,
+            hero_image TEXT,
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP
         );
 
@@ -723,6 +758,7 @@ export async function setupDatabase() {
     await ensureColumn(db, 'products', 'year', 'INTEGER');
     await ensureColumn(db, 'products', 'auto_sku', 'INTEGER DEFAULT 1');
     await ensureColumn(db, 'products', 'tags_cache', 'TEXT');
+    await ensureColumn(db, 'products', 'vendor_id', 'INTEGER');
     await db.run('CREATE UNIQUE INDEX IF NOT EXISTS idx_products_sku ON products(sku)');
     await db.run('CREATE INDEX IF NOT EXISTS idx_products_brand ON products(brand_id)');
     await db.run('CREATE INDEX IF NOT EXISTS idx_products_category ON products(category_id)');
@@ -752,6 +788,11 @@ export async function setupDatabase() {
     await ensureColumn(db, 'vendors', 'status', "TEXT DEFAULT 'pending'");
     // optional link to customers table when vendor is approved
     await ensureColumn(db, 'vendors', 'customer_id', 'INTEGER');
+    await ensureColumn(db, 'vendors', 'slug', 'TEXT UNIQUE');
+    await ensureColumn(db, 'vendors', 'tagline', 'TEXT');
+    await ensureColumn(db, 'vendors', 'public_description', 'TEXT');
+    await ensureColumn(db, 'vendors', 'hero_image', 'TEXT');
+    await ensureVendorSlugs(db);
 
     // Casual sellers / one-time listings (lightweight flow)
     await db.exec(`

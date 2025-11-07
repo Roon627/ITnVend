@@ -47,6 +47,7 @@ const EMPTY_FORM = {
   model: '',
   year: '',
   availabilityStatus: 'in_stock',
+  vendorId: '',
 };
 
 const AVAILABILITY_STATUS_OPTIONS = [

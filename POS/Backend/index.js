@@ -270,6 +270,29 @@ const PREORDER_RATE_LIMIT_COUNT = 20;
 const MAX_PREORDER_NOTES_LENGTH = 4000;
 const MAX_PREORDER_CART_LINKS = 10;
 
+async function getUniqueVendorSlug(base, ignoreId = null) {
+    const baseSlug = slugify(base || '') || `vendor-${Date.now()}`;
+    let candidate = baseSlug;
+    let suffix = 2;
+    while (true) {
+        const clash = ignoreId != null
+            ? await db.get('SELECT id FROM vendors WHERE slug = ? AND id != ?', [candidate, ignoreId])
+            : await db.get('SELECT id FROM vendors WHERE slug = ?', [candidate]);
+        if (!clash) return candidate;
+        candidate = `${baseSlug}-${suffix++}`;
+    }
+}
+
+async function ensureVendorSlug(id, fallbackName = '') {
+    const vendor = await db.get('SELECT id, slug, legal_name, contact_person, email FROM vendors WHERE id = ?', [id]);
+    if (!vendor) return null;
+    if (vendor.slug && vendor.slug.trim()) return vendor.slug;
+    const slugSource = fallbackName || vendor.legal_name || vendor.contact_person || vendor.email || `vendor-${id}`;
+    const slug = await getUniqueVendorSlug(slugSource, id);
+    await db.run('UPDATE vendors SET slug = ? WHERE id = ?', [slug, id]);
+    return slug;
+}
+
 const HTML_ESCAPE_LOOKUP = {
     '&': '&amp;',
     '<': '&lt;',
@@ -1476,6 +1499,7 @@ app.get('/api/products', async (req, res) => {
         tag,
         brandId,
         type,
+        vendorId,
     } = req.query;
 
     const cacheKey = `products:${JSON.stringify({
@@ -1490,6 +1514,7 @@ app.get('/api/products', async (req, res) => {
         tag,
         brandId,
         type,
+        vendorId,
     })}`;
 
     try {
@@ -1507,7 +1532,9 @@ app.get('/api/products', async (req, res) => {
                 col.name AS color_name,
                 cat.name AS category_name_resolved,
                 sub.name AS subcategory_name_resolved,
-                subsub.name AS subsubcategory_name_resolved
+                subsub.name AS subsubcategory_name_resolved,
+                v.legal_name AS vendor_name,
+                v.slug AS vendor_slug
             FROM products p
             LEFT JOIN brands b ON p.brand_id = b.id
             LEFT JOIN materials mat ON p.material_id = mat.id
@@ -1515,6 +1542,7 @@ app.get('/api/products', async (req, res) => {
             LEFT JOIN product_categories cat ON p.category_id = cat.id
             LEFT JOIN product_categories sub ON p.subcategory_id = sub.id
             LEFT JOIN product_categories subsub ON p.subsubcategory_id = subsub.id
+            LEFT JOIN vendors v ON p.vendor_id = v.id
             WHERE 1=1
         `;
         const params = [];
@@ -1546,6 +1574,10 @@ app.get('/api/products', async (req, res) => {
         if (type) {
             query += ' AND p.type = ?';
             params.push(type);
+        }
+        if (vendorId) {
+            query += ' AND p.vendor_id = ?';
+            params.push(vendorId);
         }
         if (search) {
             query += ' AND (p.name LIKE ? OR p.description LIKE ? OR p.short_description LIKE ? OR p.sku LIKE ?)';
@@ -1629,6 +1661,9 @@ app.get('/api/products', async (req, res) => {
             preorder_eta: row.preorder_eta,
             year: row.year,
             auto_sku: row.auto_sku,
+            vendor_id: row.vendor_id,
+            vendor_name: row.vendor_name,
+            vendor_slug: row.vendor_slug,
             tags: tagsByProduct[row.id] || [],
         }));
 
@@ -1975,6 +2010,7 @@ app.post('/api/products', authMiddleware, requireRole('cashier'), async (req, re
         category,
         subcategory,
         availabilityStatus,
+        vendorId,
     } = req.body;
 
     if (!name || price == null) return res.status(400).json({ error: 'Missing fields' });
@@ -2053,9 +2089,9 @@ app.post('/api/products', authMiddleware, requireRole('cashier'), async (req, re
                 preorder_release_date, preorder_notes, short_description, type,
                 brand_id, category_id, subcategory_id, subsubcategory_id,
                 material_id, color_id, audience, delivery_type, warranty_term,
-                preorder_eta, year, auto_sku, availability_status
+                preorder_eta, year, auto_sku, availability_status, vendor_id
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ? )`,
             [
                 name,
                 normalizedPrice,
@@ -2088,6 +2124,7 @@ app.post('/api/products', authMiddleware, requireRole('cashier'), async (req, re
                 normalizedYear,
                 normalizedAutoSku,
                 normalizedAvailabilityStatus,
+                vendorIdInt,
             ]
         );
 
@@ -2215,6 +2252,20 @@ app.put('/api/products/:id', authMiddleware, requireRole('cashier'), async (req,
             }
         }
 
+        let vendorIdInt = existing.vendor_id ?? null;
+        if (vendorId !== undefined) {
+            if (vendorId === null || vendorId === '') {
+                vendorIdInt = null;
+            } else {
+                const vendorRow = await db.get('SELECT id, status FROM vendors WHERE id = ?', [vendorId]);
+                if (!vendorRow) return res.status(400).json({ error: 'Vendor not found' });
+                if ((vendorRow.status || '').toLowerCase() !== 'active') {
+                    return res.status(400).json({ error: 'Vendor must be active before assigning products' });
+                }
+                vendorIdInt = vendorRow.id;
+            }
+        }
+
         let resolvedCategoryId = categoryId !== undefined ? (categoryId ? parseInt(categoryId, 10) : null) : (existing.category_id ?? null);
         let resolvedSubcategoryId = subcategoryId !== undefined ? (subcategoryId ? parseInt(subcategoryId, 10) : null) : (existing.subcategory_id ?? null);
         let resolvedSubsubcategoryId = subsubcategoryId !== undefined ? (subsubcategoryId ? parseInt(subsubcategoryId, 10) : null) : (existing.subsubcategory_id ?? null);
@@ -2299,7 +2350,8 @@ app.put('/api/products/:id', authMiddleware, requireRole('cashier'), async (req,
                 preorder_eta = ?,
                 year = ?,
                 auto_sku = ?,
-                availability_status = ?
+                availability_status = ?,
+                vendor_id = ?
              WHERE id = ?`,
             [
                 updatedName,
@@ -2333,6 +2385,7 @@ app.put('/api/products/:id', authMiddleware, requireRole('cashier'), async (req,
                 normalizedYear,
                 autoFlag,
                 normalizedAvailabilityStatus,
+                vendorIdInt,
                 id,
             ]
         );
@@ -3321,16 +3374,19 @@ app.patch('/api/preorders/:id', authMiddleware, requireRole(['accounts', 'manage
 
 // Vendor Onboarding Route
 app.post('/api/vendors', async (req, res) => {
-    const { legal_name, contact_person, email, phone, address, website, capabilities, notes } = req.body;
+    const { legal_name, contact_person, email, phone, address, website, capabilities, notes, tagline, public_description } = req.body;
     if (!legal_name || !email) {
         return res.status(400).json({ error: 'Legal name and email are required.' });
     }
     try {
+        const slug = await getUniqueVendorSlug(legal_name || email || contact_person || `vendor-${Date.now()}`);
+        const descriptionValue = public_description || notes || null;
         const result = await db.run(
-            'INSERT INTO vendors (legal_name, contact_person, email, phone, address, website, capabilities, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-            [legal_name, contact_person, email, phone, address, website, capabilities, notes]
+            `INSERT INTO vendors (legal_name, contact_person, email, phone, address, website, capabilities, notes, slug, tagline, public_description)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)` ,
+            [legal_name, contact_person, email, phone, address, website, capabilities, notes, slug, tagline || null, descriptionValue]
         );
-        res.status(201).json({ id: result.lastID, message: 'Vendor application submitted successfully.' });
+        res.status(201).json({ id: result.lastID, slug, message: 'Vendor application submitted successfully.' });
     } catch (err) {
         if (err.message.includes('UNIQUE constraint failed')) {
             return res.status(409).json({ error: 'A vendor with this email already exists.' });
@@ -3353,25 +3409,50 @@ app.post('/api/vendors/register', async (req, res) => {
         bank_details,
         logo_url,
         commission_rate,
-        approve
+        approve,
+        tagline,
+        public_description,
+        hero_image
     } = req.body;
 
     if (!legal_name || !email) return res.status(400).json({ error: 'legal_name and email required' });
 
     const comm = Number.isFinite(Number(commission_rate)) ? Number(commission_rate) : 0.10;
     const status = approve ? 'active' : 'pending';
+    const descriptionValue = public_description || notes || null;
 
     try {
         await db.run('BEGIN TRANSACTION');
+        const slug = await getUniqueVendorSlug(legal_name || email || contact_person || `vendor-${Date.now()}`);
         const result = await db.run(
-            `INSERT INTO vendors (legal_name, contact_person, email, phone, address, website, capabilities, notes, bank_details, logo_url, commission_rate, status)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-            [legal_name, contact_person || null, email, phone || null, address || null, website || null, capabilities || null, notes || null, bank_details || null, logo_url || null, comm, status]
+            `INSERT INTO vendors (
+                legal_name, contact_person, email, phone, address, website, capabilities, notes,
+                bank_details, logo_url, commission_rate, status, slug, tagline, public_description, hero_image
+             )
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [
+                legal_name,
+                contact_person || null,
+                email,
+                phone || null,
+                address || null,
+                website || null,
+                capabilities || null,
+                notes || null,
+                bank_details || null,
+                logo_url || null,
+                comm,
+                status,
+                slug,
+                tagline || null,
+                descriptionValue,
+                hero_image || null,
+            ]
         );
         const vendorId = result.lastID;
         await db.run('COMMIT');
         await logActivity('vendors', vendorId, 'register', req.user?.username || null, JSON.stringify({ email }));
-        res.status(201).json({ id: vendorId, message: 'Vendor registered', commission_rate: comm });
+        res.status(201).json({ id: vendorId, slug, message: 'Vendor registered', commission_rate: comm });
     } catch (err) {
         await db.run('ROLLBACK');
         if (String(err?.message || '').includes('UNIQUE constraint failed')) {
@@ -3406,8 +3487,19 @@ app.put('/api/vendors/:id/status', authMiddleware, requireRole(['manager','admin
         await db.run('BEGIN TRANSACTION');
         await db.run('UPDATE vendors SET status = ? WHERE id = ?', [status, id]);
         const vendor = await db.get('SELECT * FROM vendors WHERE id = ?', [id]);
+        if (!vendor) {
+            await db.run('ROLLBACK');
+            return res.status(404).json({ error: 'Vendor not found' });
+        }
 
         // When vendor becomes active, create or link a customer record so vendors appear in Customers
+        const slugSource = vendor.legal_name || vendor.contact_person || vendor.email || `vendor-${id}`;
+        await ensureVendorSlug(id, slugSource);
+
+        if (!vendor.public_description && vendor.notes) {
+            await db.run('UPDATE vendors SET public_description = ? WHERE id = ?', [vendor.notes, id]);
+        }
+
         if (status === 'active') {
             // If vendor already linked to customer, skip
             if (!vendor.customer_id) {
@@ -3429,6 +3521,44 @@ app.put('/api/vendors/:id/status', authMiddleware, requireRole(['manager','admin
         res.json(updatedVendor);
     } catch (err) {
         try { await db.run('ROLLBACK'); } catch {}
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Public vendor listings for eStore / marketing surfaces
+app.get('/api/public/vendors', async (req, res) => {
+    try {
+        const limit = Math.min(Math.max(parseInt(req.query.limit || '12', 10), 1), 50);
+        const sort = req.query.sort === 'recent' ? 'recent' : 'trending';
+        const orderBy = sort === 'recent' ? 'v.created_at DESC' : 'product_count DESC, v.created_at DESC';
+        const rows = await db.all(
+            `SELECT v.id, v.slug, v.legal_name, v.tagline, v.public_description, v.logo_url, v.website, v.hero_image,
+                    COUNT(p.id) AS product_count
+             FROM vendors v
+             LEFT JOIN products p ON p.vendor_id = v.id
+             WHERE v.status = 'active'
+             GROUP BY v.id
+             ORDER BY ${orderBy}
+             LIMIT ?`,
+            [limit]
+        );
+        res.json(rows || []);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.get('/api/public/vendors/:slug', async (req, res) => {
+    try {
+        const vendor = await db.get(
+            'SELECT id, slug, legal_name, contact_person, email, phone, address, website, tagline, public_description, logo_url, hero_image FROM vendors WHERE slug = ? AND status = ?',
+            [req.params.slug, 'active']
+        );
+        if (!vendor) return res.status(404).json({ error: 'Vendor not found' });
+        const productCount = await db.get('SELECT COUNT(*) as c FROM products WHERE vendor_id = ?', [vendor.id]);
+        vendor.product_count = productCount?.c || 0;
+        res.json(vendor);
+    } catch (err) {
         res.status(500).json({ error: err.message });
     }
 });
