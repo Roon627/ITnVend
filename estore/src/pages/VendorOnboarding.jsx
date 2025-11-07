@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { FaHandshake, FaShieldAlt, FaTruck, FaUserTie, FaUpload } from 'react-icons/fa';
+import { FaChartLine, FaCloudUploadAlt, FaHandshake, FaShieldAlt, FaTruck, FaUpload, FaUserTie } from 'react-icons/fa';
 import api from '../lib/api';
 import { useToast } from '../components/ToastContext';
 
@@ -21,6 +21,18 @@ const capabilitiesHints = [
   'Software development or integration',
   'Digital media or creative production',
   'Smart vending & telemetry',
+];
+
+const HERO_STATS = [
+  { label: 'Avg. review', value: '48h' },
+  { label: 'Live partners', value: '120+' },
+  { label: 'Regions served', value: '4' },
+];
+
+const TRUST_POINTS = [
+  { icon: FaShieldAlt, title: 'Compliance ready', body: 'We vet suppliers for secure procurement and regulatory alignment.' },
+  { icon: FaTruck, title: 'Regional reach', body: 'Deployments available across Malé, Hulhumalé, Addu and resorts.' },
+  { icon: FaUserTie, title: 'Briefs & forecasts', body: 'Approved partners receive early access to upcoming opportunity briefs.' },
 ];
 
 export default function VendorOnboarding() {
@@ -91,96 +103,128 @@ export default function VendorOnboarding() {
   };
 
   return (
-    <div className="bg-gradient-to-b from-white to-slate-50 min-h-screen">
-      <section className="container mx-auto px-6 py-14">
-        <div className="grid lg:grid-cols-2 gap-10 items-start">
-          <div className="space-y-6">
-            <div className="inline-flex items-center gap-3 px-4 py-2 rounded-full bg-blue-50 text-blue-700 w-max">
-              <FaHandshake className="text-blue-600" /> Become a partner
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-blue-50 px-4 py-10 lg:px-8">
+      <div className="mx-auto max-w-6xl space-y-8">
+        <section className="rounded-2xl border border-blue-100 bg-white/90 p-6 shadow-xl shadow-blue-100/40">
+          <div className="flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
+            <div className="space-y-4">
+              <span className="inline-flex items-center gap-2 rounded-full bg-blue-50 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-blue-600">
+                Become a partner
+              </span>
+              <div>
+                <h1 className="text-3xl font-bold text-slate-900">Join our vendor network</h1>
+                <p className="mt-2 text-sm text-slate-600">
+                  We work with suppliers, integrators, and creative teams. Share your details and our procurement group will follow up within two business days.
+                </p>
+              </div>
+              <div className="flex flex-wrap gap-3">
+                {TRUST_POINTS.map((point) => (
+                  <div key={point.title} className="flex-1 min-w-[180px] rounded-2xl border border-slate-100 bg-white px-4 py-3 shadow-sm">
+                    <div className="flex items-center gap-2 text-sm font-semibold text-slate-800">
+                      <point.icon className="text-blue-500" /> {point.title}
+                    </div>
+                    <p className="mt-1 text-xs text-slate-500">{point.body}</p>
+                  </div>
+                ))}
+              </div>
             </div>
-            <h1 className="text-3xl lg:text-4xl font-bold text-slate-900">Join our vendor network</h1>
-            <p className="text-slate-600">We work with suppliers, integrators and creative partners. Fill this short form and our procurement team will review your submission.</p>
-
-            <div className="grid sm:grid-cols-3 gap-4 mt-6">
-              <InfoCard icon={<FaShieldAlt className="text-emerald-500" />} title="Trusted partners" body="We vet and onboard suppliers for secure, compliant engagements." />
-              <InfoCard icon={<FaTruck className="text-sky-500" />} title="Regional deliveries" body="Support available across Maldives and neighbouring markets." />
-              <InfoCard icon={<FaUserTie className="text-indigo-500" />} title="Strategic access" body="Approved vendors get access to opportunity briefs and planning." />
+            <div className="grid flex-1 grid-cols-3 gap-4 text-center">
+              {HERO_STATS.map((stat) => (
+                <div key={stat.label} className="rounded-2xl border border-blue-100 bg-white px-4 py-3 shadow-sm">
+                  <div className="text-xl font-semibold text-slate-900">{stat.value}</div>
+                  <div className="text-xs uppercase tracking-wide text-slate-500">{stat.label}</div>
+                </div>
+              ))}
             </div>
           </div>
+        </section>
 
-          <div className="bg-white border border-gray-100 rounded-2xl shadow-sm p-8">
-            <h2 className="text-lg font-semibold text-slate-900 mb-4">Tell us about your organisation</h2>
+        <section className="rounded-2xl border border-white/70 bg-white/95 p-6 shadow-xl shadow-blue-100/30">
+          <div className="grid gap-10 lg:grid-cols-[3fr,2fr]">
             <form onSubmit={handleSubmit} className="space-y-6">
-              <div className="grid gap-4 md:grid-cols-2">
-                <label className="block text-sm">
-                  <div className="text-sm font-medium text-slate-700">Legal entity name</div>
-                  <input name="legalName" value={formData.legalName} onChange={handleChange} required className="mt-1 block w-full border rounded px-3 py-2" />
-                </label>
-                <label className="block text-sm">
-                  <div className="text-sm font-medium text-slate-700">Website</div>
-                  <input name="website" value={formData.website} onChange={handleChange} placeholder="https://" className="mt-1 block w-full border rounded px-3 py-2" />
-                </label>
-              </div>
-
               <div>
-                <h3 className="text-sm font-medium text-slate-700">Primary contact</h3>
-                <div className="grid gap-4 md:grid-cols-2 mt-3">
-                  <input name="contactPerson" value={formData.contactPerson} onChange={handleChange} placeholder="Full name" className="block w-full border rounded px-3 py-2" required />
-                  <input name="email" type="email" value={formData.email} onChange={handleChange} placeholder="email@example.com" className="block w-full border rounded px-3 py-2" required />
-                  <input name="phone" value={formData.phone} onChange={handleChange} placeholder="+960 ..." className="block w-full border rounded px-3 py-2" />
-                  <input name="address" value={formData.address} onChange={handleChange} placeholder="Head office address" className="block w-full border rounded px-3 py-2" />
+                <p className="text-xs uppercase tracking-wide text-slate-400">Organisation</p>
+                <div className="mt-3 grid gap-4 md:grid-cols-2">
+                  <label className="text-sm font-medium text-slate-700">
+                    Legal entity name
+                    <input name="legalName" value={formData.legalName} onChange={handleChange} required className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-100" />
+                  </label>
+                  <label className="text-sm font-medium text-slate-700">
+                    Website
+                    <input name="website" value={formData.website} onChange={handleChange} placeholder="https://" className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-100" />
+                  </label>
                 </div>
               </div>
 
               <div>
-                <h3 className="text-sm font-medium text-slate-700">Capabilities & scope</h3>
+                <p className="text-xs uppercase tracking-wide text-slate-400">Primary contact</p>
+                <div className="mt-3 grid gap-4 md:grid-cols-2">
+                  <input name="contactPerson" value={formData.contactPerson} onChange={handleChange} placeholder="Full name" required className="rounded-lg border border-slate-200 px-3 py-2 focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-100" />
+                  <input name="email" type="email" value={formData.email} onChange={handleChange} placeholder="email@example.com" required className="rounded-lg border border-slate-200 px-3 py-2 focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-100" />
+                  <input name="phone" value={formData.phone} onChange={handleChange} placeholder="(+960) …" className="rounded-lg border border-slate-200 px-3 py-2 focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-100" />
+                  <input name="address" value={formData.address} onChange={handleChange} placeholder="Head office address" className="rounded-lg border border-slate-200 px-3 py-2 focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-100" />
+                </div>
+              </div>
+
+              <div>
+                <p className="text-xs uppercase tracking-wide text-slate-400">Capabilities & scope</p>
                 <div className="mt-3 grid gap-2">
-                  {capabilitiesHints.map((c) => (
-                    <label key={c} className="inline-flex items-center gap-2 text-sm">
-                      <input type="checkbox" checked={(formData.capabilities || []).includes(c)} onChange={() => toggleCapability(c)} />
-                      <span>{c}</span>
+                  {capabilitiesHints.map((cap) => (
+                    <label key={cap} className="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50/60 px-3 py-2 text-sm">
+                      <input type="checkbox" checked={(formData.capabilities || []).includes(cap)} onChange={() => toggleCapability(cap)} />
+                      <span>{cap}</span>
                     </label>
                   ))}
-                  <textarea name="notes" rows={3} value={formData.notes} onChange={handleChange} className="mt-2 block w-full border rounded px-3 py-2" placeholder="Additional notes, certifications, regions served" />
+                  <textarea name="notes" rows={3} value={formData.notes} onChange={handleChange} placeholder="Certifications, regions served, service windows" className="rounded-lg border border-slate-200 px-3 py-2 focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-100" />
                 </div>
               </div>
 
               <div>
-                <h3 className="text-sm font-medium text-slate-700">Uploads</h3>
-                <div className="mt-2 grid gap-3">
-                  <label className="flex items-center gap-3 p-3 border rounded-md">
-                    <FaUpload />
-                    <span className="text-sm">Company logo (optional)</span>
-                    <input type="file" accept="image/*" onChange={handleLogo} className="ml-auto" />
+                <p className="text-xs uppercase tracking-wide text-slate-400">Uploads</p>
+                <div className="mt-3 grid gap-4 md:grid-cols-2">
+                  <label className="flex flex-col items-center justify-center rounded-2xl border-2 border-dashed border-blue-200 bg-blue-50/40 px-4 py-6 text-center text-sm text-slate-600">
+                    <FaUpload className="mb-2 text-blue-400" />
+                    Company logo (optional)
+                    <input type="file" accept="image/*" onChange={handleLogo} className="hidden" />
                   </label>
-                  <label className="flex items-center gap-3 p-3 border rounded-md">
-                    <FaUpload />
-                    <span className="text-sm">Supporting documents (certificates, reference letters)</span>
-                    <input type="file" multiple onChange={handleDocs} className="ml-auto" />
+                  <label className="flex flex-col items-center justify-center rounded-2xl border-2 border-dashed border-indigo-200 bg-indigo-50/40 px-4 py-6 text-center text-sm text-slate-600">
+                    <FaCloudUploadAlt className="mb-2 text-indigo-400" />
+                    Supporting documents
+                    <input type="file" multiple onChange={handleDocs} className="hidden" />
                   </label>
-                  {logoData && <div className="text-xs text-slate-500">Logo uploaded: {logoData.name}</div>}
-                  {documents.length > 0 && <div className="text-xs text-slate-500">Documents: {documents.map(d => d.name).join(', ')}</div>}
                 </div>
               </div>
 
-              <div className="flex items-center justify-end gap-3">
-                <button type="button" onClick={() => navigate('/')} className="px-4 py-2 border rounded">Cancel</button>
-                <button type="submit" disabled={isSubmitting} className="px-6 py-2 rounded bg-blue-600 text-white">{isSubmitting ? 'Submitting...' : 'Submit application'}</button>
+              <div className="flex flex-col gap-3 border-t pt-4 sm:flex-row sm:justify-end">
+                <button type="button" onClick={() => navigate('/')} className="rounded-full border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-600">Cancel</button>
+                <button type="submit" disabled={isSubmitting} className="rounded-full bg-blue-600 px-6 py-2 text-sm font-semibold text-white shadow-lg shadow-blue-200/60 disabled:cursor-not-allowed disabled:opacity-70">
+                  {isSubmitting ? 'Submitting…' : 'Submit application'}
+                </button>
               </div>
             </form>
-          </div>
-        </div>
-      </section>
-    </div>
-  );
-}
 
-function InfoCard({ icon, title, body }) {
-  return (
-    <div className="bg-white border rounded-lg p-4 text-sm">
-      <div className="text-2xl mb-2">{icon}</div>
-      <div className="font-semibold">{title}</div>
-      <div className="text-xs text-slate-600 mt-1">{body}</div>
+            <div className="space-y-6">
+              <div className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
+                <div className="flex items-center gap-3 text-sm font-semibold text-slate-800">
+                  <FaChartLine className="text-emerald-500" /> Submission snapshot
+                </div>
+                <div className="mt-3 space-y-2 text-sm text-slate-600">
+                  <div><span className="font-semibold">Entity:</span> {formData.legalName || '—'}</div>
+                  <div><span className="font-semibold">Contact:</span> {formData.contactPerson || '—'}</div>
+                  <div><span className="font-semibold">Capabilities:</span> {(formData.capabilities || []).length || 0} selected</div>
+                </div>
+              </div>
+              <div className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
+                <p className="text-xs uppercase tracking-wide text-slate-400">Files attached</p>
+                <ul className="mt-3 space-y-2 text-sm text-slate-600">
+                  <li>Logo: {logoData ? logoData.name : '—'}</li>
+                  <li>Documents: {documents.length ? documents.map((d) => d.name).join(', ') : '—'}</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+        </section>
+      </div>
     </div>
   );
 }

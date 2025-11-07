@@ -24,7 +24,7 @@ function safeFilename(name) {
   const base = path.basename(name || 'slip');
   const clean = base.replace(/[^a-zA-Z0-9._-]/g, '_');
   return `${ts}-${clean}`;
-
+}
 
 export async function saveSlip(buffer, originalName) {
   // If S3 is configured, try to upload. Otherwise fallback to local disk.

@@ -1,7 +1,26 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { FaClipboardCheck, FaHandshake, FaShippingFast } from 'react-icons/fa';
 import api from '../lib/api';
 import { useToast } from '../components/ToastContext';
+
+const STEP_CONTENT = [
+  {
+    title: 'Business profile',
+    description: 'Tell us who you are and how we can reach you.',
+    icon: FaHandshake,
+  },
+  {
+    title: 'Capabilities & logistics',
+    description: 'Share what you sell and how you operate day to day.',
+    icon: FaShippingFast,
+  },
+  {
+    title: 'Payout details',
+    description: 'Secure settlement method and commission preferences.',
+    icon: FaClipboardCheck,
+  },
+];
 
 export default function VendorRegister() {
   const [step, setStep] = useState(1);
@@ -71,15 +90,72 @@ export default function VendorRegister() {
     }
   }
 
-  return (
-    <div className="min-h-screen flex items-center justify-center p-6">
-      <div className="w-full max-w-3xl">
-        <div className="mb-6">
-          <h1 className="text-2xl font-semibold text-slate-900">Vendor registration</h1>
-          <p className="text-sm text-slate-500">Provide vendor details and payment information to register your business on the platform.</p>
-        </div>
+  const currentStepMeta = STEP_CONTENT[step - 1];
 
-        <form onSubmit={handleSubmit} className="space-y-6 bg-white p-6 rounded-lg shadow-sm">
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-blue-50 p-6 pb-24">
+      <div className="mx-auto max-w-5xl space-y-8">
+        <section className="rounded-2xl border border-slate-200/70 bg-white/80 p-6 shadow-sm shadow-blue-100/40 backdrop-blur">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+            <div className="space-y-3">
+              <span className="inline-flex items-center gap-2 rounded-full bg-blue-50 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-blue-600">
+                Sell with us
+              </span>
+              <div>
+                <h1 className="text-3xl font-bold text-slate-900">Vendor onboarding</h1>
+                <p className="text-sm text-slate-500">
+                  Join the marketplace, sync inventory, and get paid without extra back-and-forth.
+                </p>
+              </div>
+            </div>
+            <div className="grid grid-cols-3 gap-4 text-center">
+              {[
+                { label: 'Avg. approval', value: '48h' },
+                { label: 'Partners live', value: '120+' },
+                { label: 'Regions', value: '4' },
+              ].map((stat) => (
+                <div key={stat.label} className="rounded-xl border border-slate-100 bg-white px-4 py-3 shadow-sm">
+                  <div className="text-xl font-semibold text-slate-900">{stat.value}</div>
+                  <div className="text-xs uppercase tracking-wide text-slate-500">{stat.label}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+          <div className="mt-6 flex flex-wrap gap-4">
+            {STEP_CONTENT.map((item, index) => {
+              const Icon = item.icon;
+              const active = step === index + 1;
+              return (
+                <button
+                  key={item.title}
+                  type="button"
+                  onClick={() => setStep(index + 1)}
+                  className={`flex flex-1 min-w-[180px] items-start gap-3 rounded-2xl border px-4 py-3 text-left shadow-sm transition ${
+                    active ? 'border-blue-400 bg-blue-50' : 'border-slate-100 bg-white hover:border-blue-200'
+                  }`}
+                >
+                  <Icon className={`mt-1 text-lg ${active ? 'text-blue-600' : 'text-slate-400'}`} />
+                  <div>
+                    <div className={`text-sm font-semibold ${active ? 'text-blue-700' : 'text-slate-700'}`}>{item.title}</div>
+                    <p className="text-xs text-slate-500">{item.description}</p>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </section>
+
+        <section className="rounded-2xl border border-white/60 bg-white/90 p-6 shadow-xl shadow-blue-100/40 backdrop-blur">
+          <div className="mb-6 flex items-center justify-between">
+            <div>
+              <p className="text-xs uppercase tracking-wide text-slate-400">Step {step} of {STEP_CONTENT.length}</p>
+              <h2 className="text-xl font-semibold text-slate-900">{currentStepMeta.title}</h2>
+              <p className="text-sm text-slate-500">{currentStepMeta.description}</p>
+            </div>
+            <div className="text-sm text-slate-500">Fields marked * are required</div>
+          </div>
+
+          <form onSubmit={handleSubmit} className="space-y-6">
         {step === 1 && (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <label className="text-sm font-medium text-slate-600">
@@ -145,22 +221,25 @@ export default function VendorRegister() {
           </div>
         )}
 
-        <div className="flex items-center justify-between">
-          <div>
+        <div className="flex flex-col gap-3 border-t pt-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex gap-2">
             {step > 1 && (
-              <button type="button" className="px-4 py-2 border rounded mr-2" onClick={() => setStep((s) => s - 1)}>Back</button>
+              <button type="button" className="rounded-full border border-slate-200 px-4 py-2 text-sm font-semibold" onClick={() => setStep((s) => s - 1)}>Back</button>
             )}
             {step < 3 && (
-              <button type="button" className="px-4 py-2 bg-blue-600 text-white rounded" onClick={() => setStep((s) => s + 1)}>Next</button>
+              <button type="button" className="rounded-full bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow hover:bg-blue-700" onClick={() => setStep((s) => s + 1)}>Next</button>
             )}
           </div>
-          <div>
-            <button type="submit" disabled={loading} className="inline-flex items-center gap-2 rounded-md bg-blue-600 px-4 py-2 text-white text-sm hover:bg-blue-700 disabled:bg-blue-400">
-              {loading ? 'Saving...' : 'Register vendor'}
-            </button>
-          </div>
+          <button
+            type="submit"
+            disabled={loading}
+            className="inline-flex items-center justify-center gap-2 rounded-full bg-gradient-to-r from-blue-600 to-indigo-600 px-6 py-2 text-sm font-semibold text-white shadow-lg shadow-blue-200/70 transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {loading ? 'Submitting…' : 'Submit application'}
+          </button>
         </div>
-        </form>
+          </form>
+        </section>
       </div>
     </div>
   );
