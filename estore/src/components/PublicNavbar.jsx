@@ -1,22 +1,23 @@
-import { useEffect, useMemo, useState } from 'react';
+import { Fragment, useEffect, useMemo, useState } from 'react';
 import { Link, NavLink, useLocation } from 'react-router-dom';
-import { FaBars, FaShoppingCart, FaTimes, FaStore, FaHandshake, FaPaperPlane, FaListUl, FaUserFriends, FaShieldAlt } from 'react-icons/fa';
+import { FaBars, FaShoppingCart, FaTimes, FaStore, FaHandshake, FaPaperPlane, FaListUl, FaUserFriends, FaShieldAlt, FaUserPlus, FaChevronDown, FaShoppingBag } from 'react-icons/fa';
 import { useCart } from './CartContext';
 
 const POS_BRAND_LOGO = 'https://pos.itnvend.com:4000/uploads/logos/1762295200252-icons8-it-64.png.png';
 
 const NAV_LINKS = [
   { to: '/market', label: 'Market Hub', description: 'Fresh drops & bundles', icon: FaStore },
-  { to: '/sell', label: 'Sell with us', description: 'POS-first consignments', icon: FaHandshake },
+  { to: '/sell', label: 'Sell with us', icon: FaHandshake },
+  { to: '/vendor-onboarding', label: 'Apply as vendor', icon: FaUserPlus },
   { to: '/shop-and-ship', label: 'Shop & Ship', description: 'Overseas cart concierge', icon: FaPaperPlane },
   { to: '/vendors', label: 'Vendor directory', description: 'Browse approved partners', icon: FaListUl },
-  { to: '/vendor-onboarding', label: 'Apply as vendor', description: 'Join the marketplace', icon: FaUserFriends },
   { to: '/privacy', label: 'Trust Center', description: 'Security & policies', icon: FaShieldAlt },
 ];
 
 export default function PublicNavbar() {
     const cartContext = useCart();
     const cartCount = cartContext?.cartCount ?? 0;
+    const cartItems = cartContext?.cart ?? [];
     const location = useLocation();
     const [mobileOpen, setMobileOpen] = useState(false);
     const [elevated, setElevated] = useState(false);
@@ -34,8 +35,14 @@ export default function PublicNavbar() {
     }, []);
 
     const activeLabel = useMemo(() => {
-      const current = NAV_LINKS.find((item) => location.pathname.startsWith(item.to));
-      return current?.label ?? '';
+      for (const item of NAV_LINKS) {
+        if (location.pathname.startsWith(item.to)) return item.label;
+        if (item.children) {
+          const child = item.children.find((c) => location.pathname.startsWith(c.to));
+          if (child) return child.label;
+        }
+      }
+      return '';
     }, [location.pathname]);
 
     const isOnMarketPage = useMemo(() => location.pathname.startsWith('/market'), [location.pathname]);
@@ -103,48 +110,84 @@ export default function PublicNavbar() {
                 alt="ITnVend"
                 className="h-12 w-12 rounded-2xl border border-white/70 bg-white/80 object-contain p-2 shadow-md shadow-rose-200/40"
               />
-              <span className="flex flex-col leading-snug text-slate-900">
-                <span className="text-lg font-black tracking-tight sm:text-xl">ITnVend Market Hub</span>
-                <span className="text-[13px] text-rose-400 sm:text-sm">Retail, subscriptions &amp; smiles in sync</span>
+              <span className="flex flex-col leading-tight text-slate-900">
+                <span className="text-[12px] font-black tracking-tight uppercase">ITnVend</span>
+                <span className="text-[8px] font-semibold uppercase tracking-[0.35em] text-slate-500">Marketplace</span>
+                <span className="text-[8px] text-rose-400">Retail, subscriptions &amp; smiles in sync</span>
               </span>
             </Link>
 
           <nav className="hidden flex-1 items-center justify-center lg:flex">
-            <div className="flex w-full max-w-5xl items-center justify-between gap-3 rounded-full border border-white/60 bg-white/80 px-4 py-2 shadow-sm shadow-rose-100 backdrop-blur-lg">
-              {filteredNavLinks.map(({ to, label, description, icon: Icon }) => (
-                <NavLink
-                  key={to}
-                  to={to}
-                  className={({ isActive }) => [
-                    'group inline-flex flex-1 items-center gap-2 rounded-full border px-3 py-2 transition-all duration-200',
-                    isActive
-                      ? 'border-rose-200 bg-gradient-to-r from-rose-50 via-white to-sky-50 text-rose-600 shadow-sm'
-                      : 'border-transparent text-slate-600 hover:-translate-y-0.5 hover:border-rose-100 hover:bg-white',
-                  ].join(' ')}
-                >
-                  {Icon && <Icon size={18} className="text-rose-400 group-hover:text-rose-500" />}
-                  <span className="flex flex-col whitespace-nowrap leading-tight">
-                    <span className="text-sm font-semibold">{label}</span>
-                    {description && <span className="text-[11px] font-medium text-slate-400">{description}</span>}
-                  </span>
-                </NavLink>
+            <div className="flex w-full max-w-5xl items-center justify-between gap-2 px-2 py-1 text-[clamp(0.5rem,0.65vw,0.7rem)] font-semibold uppercase tracking-wide">
+              {filteredNavLinks.map((item, idx) => (
+                <Fragment key={item.to}>
+                  {idx !== 0 && <span className="h-7 w-[3px] rounded-full bg-gradient-to-b from-rose-400 via-white to-sky-400 opacity-90" />}
+                  <NavLink
+                    to={item.to}
+                    title={item.description || item.label}
+                    className={({ isActive }) =>
+                      [
+                        'group inline-flex min-w-0 flex-1 items-center justify-center px-2 py-1 text-center transition-all duration-200 rounded-xl border',
+                        isActive
+                          ? 'border-rose-200 bg-gradient-to-b from-white to-rose-50 text-rose-600 shadow-sm'
+                          : 'border-transparent text-slate-600 hover:-translate-y-0.5 hover:border-rose-200 hover:bg-white',
+                      ].join(' ')
+                    }
+                  >
+                    <span className="flex flex-col items-center justify-center leading-tight">
+                      {item.label === 'Shop & Ship'
+                        ? ['Shop', 'Ship'].map((word) => <span key={word}>{word}</span>)
+                        : item.label.split(' ').map((word, wordIdx) => <span key={wordIdx}>{word}</span>)}
+                    </span>
+                  </NavLink>
+                </Fragment>
               ))}
             </div>
           </nav>
 
           <div className="ml-auto flex items-center gap-3">
-            <Link to="/cart" className={cartButtonClasses}>
-              <FaShoppingCart className="mr-2" aria-hidden="true" />
-              Cart
-              {cartbadge}
-            </Link>
+            <div className="relative group">
+              <Link to="/cart" className={cartButtonClasses}>
+                <FaShoppingCart className="mr-2" aria-hidden="true" />
+                Cart
+                {cartbadge}
+              </Link>
+              {cartCount > 0 && (
+                <div className="pointer-events-none absolute right-0 top-full mt-2 hidden min-w-[220px] rounded-2xl border border-white/70 bg-white/95 p-3 text-left shadow-xl shadow-rose-100 backdrop-blur group-hover:block">
+                  <p className="text-xs font-semibold uppercase tracking-widest text-rose-400">Recently added</p>
+                  <ul className="mt-2 space-y-2 text-sm text-slate-600">
+                    {cartItems.slice(0, 3).map((item) => (
+                      <li key={item.id} className="flex justify-between gap-3">
+                        <span className="flex-1 truncate font-medium">{item.name}</span>
+                        <span className="text-xs text-slate-400">×{item.quantity}</span>
+                      </li>
+                    ))}
+                  </ul>
+                  {cartItems.length > 3 && (
+                    <p className="mt-1 text-xs text-slate-400">+{cartItems.length - 3} more items</p>
+                  )}
+                  <Link
+                    to="/cart"
+                    className="mt-3 inline-flex w-full items-center justify-center rounded-full bg-gradient-to-r from-rose-500 to-sky-400 px-3 py-2 text-xs font-semibold text-white"
+                  >
+                    View cart
+                  </Link>
+                </div>
+              )}
+            </div>
 
             {!isOnMarketPage && (
               <Link
                 to="/market"
-                className="hidden items-center gap-2 rounded-full bg-gradient-to-r from-rose-500 via-rose-400 to-sky-400 px-5 py-2 text-sm font-semibold text-white shadow-md shadow-rose-200/50 transition-transform duration-200 hover:-translate-y-0.5 lg:inline-flex"
+                className="hidden items-center gap-3 rounded-2xl bg-gradient-to-r from-rose-500 via-rose-400 to-sky-400 px-4 py-2 text-white shadow-md shadow-rose-200/50 transition-transform duration-200 hover:-translate-y-0.5 lg:inline-flex"
               >
-                Browse curated sets
+                <span className="inline-flex h-8 w-8 items-center justify-center rounded-xl bg-white/20 text-white">
+                  <FaShoppingBag />
+                </span>
+                <span className="flex flex-col leading-tight text-left">
+                  <span className="text-xs font-semibold uppercase tracking-wide">Curated picks</span>
+                  <span className="text-[10px] text-white/80">Fresh drops daily</span>
+                </span>
               </Link>
             )}
 
@@ -188,30 +231,57 @@ export default function PublicNavbar() {
               </button>
             </div>
             <nav className="space-y-2 text-base font-semibold text-rose-500">
-              {filteredNavLinks.map(({ to, label, description, icon: Icon }) => (
-                <NavLink
-                  key={to}
-                  to={to}
-                  className={({ isActive }) =>
-                    `flex items-center justify-between rounded-2xl border px-4 py-3 transition ${
-                      isActive
-                        ? 'border-rose-400 bg-rose-50 text-rose-600 shadow-sm'
-                        : 'border-rose-100 bg-white hover:border-rose-200 hover:bg-rose-50/70'
-                    }`
-                }
-                  >
-                  <div className="flex flex-col">
-                    <span className="flex items-center gap-2 text-sm font-semibold">
-                      {Icon && <Icon size={18} className="text-rose-400" />}
-                      {label}
-                    </span>
-                    {description && <span className="text-xs font-normal text-slate-400">{description}</span>}
+              {filteredNavLinks.map((item) =>
+                item.children ? (
+                  <div key={item.label} className="space-y-2 rounded-2xl border border-rose-100 bg-white p-3">
+                    <div className="flex items-center gap-2 text-sm font-semibold text-rose-500">
+                      {item.icon && <item.icon size={16} className="text-rose-400" />}
+                      {item.label}
+                    </div>
+                    <div className="space-y-2 text-sm font-medium text-slate-600">
+                      {item.children.map((child) => (
+                        <NavLink
+                          key={child.to}
+                          to={child.to}
+                          className={({ isActive }) =>
+                            `flex flex-col rounded-xl border px-3 py-2 transition ${
+                              isActive
+                                ? 'border-rose-300 bg-rose-50 text-rose-600'
+                                : 'border-rose-100 bg-white hover:border-rose-200 hover:bg-rose-50/70'
+                            }`
+                          }
+                        >
+                          <span className="font-semibold">{child.label}</span>
+                          {child.description && <span className="text-xs text-slate-400">{child.description}</span>}
+                        </NavLink>
+                      ))}
+                    </div>
                   </div>
-                  <span className="inline-flex h-6 w-6 items-center justify-center rounded-full border border-rose-200 text-xs text-rose-400">
-                    •
-                  </span>
-                </NavLink>
-              ))}
+                ) : (
+                  <NavLink
+                    key={item.to}
+                    to={item.to}
+                    className={({ isActive }) =>
+                      `flex items-center justify-between rounded-2xl border px-4 py-3 transition ${
+                        isActive
+                          ? 'border-rose-400 bg-rose-50 text-rose-600 shadow-sm'
+                          : 'border-rose-100 bg-white hover:border-rose-200 hover:bg-rose-50/70'
+                      }`
+                    }
+                  >
+                    <div className="flex flex-col">
+                      <span className="flex items-center gap-2 text-sm font-semibold">
+                        {item.icon && <item.icon size={18} className="text-rose-400" />}
+                        {item.label}
+                      </span>
+                      {item.description && <span className="text-xs font-normal text-slate-400">{item.description}</span>}
+                    </div>
+                    <span className="inline-flex h-6 w-6 items-center justify-center rounded-full border border-rose-200 text-xs text-rose-400">
+                      •
+                    </span>
+                  </NavLink>
+                )
+              )}
             </nav>
             <div className="mt-6 grid gap-3">
               <Link

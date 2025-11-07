@@ -60,53 +60,57 @@ export default function Home() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-rose-50 via-white to-sky-50 text-slate-800">
-      <header className="relative overflow-hidden bg-gradient-to-br from-rose-400 via-sky-400 to-indigo-400 text-white">
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,_rgba(255,255,255,0.35),transparent_60%)]" />
-        <div className="container relative z-10 mx-auto grid gap-12 px-6 py-20 lg:grid-cols-[1.1fr_0.9fr] lg:items-center">
-          <div className="space-y-6">
-            <span className="inline-flex items-center gap-2 rounded-full border border-white/30 bg-white/20 px-4 py-1 text-sm font-semibold uppercase tracking-wider">
-              <span className="h-2 w-2 rounded-full bg-emerald-200" />
-              ITnVend operating cloud
+      <header className="relative overflow-hidden bg-gradient-to-b from-rose-100 via-white to-sky-50 text-slate-900">
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,_rgba(255,255,255,0.6),transparent_65%)]" />
+        <div className="absolute inset-0 bg-gradient-to-b from-white/40 via-transparent to-white/80" />
+        <div className="container relative z-10 mx-auto flex flex-col items-center gap-12 px-6 py-24 text-center lg:flex-row lg:items-center lg:gap-16 lg:text-left">
+          <div className="flex-1 space-y-6">
+            <span className="inline-flex items-center gap-2 self-center rounded-full border border-slate-200/60 bg-white/70 px-5 py-1.5 text-xs font-semibold uppercase tracking-[0.3em] text-slate-500 backdrop-blur lg:self-start">
+              <span className="h-2 w-2 rounded-full bg-emerald-300" />
+              ITNVEND MARKET HUB
             </span>
-            <h1 className="text-4xl font-black leading-tight sm:text-5xl xl:text-6xl">
-              Welcome to the Market Hub — the cute side of connected retail.
+            <h1 className="text-4xl font-black leading-tight text-slate-900 drop-shadow-[0_12px_35px_rgba(15,23,42,0.25)] sm:text-5xl xl:text-6xl">
+              Discover cute, POS-ready picks your team will love.
             </h1>
-            <p className="text-lg text-white/90 sm:text-xl">
+            <p className="text-base text-slate-600 sm:text-lg lg:text-xl">
               ITnVend.com is your hello, the Market Hub is your shop window. Everything here is POS-ready, instantly synced, and wrapped in playful vibes.
             </p>
-            <div className="flex flex-wrap gap-4">
+            <div className="flex flex-wrap items-center justify-center gap-4 lg:justify-start">
               <Link
                 to="/market"
-                className="inline-flex items-center gap-3 rounded-full bg-white px-6 py-3 text-rose-600 font-semibold shadow-lg shadow-rose-200/80 transition hover:-translate-y-0.5"
+                className="inline-flex items-center gap-3 rounded-2xl bg-white px-5 py-3 text-rose-600 font-semibold shadow-[0_12px_35px_rgba(244,114,182,0.35)] transition hover:-translate-y-0.5"
               >
-                Shop the Market Hub
-                <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-rose-500 text-white">
+                <span className="inline-flex h-8 w-8 items-center justify-center rounded-xl bg-rose-500 text-white">
                   <FaShoppingBag />
+                </span>
+                <span className="flex flex-col leading-tight text-left">
+                  <span className="text-sm font-semibold">Explore products</span>
+                  <span className="text-[11px] text-rose-400">POS-ready sets &amp; kits</span>
                 </span>
               </Link>
               <Link
                 to="/shop-and-ship"
-                className="inline-flex items-center gap-3 rounded-full border border-white/60 bg-white/10 px-6 py-3 text-sm font-semibold text-white transition hover:bg-white/20"
+                className="inline-flex items-center gap-3 rounded-full border border-rose-100/60 bg-white/60 px-6 py-3 text-sm font-semibold text-rose-500 shadow-sm transition hover:border-rose-200 hover:bg-white"
               >
                 Share your overseas cart
-                <FaArrowRight className="text-white/80" />
+                <FaArrowRight className="text-rose-400" />
               </Link>
               <Link
                 to="/checkout"
-                className="inline-flex items-center gap-3 rounded-full border border-white/60 px-6 py-3 text-sm font-semibold text-white transition hover:bg-white/10"
+                className="inline-flex items-center gap-3 rounded-full border border-slate-200/70 px-6 py-3 text-sm font-semibold text-slate-600 transition hover:border-slate-300 hover:bg-white/70"
               >
                 Build a happy bundle
-                <FaArrowRight className="text-white/80" />
+                <FaArrowRight className="text-slate-400" />
               </Link>
             </div>
           </div>
-          <div className="rounded-3xl border border-white/30 bg-white/20 p-6 backdrop-blur">
-            <h2 className="text-lg font-semibold text-white">Why teams choose ITnVend</h2>
-            <div className="mt-4 space-y-5 text-white/90">
+          <div className="flex-1 rounded-3xl border border-white/60 bg-white/70 p-6 text-left shadow-sm shadow-rose-100 backdrop-blur">
+            <h2 className="text-lg font-semibold text-slate-900">Why teams choose ITnVend</h2>
+            <div className="mt-4 space-y-4 text-slate-600">
               {VALUE_PILLARS.map((pillar) => (
-                <div key={pillar.title} className="rounded-2xl border border-white/20 bg-white/10 p-4">
-                  <h3 className="text-base font-semibold">{pillar.title}</h3>
-                  <p className="mt-2 text-sm text-white/80">{pillar.copy}</p>
+                <div key={pillar.title} className="rounded-2xl border border-slate-100 bg-white/80 p-4 shadow-sm">
+                  <h3 className="text-base font-semibold text-slate-800">{pillar.title}</h3>
+                  <p className="mt-2 text-sm text-slate-500">{pillar.copy}</p>
                 </div>
               ))}
             </div>
