@@ -17,10 +17,26 @@ Exit codes:
 param(
   [string]$BaseUrl = "http://localhost:4000",
   [string]$Username = $env:ITNV_USER,
-  [string]$Password = $env:ITNV_PASS
+  [System.Management.Automation.PSCredential]$Credential = $null,
+  [System.Security.SecureString]$Password = $null
 )
 
 Write-Host "Running quick smoke tests against: $BaseUrl"
+
+# Prefer a PSCredential when available (safer). If a PSCredential was passed,
+# extract its username and SecureString password. If a plain environment
+# variable `ITNV_PASS` exists, convert it to a SecureString rather than
+# keeping a plain-text string in a typed [string] variable.
+if ($Credential) {
+  $Username = $Credential.UserName
+  $Password = $Credential.Password
+} elseif (-not $Password -and $env:ITNV_PASS) {
+  try {
+    $Password = ConvertTo-SecureString $env:ITNV_PASS -AsPlainText -Force
+  } catch {
+    Write-Warning "Failed to convert ITNV_PASS env var to SecureString: $($_.Exception.Message)"
+  }
+}
 
 function Fail($msg, $code=1) {
   Write-Error $msg
@@ -46,7 +62,15 @@ $session = New-Object Microsoft.PowerShell.Commands.WebRequestSession
 
 try {
   Write-Host "2) POST /api/login (username provided)"
-  $body = @{ username = $Username; password = $Password } | ConvertTo-Json
+  # Convert SecureString password to plain text only for the immediate request.
+  $ptr = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($Password)
+  try {
+    $plainPassword = [System.Runtime.InteropServices.Marshal]::PtrToStringBSTR($ptr)
+    $body = @{ username = $Username; password = $plainPassword } | ConvertTo-Json
+  } finally {
+    [System.Runtime.InteropServices.Marshal]::ZeroFreeBSTR($ptr)
+  }
+
   $resp = Invoke-RestMethod -Uri "$BaseUrl/api/login" -Method Post -Body $body -ContentType 'application/json' -WebSession $session -ErrorAction Stop
   if (-not $resp.token) { Fail "Login did not return token" }
   Write-Host "  OK: received token (length $($resp.token.Length))"
