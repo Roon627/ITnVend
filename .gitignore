@@ -1,0 +1,34 @@
+# Repo-level ignores for local artifacts and sensitive files
+
+# Node modules
+**/node_modules/
+
+# Local env files
+*.env
+.env.local
+.env.*.local
+
+# Local SQLite DB files and docker postgres data
+/POS/Backend/database.db
+/POS/database.db
+/POS/Backend/postgres-data/
+/POS/postgres-data/
+
+# Composer / docker-compose overrides
+/POS/Backend/docker-compose.postgres.yml
+
+# Large binaries and models
+/POS/Backend/eng.traineddata
+
+# Certificates / keys (do not commit private keys)
+/POS/Backend/certs/
+/estore/Backend/certs/
+
+# Backups and runtime uploads
+/POS/Backend/uploads/
+/POS/uploads/
+/deployment/backups/
+
+# OS files
+.DS_Store
+Thumbs.db
