@@ -13,6 +13,7 @@ server/node_modules/
 # Docker data
 /server/pgdata/
 /server/pgadmin/
+Backend/postgres-data/
 # Local env files (do NOT commit)
 /server/.env
 

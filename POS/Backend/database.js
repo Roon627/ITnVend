@@ -1,12 +1,181 @@
+import dotenv from 'dotenv';
 import sqlite3 from 'sqlite3';
 import { open } from 'sqlite';
 import { Pool } from 'pg';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+dotenv.config({
+    path: path.join(__dirname, '.env'),
+    override: true
+});
+
+const DIALECTS = {
+    POSTGRES: 'postgres',
+    SQLITE: 'sqlite'
+};
+
+const DATABASE_PATH = process.env.DATABASE_PATH || './database.db';
+const DATABASE_URL = resolveDatabaseUrl();
+
+function resolveDatabaseUrl() {
+    let url = process.env.DATABASE_URL || null;
+
+    if (!url && process.env.POSTGRES_USER && process.env.POSTGRES_DB) {
+        const host = process.env.POSTGRES_HOST || 'localhost';
+        const port = process.env.POSTGRES_PORT || '5432';
+        const user = process.env.POSTGRES_USER;
+        const password = process.env.POSTGRES_PASSWORD || '';
+        const database = process.env.POSTGRES_DB;
+        const auth = password ? `${encodeURIComponent(user)}:${encodeURIComponent(password)}` : encodeURIComponent(user);
+        url = `postgres://${auth}@${host}:${port}/${encodeURIComponent(database)}`;
+    }
+
+    if (url && url.includes('@postgres:')) {
+        url = url.replace('@postgres:', '@localhost:');
+    }
+
+    return url;
+}
 
 // convert '?' placeholders to $1, $2 for postgres
 function convertPlaceholders(sql) {
     let i = 0;
     return sql.replace(/\?/g, () => `$${++i}`);
 }
+
+function sanitizeIdentifier(value = '') {
+    return (value || '').replace(/[^a-zA-Z0-9_]/g, '');
+}
+
+function normalizeParams(params) {
+    if (params == null) return [];
+    return Array.isArray(params) ? params : [params];
+}
+
+function splitStatements(sql) {
+    return sql
+        .split(/;\s*(?:\r?\n|$)/)
+        .map((statement) => statement.trim())
+        .filter(Boolean);
+}
+
+function transformSqlForDialect(sql, dialect, { isSchema = false } = {}) {
+    if (dialect !== DIALECTS.POSTGRES) {
+        return sql;
+    }
+
+    let transformed = sql;
+
+    if (isSchema) {
+        transformed = transformed.replace(/INTEGER\s+PRIMARY\s+KEY\s+AUTOINCREMENT/gi, 'SERIAL PRIMARY KEY');
+        transformed = transformed.replace(/\bDATETIME\b/gi, 'TIMESTAMP');
+    }
+
+    const usesInsertOrIgnore = /^\s*INSERT\s+OR\s+IGNORE/i.test(transformed);
+    if (usesInsertOrIgnore) {
+        transformed = transformed.replace(/^\s*INSERT\s+OR\s+IGNORE/i, 'INSERT');
+        if (!/ON\s+CONFLICT/i.test(transformed)) {
+            transformed = `${transformed} ON CONFLICT DO NOTHING`;
+        }
+    }
+
+    transformed = transformed.replace(/datetime\('now'\)/gi, 'CURRENT_TIMESTAMP');
+
+    return transformed;
+}
+
+function prepareQuery(sql, params, dialect, options = {}) {
+    const normalizedSql = transformSqlForDialect(sql, dialect, options);
+    const values = normalizeParams(params);
+
+    if (dialect === DIALECTS.POSTGRES) {
+        return { text: convertPlaceholders(normalizedSql), values };
+    }
+
+    return { text: normalizedSql, values };
+}
+
+function createPreparedStatement(adapter, sql) {
+    return {
+        run: (...params) => adapter.run(sql, params),
+        finalize: async () => {}
+    };
+}
+
+function createPostgresAdapter(connectionString) {
+    const pool = new Pool({ connectionString });
+
+    const adapter = {
+        dialect: DIALECTS.POSTGRES,
+        async all(sql, params = []) {
+            const { text, values } = prepareQuery(sql, params, this.dialect);
+            const result = await pool.query(text, values);
+            return result.rows;
+        },
+        async get(sql, params = []) {
+            const rows = await this.all(sql, params);
+            return rows[0] || null;
+        },
+        async run(sql, params = []) {
+            const { text, values } = prepareQuery(sql, params, this.dialect);
+            const isInsert = /^\s*insert/i.test(sql);
+            const client = await pool.connect();
+            try {
+                const result = await client.query(text, values);
+                let lastID = null;
+                if (isInsert) {
+                    try {
+                        const lastVal = await client.query('SELECT LASTVAL() AS id');
+                        lastID = lastVal.rows[0]?.id ?? null;
+                    } catch (err) {
+                        lastID = null;
+                    }
+                }
+                return { changes: result.rowCount ?? 0, lastID };
+            } finally {
+                client.release();
+            }
+        },
+        async exec(sql) {
+            const statements = splitStatements(sql);
+            if (!statements.length) return;
+            const client = await pool.connect();
+            try {
+                for (const statement of statements) {
+                    const finalSql = transformSqlForDialect(statement, this.dialect, { isSchema: true });
+                    if (!finalSql) continue;
+                    await client.query(finalSql);
+                }
+            } finally {
+                client.release();
+            }
+        },
+        prepare(sql) {
+            return createPreparedStatement(this, sql);
+        },
+        async close() {
+            await pool.end();
+        }
+    };
+
+    return adapter;
+}
+
+function decorateSqliteDb(db) {
+    db.dialect = DIALECTS.SQLITE;
+    if (typeof db.prepare === 'function') {
+        const originalPrepare = db.prepare.bind(db);
+        db.prepare = async function patchedPrepare(sql) {
+            return originalPrepare(sql);
+        };
+    }
+    cachedDb = db;
+    return db;
+}
+
+let cachedDb = null;
 
 function slugifyValue(value = '') {
     return (value || '')
@@ -35,14 +204,32 @@ async function ensureVendorSlugs(db) {
 }
 
 async function ensureColumn(db, table, column, definition) {
-    const info = await db.all(`PRAGMA table_info(${table})`);
+    const safeTable = sanitizeIdentifier(table);
+    const safeColumn = sanitizeIdentifier(column);
+    let columnDefinition = definition;
+
+    if (db.dialect === DIALECTS.POSTGRES) {
+        columnDefinition = columnDefinition
+            .replace(/INTEGER\s+PRIMARY\s+KEY\s+AUTOINCREMENT/gi, 'SERIAL PRIMARY KEY')
+            .replace(/\bDATETIME\b/gi, 'TIMESTAMP');
+    }
+
+    if (db.dialect === DIALECTS.POSTGRES) {
+        await db.run(`ALTER TABLE ${safeTable} ADD COLUMN IF NOT EXISTS ${safeColumn} ${columnDefinition}`);
+        return;
+    }
+
+    const info = await db.all(`PRAGMA table_info(${safeTable})`);
     const exists = info.some((col) => col.name === column);
     if (!exists) {
-        await db.run(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+        await db.run(`ALTER TABLE ${safeTable} ADD COLUMN ${safeColumn} ${columnDefinition}`);
     }
 }
 
 async function migrateLegacyShifts(db) {
+    if (db.dialect === DIALECTS.POSTGRES) {
+        return;
+    }
     const info = await db.all("PRAGMA table_info('shifts')");
     if (!info.length) return;
     const hasLegacyColumns = info.some((col) => col.name === 'opened_by');
@@ -131,13 +318,27 @@ async function migrateLegacyShifts(db) {
 }
 
 export async function setupDatabase() {
-    const db = await open({
-        filename: './database.db',
-        driver: sqlite3.Database
-    });
+    if (cachedDb) {
+        return cachedDb;
+    }
+
+    const usePostgres = Boolean(DATABASE_URL);
+    let db;
+
+    if (usePostgres) {
+        db = createPostgresAdapter(DATABASE_URL);
+    } else {
+        const sqliteDb = await open({
+            filename: DATABASE_PATH,
+            driver: sqlite3.Database
+        });
+        db = decorateSqliteDb(sqliteDb);
+    }
 
     // Ensure foreign keys are enforced (SQLite requires pragma)
-    await db.exec('PRAGMA foreign_keys = ON;');
+    if (db.dialect === DIALECTS.SQLITE) {
+        await db.exec('PRAGMA foreign_keys = ON;');
+    }
 
     await db.exec(`
         -- Products
@@ -317,6 +518,38 @@ export async function setupDatabase() {
             FOREIGN KEY (tag_id) REFERENCES tags(id) ON DELETE CASCADE
         );
 
+        -- Staff & roles (must exist before dependent tables/foreign keys)
+        CREATE TABLE IF NOT EXISTS roles (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT UNIQUE NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS staff (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT UNIQUE NOT NULL,
+            display_name TEXT,
+            email TEXT,
+            phone TEXT,
+            password TEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE TABLE IF NOT EXISTS staff_roles (
+            staff_id INTEGER,
+            role_id INTEGER,
+            PRIMARY KEY (staff_id, role_id),
+            FOREIGN KEY (staff_id) REFERENCES staff(id),
+            FOREIGN KEY (role_id) REFERENCES roles(id)
+        );
+        
+        -- Refresh tokens for long-lived sessions (hashed)
+        CREATE TABLE IF NOT EXISTS refresh_tokens (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            staff_id INTEGER,
+            token_hash TEXT,
+            expires_at DATETIME,
+            FOREIGN KEY (staff_id) REFERENCES staff(id)
+        );
 
         -- Password reset tokens for staff (one-time, short lived)
         CREATE TABLE IF NOT EXISTS password_reset_tokens (
@@ -429,7 +662,7 @@ export async function setupDatabase() {
             entity_type TEXT,
             entity_id INTEGER,
             action TEXT,
-            user TEXT,
+            actor TEXT,
             details TEXT,
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP
         );
@@ -479,39 +712,6 @@ export async function setupDatabase() {
             metadata TEXT,
             read_at DATETIME,
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (staff_id) REFERENCES staff(id)
-        );
-
-        -- Staff & roles
-        CREATE TABLE IF NOT EXISTS roles (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT UNIQUE NOT NULL
-        );
-
-        CREATE TABLE IF NOT EXISTS staff (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            username TEXT UNIQUE NOT NULL,
-            display_name TEXT,
-            email TEXT,
-            phone TEXT,
-            password TEXT,
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-        );
-
-        CREATE TABLE IF NOT EXISTS staff_roles (
-            staff_id INTEGER,
-            role_id INTEGER,
-            PRIMARY KEY (staff_id, role_id),
-            FOREIGN KEY (staff_id) REFERENCES staff(id),
-            FOREIGN KEY (role_id) REFERENCES roles(id)
-        );
-        
-        -- Refresh tokens for long-lived sessions (hashed)
-        CREATE TABLE IF NOT EXISTS refresh_tokens (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            staff_id INTEGER,
-            token_hash TEXT,
-            expires_at DATETIME,
             FOREIGN KEY (staff_id) REFERENCES staff(id)
         );
 
@@ -973,107 +1173,36 @@ export async function setupDatabase() {
     }
 
     // Backfill: add columns to settings/invoices if older schema present (for safety)
-    const settingsInfo = await db.all("PRAGMA table_info('settings')");
-    const hasCurrentOutlet = settingsInfo.some(c => c.name === 'current_outlet_id');
-    if (!hasCurrentOutlet) {
-        await db.run('ALTER TABLE settings ADD COLUMN current_outlet_id INTEGER DEFAULT 1');
-    }
+    await ensureColumn(db, 'settings', 'current_outlet_id', 'INTEGER DEFAULT 1');
+    await ensureColumn(db, 'settings', 'exchange_rate', 'REAL');
+    await ensureColumn(db, 'settings', 'email_template_invoice', 'TEXT');
+    await ensureColumn(db, 'settings', 'email_template_quote', 'TEXT');
+    await ensureColumn(db, 'settings', 'email_template_quote_request', 'TEXT');
+    await ensureColumn(db, 'settings', 'email_template_password_reset_subject', 'TEXT');
+    await ensureColumn(db, 'settings', 'email_template_password_reset', 'TEXT');
 
-    const hasExchangeRate = settingsInfo.some(c => c.name === 'exchange_rate');
-    if (!hasExchangeRate) {
-        try { await db.run('ALTER TABLE settings ADD COLUMN exchange_rate REAL'); } catch (e) { /* ignore */ }
-    }
-
-    // Add email template columns if missing
-    const hasInvoiceTemplateCol = settingsInfo.some(c => c.name === 'email_template_invoice');
-    if (!hasInvoiceTemplateCol) {
-        try { await db.run("ALTER TABLE settings ADD COLUMN email_template_invoice TEXT"); } catch (e) { /* ignore */ }
-    }
-    const hasQuoteTemplateCol = settingsInfo.some(c => c.name === 'email_template_quote');
-    if (!hasQuoteTemplateCol) {
-        try { await db.run("ALTER TABLE settings ADD COLUMN email_template_quote TEXT"); } catch (e) { /* ignore */ }
-    }
-    const hasQuoteReqTemplateCol = settingsInfo.some(c => c.name === 'email_template_quote_request');
-    if (!hasQuoteReqTemplateCol) {
-        try { await db.run("ALTER TABLE settings ADD COLUMN email_template_quote_request TEXT"); } catch (e) { /* ignore */ }
-    }
-    const hasPwSubj = settingsInfo.some(c => c.name === 'email_template_password_reset_subject');
-    if (!hasPwSubj) {
-        try { await db.run("ALTER TABLE settings ADD COLUMN email_template_password_reset_subject TEXT"); } catch (e) { /* ignore */ }
-    }
-    const hasPwTpl = settingsInfo.some(c => c.name === 'email_template_password_reset');
-    if (!hasPwTpl) {
-        try { await db.run("ALTER TABLE settings ADD COLUMN email_template_password_reset TEXT"); } catch (e) { /* ignore */ }
-    }
-
-    const invoiceInfo = await db.all("PRAGMA table_info('invoices')");
-    const hasSubtotal = invoiceInfo.some(c => c.name === 'subtotal');
-    if (!hasSubtotal) {
-        await db.run('ALTER TABLE invoices ADD COLUMN subtotal REAL NOT NULL DEFAULT 0');
-    }
-    const hasTax = invoiceInfo.some(c => c.name === 'tax_amount');
-    if (!hasTax) {
-        await db.run('ALTER TABLE invoices ADD COLUMN tax_amount REAL NOT NULL DEFAULT 0');
-    }
-    const hasOutletId = invoiceInfo.some(c => c.name === 'outlet_id');
-    if (!hasOutletId) {
-        await db.run('ALTER TABLE invoices ADD COLUMN outlet_id INTEGER');
-    }
-    const hasTypeColumn = invoiceInfo.some(c => c.name === 'type');
-    if (!hasTypeColumn) {
-        await db.run("ALTER TABLE invoices ADD COLUMN type TEXT DEFAULT 'invoice'");
-    }
-    const hasStatusColumn = invoiceInfo.some(c => c.name === 'status');
-    if (!hasStatusColumn) {
-        await db.run("ALTER TABLE invoices ADD COLUMN status TEXT DEFAULT 'issued'");
-    }
+    await ensureColumn(db, 'invoices', 'subtotal', 'REAL NOT NULL DEFAULT 0');
+    await ensureColumn(db, 'invoices', 'tax_amount', 'REAL NOT NULL DEFAULT 0');
+    await ensureColumn(db, 'invoices', 'outlet_id', 'INTEGER');
+    await ensureColumn(db, 'invoices', 'type', "TEXT DEFAULT 'invoice'");
+    await ensureColumn(db, 'invoices', 'status', "TEXT DEFAULT 'issued'");
 
     // Ensure customers table has extra fields for GST/business details
-    const customerInfo = await db.all("PRAGMA table_info('customers')");
-    const custCols = customerInfo.map(c => c.name);
-    if (!custCols.includes('phone')) {
-        try { await db.run('ALTER TABLE customers ADD COLUMN phone TEXT'); } catch (e) { /* ignore */ }
-    }
-    if (!custCols.includes('address')) {
-        try { await db.run('ALTER TABLE customers ADD COLUMN address TEXT'); } catch (e) { /* ignore */ }
-    }
-    if (!custCols.includes('gst_number')) {
-        try { await db.run('ALTER TABLE customers ADD COLUMN gst_number TEXT'); } catch (e) { /* ignore */ }
-    }
-    if (!custCols.includes('registration_number')) {
-        try { await db.run('ALTER TABLE customers ADD COLUMN registration_number TEXT'); } catch (e) { /* ignore */ }
-    }
-    if (!custCols.includes('is_business')) {
-        try { await db.run("ALTER TABLE customers ADD COLUMN is_business INTEGER DEFAULT 0"); } catch (e) { /* ignore */ }
-    }
+    await ensureColumn(db, 'customers', 'phone', 'TEXT');
+    await ensureColumn(db, 'customers', 'address', 'TEXT');
+    await ensureColumn(db, 'customers', 'gst_number', 'TEXT');
+    await ensureColumn(db, 'customers', 'registration_number', 'TEXT');
+    await ensureColumn(db, 'customers', 'is_business', 'INTEGER DEFAULT 0');
 
     // Ensure settings_email has SMTP columns if older schema exists
-    const emailInfo = await db.all("PRAGMA table_info('settings_email')");
-    const emailCols = emailInfo.map(c => c.name);
-    if (!emailCols.includes('smtp_host')) {
-        try { await db.run('ALTER TABLE settings_email ADD COLUMN smtp_host TEXT'); } catch (e) { /* ignore */ }
-    }
-    if (!emailCols.includes('smtp_port')) {
-        try { await db.run('ALTER TABLE settings_email ADD COLUMN smtp_port INTEGER'); } catch (e) { /* ignore */ }
-    }
-    if (!emailCols.includes('smtp_user')) {
-        try { await db.run('ALTER TABLE settings_email ADD COLUMN smtp_user TEXT'); } catch (e) { /* ignore */ }
-    }
-    if (!emailCols.includes('smtp_pass')) {
-        try { await db.run('ALTER TABLE settings_email ADD COLUMN smtp_pass TEXT'); } catch (e) { /* ignore */ }
-    }
-    if (!emailCols.includes('smtp_secure')) {
-        try { await db.run("ALTER TABLE settings_email ADD COLUMN smtp_secure INTEGER DEFAULT 0"); } catch (e) { /* ignore */ }
-    }
-    if (!emailCols.includes('smtp_require_tls')) {
-        try { await db.run("ALTER TABLE settings_email ADD COLUMN smtp_require_tls INTEGER DEFAULT 0"); } catch (e) { /* ignore */ }
-    }
-    if (!emailCols.includes('smtp_from_name')) {
-        try { await db.run("ALTER TABLE settings_email ADD COLUMN smtp_from_name TEXT"); } catch (e) { /* ignore */ }
-    }
-    if (!emailCols.includes('smtp_reply_to')) {
-        try { await db.run("ALTER TABLE settings_email ADD COLUMN smtp_reply_to TEXT"); } catch (e) { /* ignore */ }
-    }
+    await ensureColumn(db, 'settings_email', 'smtp_host', 'TEXT');
+    await ensureColumn(db, 'settings_email', 'smtp_port', 'INTEGER');
+    await ensureColumn(db, 'settings_email', 'smtp_user', 'TEXT');
+    await ensureColumn(db, 'settings_email', 'smtp_pass', 'TEXT');
+    await ensureColumn(db, 'settings_email', 'smtp_secure', 'INTEGER DEFAULT 0');
+    await ensureColumn(db, 'settings_email', 'smtp_require_tls', 'INTEGER DEFAULT 0');
+    await ensureColumn(db, 'settings_email', 'smtp_from_name', 'TEXT');
+    await ensureColumn(db, 'settings_email', 'smtp_reply_to', 'TEXT');
 
     // Seed initial products if the table is empty. Controlled by SEED_PRODUCTS env var to avoid demo data in production.
     const productCount = await db.get('SELECT COUNT(*) as c FROM products');

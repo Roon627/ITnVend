@@ -85,14 +85,22 @@ npm run dev -- --host estore.itnvend.com --port 5174
 
 Quick start (Docker / Postgres)
 -------------------------------
-If you prefer running Postgres/Redis in containers, create a compose file under `POS/Backend/` (for example `docker-compose.postgres.yml`) with the services you need. After you add the file and a matching `.env`, start the stack with:
+Prefer to run the backend on Postgres instead of the bundled SQLite file? A compose file now ships with the repo:
 
 ```powershell
 cd POS/Backend
-docker compose -f docker-compose.postgres.yml up -d
+docker compose -f docker-compose.postgres.yml up -d   # start the db
+docker compose -f docker-compose.postgres.yml down    # stop it when done
 ```
 
-Once containers are running, point `VITE_API_PROXY_TARGET` / `VITE_API_BASE` to the exposed API URL (often still `http://localhost:4000` unless you remap ports).
+Then point the backend at Postgres by exporting `DATABASE_URL` (or adding it to `POS/Backend/.env`):
+
+```powershell
+$env:DATABASE_URL = "postgres://itnvend:itnvend@localhost:5432/itnvend"
+npm start
+```
+
+In Postgres mode the app does **not** auto-seed demo data—every table starts empty so you can onboard vendors, products, and customers directly from the admin UI. The frontends continue to talk to `http://localhost:4000` unless you change ports.
 
 Environment variables and configuration
 ----------------------------------------

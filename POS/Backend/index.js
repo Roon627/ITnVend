@@ -51,6 +51,35 @@ app.set('trust proxy', true);
 // make port configurable so multiple services can run without colliding
 const port = process.env.PORT ? parseInt(process.env.PORT, 10) : 4000;
 
+const DB_TYPES = { POSTGRES: 'postgres', SQLITE: 'sqlite' };
+let dbType = process.env.DB_TYPE || null;
+const DEFAULT_CONCAT_SEPARATOR = "', '";
+function resolveDbType() {
+    if (dbType) return dbType;
+    if (process.env.DB_TYPE) return process.env.DB_TYPE;
+    if (process.env.DATABASE_URL) return DB_TYPES.POSTGRES;
+    return DB_TYPES.SQLITE;
+}
+function isPostgres() {
+    return resolveDbType() === DB_TYPES.POSTGRES;
+}
+function concatExpr(column, separator = DEFAULT_CONCAT_SEPARATOR) {
+    if (separator) {
+        return isPostgres()
+            ? `string_agg(${column}, ${separator})`
+            : `group_concat(${column}, ${separator})`;
+    }
+    return isPostgres()
+        ? `string_agg(${column}, ',')`
+        : `group_concat(${column})`;
+}
+function nowExpr() {
+    return isPostgres() ? 'CURRENT_TIMESTAMP' : "datetime('now')";
+}
+function orderCaseInsensitive(column) {
+    return isPostgres() ? `LOWER(${column})` : `${column} COLLATE NOCASE`;
+}
+
 // handle server listen errors (EADDRINUSE etc) so process logs a clear message
 server.on('error', (err) => {
         if (err && err.code === 'EADDRINUSE') {
@@ -799,10 +828,10 @@ function requireRole(required) {
 }
 
 // Simple activity logger helper
-async function logActivity(entity_type, entity_id, action, user, details) {
+async function logActivity(entity_type, entity_id, action, actor, details) {
     try {
         if (!db) return;
-        await db.run('INSERT INTO activity_logs (entity_type, entity_id, action, user, details) VALUES (?, ?, ?, ?, ?)', [entity_type, entity_id || null, action, user || null, details || null]);
+        await db.run('INSERT INTO activity_logs (entity_type, entity_id, action, actor, details) VALUES (?, ?, ?, ?, ?)', [entity_type, entity_id || null, action, actor || null, details || null]);
     } catch (err) {
         console.warn('Failed to log activity', err?.message || err);
     }
@@ -1219,6 +1248,7 @@ function normalizeUploadPath(raw) {
 async function startServer() {
     try {
     db = await setupDatabase();
+    dbType = db?.dialect || resolveDbType();
     // expose db on the express app so routes can access it via req.app.get('db')
     try { app.set('db', db); } catch (e) { /* ignore */ }
         const slipProcessingQueue = createSlipProcessingQueue({
@@ -1399,7 +1429,22 @@ app.post('/api/login', async (req, res) => {
         // try staff table first
         const staff = await db.get('SELECT * FROM staff WHERE username = ?', [username]);
         if (staff) {
-            const ok = await bcrypt.compare(password, staff.password || '');
+            const storedPassword = staff.password || '';
+            const isHashed = typeof storedPassword === 'string' && storedPassword.startsWith('$2');
+            let ok = false;
+            if (isHashed) {
+                ok = await bcrypt.compare(password, storedPassword);
+            } else if (storedPassword) {
+                ok = storedPassword === password;
+                if (ok) {
+                    try {
+                        const hashed = await bcrypt.hash(password, 10);
+                        await db.run('UPDATE staff SET password = ? WHERE id = ?', [hashed, staff.id]);
+                    } catch (rehashErr) {
+                        console.warn('Failed to rehash legacy staff password', rehashErr?.message || rehashErr);
+                    }
+                }
+            }
             if (!ok) return res.status(401).json({ error: 'Invalid credentials' });
             // fetch roles
             const roles = await db.all('SELECT r.name FROM roles r JOIN staff_roles sr ON sr.role_id = r.id WHERE sr.staff_id = ?', [staff.id]);
@@ -1600,7 +1645,7 @@ app.get('/api/products', async (req, res) => {
             params.push(slugify(tag), tag);
         }
 
-        query += ' ORDER BY p.name COLLATE NOCASE';
+        query += ` ORDER BY ${orderCaseInsensitive('p.name')}`;
 
         const productRows = await db.all(query, params);
 
@@ -3651,7 +3696,7 @@ app.get('/api/public/vendors/:slug/products', async (req, res) => {
              FROM products p
              LEFT JOIN vendors v ON p.vendor_id = v.id
              WHERE p.vendor_id = ?
-             ORDER BY p.name COLLATE NOCASE`,
+             ORDER BY ${orderCaseInsensitive('p.name')}`,
             [vendor.id]
         );
         res.json((rows || []).map(mapProductForPublic));
@@ -3664,10 +3709,11 @@ app.get('/api/public/vendors/:slug/products', async (req, res) => {
 app.get('/api/casual-items', authMiddleware, requireRole(['accounts','manager','admin']), async (req, res) => {
     try {
         const status = req.query.status || null;
+        const photosColumn = `${concatExpr('cip.path')} as photos`;
         let rows;
         const baseSql = `
             SELECT ci.*, cs.name as seller_name, cs.email as seller_email, cs.phone as seller_phone, i.id as invoice_id, i.total as invoice_total,
-                   GROUP_CONCAT(cip.path) as photos
+                   ${photosColumn}
             FROM casual_items ci
             LEFT JOIN casual_sellers cs ON cs.id = ci.casual_seller_id
             LEFT JOIN invoices i ON i.id = ci.invoice_id
@@ -3689,9 +3735,10 @@ app.get('/api/submissions', authMiddleware, requireRole(['cashier','accounts','m
     try {
             const pendingVendors = await db.all("SELECT * FROM vendors WHERE status = 'pending' ORDER BY created_at DESC");
             // Include photos and invoice info for casual items so staff can inspect submissions
+            const pendingPhotosColumn = `${concatExpr('cip.path')} as photos`;
             const pendingCasual = await db.all(`
                 SELECT ci.*, cs.name as seller_name, cs.email as seller_email, i.id as invoice_id, i.total as invoice_total,
-                       GROUP_CONCAT(cip.path) as photos
+                       ${pendingPhotosColumn}
                 FROM casual_items ci
                 LEFT JOIN casual_sellers cs ON cs.id = ci.casual_seller_id
                 LEFT JOIN invoices i ON i.id = ci.invoice_id
@@ -4939,7 +4986,7 @@ app.get('/api/transactions/recent', authMiddleware, requireRole('cashier'), asyn
                 c.customer_type as customer_type
             FROM invoices i
             LEFT JOIN customers c ON c.id = i.customer_id
-            ORDER BY datetime(i.created_at) DESC
+            ORDER BY i.created_at DESC
             LIMIT ?
         `, [limit]);
 
@@ -6099,7 +6146,7 @@ app.post('/api/staff/:id/switch', authMiddleware, requireRole('admin'), async (r
 app.get('/api/staff/:id/activity', authMiddleware, requireRole('admin'), async (req, res) => {
     const { id } = req.params;
     try {
-        const logs = await db.all('SELECT id, entity_type, entity_id, action, user, details, created_at FROM activity_logs WHERE entity_type = ? AND entity_id = ? ORDER BY created_at DESC LIMIT 200', ['staff', id]);
+        const logs = await db.all('SELECT id, entity_type, entity_id, action, actor, details, created_at FROM activity_logs WHERE entity_type = ? AND entity_id = ? ORDER BY created_at DESC LIMIT 200', ['staff', id]);
         res.json(logs);
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -7179,7 +7226,7 @@ app.post('/api/purchases/:id/reverse', authMiddleware, requireRole(['manager', '
             // Mark purchase as reversed
             await db.run(`
                 UPDATE purchases
-                SET reversed = 1, reversed_at = datetime('now'), reversed_by = ?, reversal_reason = ?
+                SET reversed = 1, reversed_at = CURRENT_TIMESTAMP, reversed_by = ?, reversal_reason = ?
                 WHERE id = ?
             `, [req.user.username, reason, id]);
 
@@ -7257,11 +7304,11 @@ app.post('/api/operations/shift/start', authMiddleware, requireRole(['cashier', 
         // Close any open shifts first
         await db.run(`
             UPDATE shifts
-            SET closed_at = datetime('now'),
-                ended_at = datetime('now'),
+            SET closed_at = CURRENT_TIMESTAMP,
+                ended_at = CURRENT_TIMESTAMP,
                 closed_by = COALESCE(closed_by, ?),
                 status = 'closed',
-                updated_at = datetime('now')
+                updated_at = CURRENT_TIMESTAMP
             WHERE closed_at IS NULL
         `, [req.user.username]);
 
@@ -7270,7 +7317,7 @@ app.post('/api/operations/shift/start', authMiddleware, requireRole(['cashier', 
         const staffId = req.user?.staffId || null;
         const result = await db.run(`
             INSERT INTO shifts (opened_by, starting_cash, opened_at, started_by, starting_balance, outlet_id, status)
-            VALUES (?, ?, datetime('now'), ?, ?, ?, 'active')
+            VALUES (?, ?, CURRENT_TIMESTAMP, ?, ?, ?, 'active')
         `, [req.user.username, startingCash, staffId, startingCash, outletId]);
 
         await logActivity('shifts', result.lastID, 'opened', req.user.username, `Shift opened with $${startingCash} starting cash`);
@@ -7329,8 +7376,8 @@ app.post('/api/operations/shift/close', authMiddleware, requireRole(['cashier', 
         }
         const result = await db.run(`
             UPDATE shifts
-            SET closed_at = datetime('now'),
-                ended_at = datetime('now'),
+            SET closed_at = CURRENT_TIMESTAMP,
+                ended_at = CURRENT_TIMESTAMP,
                 closed_by = ?,
                 actual_cash = ?,
                 cash_counts = ?,
@@ -7340,7 +7387,7 @@ app.post('/api/operations/shift/close', authMiddleware, requireRole(['cashier', 
                 notes = ?,
                 note = ?,
                 status = 'closed',
-                updated_at = datetime('now')
+                updated_at = CURRENT_TIMESTAMP
             WHERE closed_at IS NULL
         `, [
             req.user.username,
@@ -7562,7 +7609,7 @@ app.post('/api/purchases/:id/reverse', authMiddleware, requireRole(['manager', '
             // Mark purchase as reversed
             await db.run(`
                 UPDATE purchases
-                SET reversed = 1, reversed_at = datetime('now'), reversed_by = ?, reversal_reason = ?
+                SET reversed = 1, reversed_at = CURRENT_TIMESTAMP, reversed_by = ?, reversal_reason = ?
                 WHERE id = ?
             `, [req.user.username, reason, id]);
 
@@ -7786,232 +7833,7 @@ app.post('/api/purchases/:id/reverse', authMiddleware, requireRole(['manager', '
             // Mark purchase as reversed
             await db.run(`
                 UPDATE purchases
-                SET reversed = 1, reversed_at = datetime('now'), reversed_by = ?, reversal_reason = ?
-                WHERE id = ?
-            `, [req.user.username, reason, id]);
-
-            // Reverse inventory transactions
-            await db.run(`
-                INSERT INTO inventory_transactions (product_id, type, quantity, unit_cost, reference, created_by)
-                SELECT product_id, 'adjustment', -quantity, unit_cost, 'Purchase reversal #' || ?, ?
-                FROM purchase_items WHERE purchase_id = ?
-            `, [id, req.user.username, id]);
-
-            // Reverse accounting entries (if any)
-            // This would depend on how purchases are accounted for
-
-            await db.run('COMMIT');
-
-            await logActivity('purchases', id, 'reversed', req.user.username, `Purchase reversed: ${reason}`);
-
-            res.json({ message: 'Purchase reversed successfully' });
-        } catch (err) {
-            await db.run('ROLLBACK');
-            throw err;
-        }
-    } catch (err) {
-        res.status(500).json({ error: err.message });
-    }
-});
-
-// Monthly Operations
-app.get('/api/operations/monthly', authMiddleware, requireRole(['manager', 'accounts']), async (req, res) => {
-    const { month } = req.query;
-    if (!month) {
-        return res.status(400).json({ error: 'Month parameter is required (YYYY-MM)' });
-    }
-
-    const startDate = `${month}-01`;
-    const endDate = new Date(new Date(startDate).getFullYear(), new Date(startDate).getMonth() + 1, 0).toISOString().split('T')[0];
-
-    try {
-        // Check if month is closed
-        const monthClose = await db.get(`
-            SELECT * FROM monthly_closes
-            WHERE month = ? AND year = ?
-        `, [new Date(startDate).getMonth() + 1, new Date(startDate).getFullYear()]);
-
-        // Financial summary - calculate revenue and expenses from general ledger
-        const financial = await db.get(`
-            SELECT
-                COALESCE(SUM(CASE WHEN coa.account_type = 'revenue' THEN (gl.debit - gl.credit) ELSE 0 END), 0) as totalRevenue,
-                COALESCE(SUM(CASE WHEN coa.account_type = 'expense' THEN (gl.credit - gl.debit) ELSE 0 END), 0) as totalExpenses,
-                COALESCE(SUM(CASE WHEN coa.account_type = 'revenue' THEN (gl.debit - gl.credit) ELSE 0 END), 0) -
-                COALESCE(SUM(CASE WHEN coa.account_type = 'expense' THEN (gl.credit - gl.debit) ELSE 0 END), 0) as netIncome
-            FROM general_ledger gl
-            JOIN chart_of_accounts coa ON gl.account_id = coa.id
-            WHERE DATE(gl.transaction_date) BETWEEN ? AND ?
-        `, [startDate, endDate]);
-
-        // Opening and closing balance - calculate net balance
-        const openingBalance = await db.get(`
-            SELECT COALESCE(SUM(gl.debit - gl.credit), 0) as balance
-            FROM general_ledger gl
-            WHERE DATE(gl.transaction_date) < ?
-        `, [startDate]);
-
-        const closingBalance = await db.get(`
-            SELECT COALESCE(SUM(gl.debit - gl.credit), 0) as balance
-            FROM general_ledger gl
-            WHERE DATE(gl.transaction_date) <= ?
-        `, [endDate]);
-
-        // Inventory summary - calculate from inventory transactions
-        const inventory = await db.get(`
-            SELECT
-                COALESCE(SUM(CASE WHEN type = 'purchase' THEN quantity * unit_cost ELSE 0 END), 0) as purchases,
-                COALESCE(SUM(CASE WHEN type = 'sale' THEN quantity * unit_cost ELSE 0 END), 0) as sales,
-                COALESCE(AVG(quantity), 0) as avgInventory
-            FROM inventory_transactions
-            WHERE DATE(created_at) BETWEEN ? AND ?
-        `, [startDate, endDate]);
-
-        // Key metrics
-        const metrics = await db.get(`
-            SELECT
-                COUNT(DISTINCT i.id) as totalTransactions,
-                AVG(i.total) as avgTransactionValue,
-                COUNT(DISTINCT i.customer_id) as totalCustomers
-            FROM invoices i
-            WHERE DATE(i.created_at) BETWEEN ? AND ?
-        `, [startDate, endDate]);
-
-        res.json({
-            month,
-            closed: !!monthClose,
-            closedAt: monthClose?.closed_at,
-            financial: {
-                totalRevenue: financial?.totalRevenue || 0,
-                totalExpenses: financial?.totalExpenses || 0,
-                netIncome: financial?.netIncome || 0,
-                openingBalance: openingBalance?.balance || 0,
-                closingBalance: closingBalance?.balance || 0
-            },
-            inventory: {
-                purchases: inventory?.purchases || 0,
-                sales: inventory?.sales || 0,
-                openingValue: 0, // Would need more complex calculation
-                closingValue: 0, // Would need more complex calculation
-                turnoverRatio: inventory?.sales && inventory?.avgInventory ?
-                    inventory.sales / inventory.avgInventory : 0
-            },
-            metrics: {
-                totalTransactions: metrics?.totalTransactions || 0,
-                avgTransactionValue: metrics?.avgTransactionValue || 0,
-                newCustomers: 0, // Would need customer creation date tracking
-                returningCustomers: metrics?.totalCustomers || 0
-            }
-        });
-    } catch (err) {
-        res.status(500).json({ error: err.message });
-    }
-});
-
-app.post('/api/operations/monthly/process', authMiddleware, requireRole(['manager', 'accounts']), async (req, res) => {
-    const { month } = req.body;
-    if (!month) {
-        return res.status(400).json({ error: 'Month parameter is required' });
-    }
-
-    try {
-        const monthNum = new Date(month + '-01').getMonth() + 1;
-        const year = new Date(month + '-01').getFullYear();
-
-        // Record monthly close
-        const result = await db.run(`
-            INSERT INTO monthly_closes (month, year, closed_by)
-            VALUES (?, ?, ?)
-        `, [monthNum, year, req.user.username]);
-
-        await logActivity('monthly_closes', result.lastID, 'created', req.user.username, `Monthly close for ${month}`);
-
-        res.json({ message: 'Monthly close processed successfully' });
-    } catch (err) {
-        res.status(500).json({ error: err.message });
-    }
-});
-
-app.post('/api/operations/monthly/depreciation', authMiddleware, requireRole(['manager', 'accounts']), async (req, res) => {
-    const { month } = req.body;
-
-    try {
-        // This would calculate and post depreciation entries
-        // For now, just log the activity
-        await logActivity('depreciation', null, 'calculated', req.user.username, `Depreciation calculated for ${month}`);
-
-        res.json({ message: 'Depreciation calculated successfully' });
-    } catch (err) {
-        res.status(500).json({ error: err.message });
-    }
-});
-
-// Purchase Reversals
-app.get('/api/purchases', authMiddleware, requireRole(['manager', 'accounts']), async (req, res) => {
-    const { search, limit = 50, includeReversed = true } = req.query;
-
-    try {
-        let query = `
-            SELECT p.*, s.name as supplierName,
-                   COUNT(pi.id) as itemCount
-            FROM purchases p
-            LEFT JOIN suppliers s ON p.supplier_id = s.id
-            LEFT JOIN purchase_items pi ON p.id = pi.purchase_id
-            WHERE 1=1
-        `;
-        const params = [];
-
-        if (search) {
-            query += ` AND (p.id LIKE ? OR s.name LIKE ? OR p.reference_number LIKE ?)`;
-            params.push(`%${search}%`, `%${search}%`, `%${search}%`);
-        }
-
-        if (includeReversed !== 'true') {
-            query += ` AND p.reversed = 0`;
-        }
-
-        query += ` GROUP BY p.id ORDER BY p.created_at DESC LIMIT ?`;
-        params.push(parseInt(limit));
-
-        const purchases = await db.all(query, params);
-
-        // Get items for each purchase
-        for (const purchase of purchases) {
-            purchase.items = await db.all(`
-                SELECT pi.*, pr.name as productName
-                FROM purchase_items pi
-                LEFT JOIN products pr ON pi.product_id = pr.id
-                WHERE pi.purchase_id = ?
-            `, [purchase.id]);
-        }
-
-        res.json({ purchases });
-    } catch (err) {
-        res.status(500).json({ error: err.message });
-    }
-});
-
-app.post('/api/purchases/:id/reverse', authMiddleware, requireRole(['manager', 'accounts']), async (req, res) => {
-    const { id } = req.params;
-    const { reason } = req.body;
-
-    try {
-        // Check if purchase exists and is not already reversed
-        const purchase = await db.get(`
-            SELECT * FROM purchases WHERE id = ? AND reversed = 0
-        `, [id]);
-
-        if (!purchase) {
-            return res.status(404).json({ error: 'Purchase not found or already reversed' });
-        }
-
-        // Start transaction
-        await db.run('BEGIN TRANSACTION');
-
-        try {
-            // Mark purchase as reversed
-            await db.run(`
-                UPDATE purchases
-                SET reversed = 1, reversed_at = datetime('now'), reversed_by = ?, reversal_reason = ?
+                SET reversed = 1, reversed_at = CURRENT_TIMESTAMP, reversed_by = ?, reversal_reason = ?
                 WHERE id = ?
             `, [req.user.username, reason, id]);
 
@@ -8236,7 +8058,7 @@ app.post('/api/purchases/:id/reverse', authMiddleware, requireRole(['manager', '
             // Mark purchase as reversed
             await db.run(`
                 UPDATE purchases
-                SET reversed = 1, reversed_at = datetime('now'), reversed_by = ?, reversal_reason = ?
+                SET reversed = 1, reversed_at = CURRENT_TIMESTAMP, reversed_by = ?, reversal_reason = ?
                 WHERE id = ?
             `, [req.user.username, reason, id]);
 
@@ -8461,7 +8283,7 @@ app.post('/api/purchases/:id/reverse', authMiddleware, requireRole(['manager', '
             // Mark purchase as reversed
             await db.run(`
                 UPDATE purchases
-                SET reversed = 1, reversed_at = datetime('now'), reversed_by = ?, reversal_reason = ?
+                SET reversed = 1, reversed_at = CURRENT_TIMESTAMP, reversed_by = ?, reversal_reason = ?
                 WHERE id = ?
             `, [req.user.username, reason, id]);
 
@@ -8686,7 +8508,232 @@ app.post('/api/purchases/:id/reverse', authMiddleware, requireRole(['manager', '
             // Mark purchase as reversed
             await db.run(`
                 UPDATE purchases
-                SET reversed = 1, reversed_at = datetime('now'), reversed_by = ?, reversal_reason = ?
+                SET reversed = 1, reversed_at = CURRENT_TIMESTAMP, reversed_by = ?, reversal_reason = ?
+                WHERE id = ?
+            `, [req.user.username, reason, id]);
+
+            // Reverse inventory transactions
+            await db.run(`
+                INSERT INTO inventory_transactions (product_id, type, quantity, unit_cost, reference, created_by)
+                SELECT product_id, 'adjustment', -quantity, unit_cost, 'Purchase reversal #' || ?, ?
+                FROM purchase_items WHERE purchase_id = ?
+            `, [id, req.user.username, id]);
+
+            // Reverse accounting entries (if any)
+            // This would depend on how purchases are accounted for
+
+            await db.run('COMMIT');
+
+            await logActivity('purchases', id, 'reversed', req.user.username, `Purchase reversed: ${reason}`);
+
+            res.json({ message: 'Purchase reversed successfully' });
+        } catch (err) {
+            await db.run('ROLLBACK');
+            throw err;
+        }
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Monthly Operations
+app.get('/api/operations/monthly', authMiddleware, requireRole(['manager', 'accounts']), async (req, res) => {
+    const { month } = req.query;
+    if (!month) {
+        return res.status(400).json({ error: 'Month parameter is required (YYYY-MM)' });
+    }
+
+    const startDate = `${month}-01`;
+    const endDate = new Date(new Date(startDate).getFullYear(), new Date(startDate).getMonth() + 1, 0).toISOString().split('T')[0];
+
+    try {
+        // Check if month is closed
+        const monthClose = await db.get(`
+            SELECT * FROM monthly_closes
+            WHERE month = ? AND year = ?
+        `, [new Date(startDate).getMonth() + 1, new Date(startDate).getFullYear()]);
+
+        // Financial summary - calculate revenue and expenses from general ledger
+        const financial = await db.get(`
+            SELECT
+                COALESCE(SUM(CASE WHEN coa.account_type = 'revenue' THEN (gl.debit - gl.credit) ELSE 0 END), 0) as totalRevenue,
+                COALESCE(SUM(CASE WHEN coa.account_type = 'expense' THEN (gl.credit - gl.debit) ELSE 0 END), 0) as totalExpenses,
+                COALESCE(SUM(CASE WHEN coa.account_type = 'revenue' THEN (gl.debit - gl.credit) ELSE 0 END), 0) -
+                COALESCE(SUM(CASE WHEN coa.account_type = 'expense' THEN (gl.credit - gl.debit) ELSE 0 END), 0) as netIncome
+            FROM general_ledger gl
+            JOIN chart_of_accounts coa ON gl.account_id = coa.id
+            WHERE DATE(gl.transaction_date) BETWEEN ? AND ?
+        `, [startDate, endDate]);
+
+        // Opening and closing balance - calculate net balance
+        const openingBalance = await db.get(`
+            SELECT COALESCE(SUM(gl.debit - gl.credit), 0) as balance
+            FROM general_ledger gl
+            WHERE DATE(gl.transaction_date) < ?
+        `, [startDate]);
+
+        const closingBalance = await db.get(`
+            SELECT COALESCE(SUM(gl.debit - gl.credit), 0) as balance
+            FROM general_ledger gl
+            WHERE DATE(gl.transaction_date) <= ?
+        `, [endDate]);
+
+        // Inventory summary - calculate from inventory transactions
+        const inventory = await db.get(`
+            SELECT
+                COALESCE(SUM(CASE WHEN type = 'purchase' THEN quantity * unit_cost ELSE 0 END), 0) as purchases,
+                COALESCE(SUM(CASE WHEN type = 'sale' THEN quantity * unit_cost ELSE 0 END), 0) as sales,
+                COALESCE(AVG(quantity), 0) as avgInventory
+            FROM inventory_transactions
+            WHERE DATE(created_at) BETWEEN ? AND ?
+        `, [startDate, endDate]);
+
+        // Key metrics
+        const metrics = await db.get(`
+            SELECT
+                COUNT(DISTINCT i.id) as totalTransactions,
+                AVG(i.total) as avgTransactionValue,
+                COUNT(DISTINCT i.customer_id) as totalCustomers
+            FROM invoices i
+            WHERE DATE(i.created_at) BETWEEN ? AND ?
+        `, [startDate, endDate]);
+
+        res.json({
+            month,
+            closed: !!monthClose,
+            closedAt: monthClose?.closed_at,
+            financial: {
+                totalRevenue: financial?.totalRevenue || 0,
+                totalExpenses: financial?.totalExpenses || 0,
+                netIncome: financial?.netIncome || 0,
+                openingBalance: openingBalance?.balance || 0,
+                closingBalance: closingBalance?.balance || 0
+            },
+            inventory: {
+                purchases: inventory?.purchases || 0,
+                sales: inventory?.sales || 0,
+                openingValue: 0, // Would need more complex calculation
+                closingValue: 0, // Would need more complex calculation
+                turnoverRatio: inventory?.sales && inventory?.avgInventory ?
+                    inventory.sales / inventory.avgInventory : 0
+            },
+            metrics: {
+                totalTransactions: metrics?.totalTransactions || 0,
+                avgTransactionValue: metrics?.avgTransactionValue || 0,
+                newCustomers: 0, // Would need customer creation date tracking
+                returningCustomers: metrics?.totalCustomers || 0
+            }
+        });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.post('/api/operations/monthly/process', authMiddleware, requireRole(['manager', 'accounts']), async (req, res) => {
+    const { month } = req.body;
+    if (!month) {
+        return res.status(400).json({ error: 'Month parameter is required' });
+    }
+
+    try {
+        const monthNum = new Date(month + '-01').getMonth() + 1;
+        const year = new Date(month + '-01').getFullYear();
+
+        // Record monthly close
+        const result = await db.run(`
+            INSERT INTO monthly_closes (month, year, closed_by)
+            VALUES (?, ?, ?)
+        `, [monthNum, year, req.user.username]);
+
+        await logActivity('monthly_closes', result.lastID, 'created', req.user.username, `Monthly close for ${month}`);
+
+        res.json({ message: 'Monthly close processed successfully' });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.post('/api/operations/monthly/depreciation', authMiddleware, requireRole(['manager', 'accounts']), async (req, res) => {
+    const { month } = req.body;
+
+    try {
+        // This would calculate and post depreciation entries
+        // For now, just log the activity
+        await logActivity('depreciation', null, 'calculated', req.user.username, `Depreciation calculated for ${month}`);
+
+        res.json({ message: 'Depreciation calculated successfully' });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Purchase Reversals
+app.get('/api/purchases', authMiddleware, requireRole(['manager', 'accounts']), async (req, res) => {
+    const { search, limit = 50, includeReversed = true } = req.query;
+
+    try {
+        let query = `
+            SELECT p.*, s.name as supplierName,
+                   COUNT(pi.id) as itemCount
+            FROM purchases p
+            LEFT JOIN suppliers s ON p.supplier_id = s.id
+            LEFT JOIN purchase_items pi ON p.id = pi.purchase_id
+            WHERE 1=1
+        `;
+        const params = [];
+
+        if (search) {
+            query += ` AND (p.id LIKE ? OR s.name LIKE ? OR p.reference_number LIKE ?)`;
+            params.push(`%${search}%`, `%${search}%`, `%${search}%`);
+        }
+
+        if (includeReversed !== 'true') {
+            query += ` AND p.reversed = 0`;
+        }
+
+        query += ` GROUP BY p.id ORDER BY p.created_at DESC LIMIT ?`;
+        params.push(parseInt(limit));
+
+        const purchases = await db.all(query, params);
+
+        // Get items for each purchase
+        for (const purchase of purchases) {
+            purchase.items = await db.all(`
+                SELECT pi.*, pr.name as productName
+                FROM purchase_items pi
+                LEFT JOIN products pr ON pi.product_id = pr.id
+                WHERE pi.purchase_id = ?
+            `, [purchase.id]);
+        }
+
+        res.json({ purchases });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.post('/api/purchases/:id/reverse', authMiddleware, requireRole(['manager', 'accounts']), async (req, res) => {
+    const { id } = req.params;
+    const { reason } = req.body;
+
+    try {
+        // Check if purchase exists and is not already reversed
+        const purchase = await db.get(`
+            SELECT * FROM purchases WHERE id = ? AND reversed = 0
+        `, [id]);
+
+        if (!purchase) {
+            return res.status(404).json({ error: 'Purchase not found or already reversed' });
+        }
+
+        // Start transaction
+        await db.run('BEGIN TRANSACTION');
+
+        try {
+            // Mark purchase as reversed
+            await db.run(`
+                UPDATE purchases
+                SET reversed = 1, reversed_at = CURRENT_TIMESTAMP, reversed_by = ?, reversal_reason = ?
                 WHERE id = ?
             `, [req.user.username, reason, id]);
 
@@ -8896,3 +8943,4 @@ app.put('/api/categories/:id', authMiddleware, requireRole('manager'), async (re
         res.status(500).json({ error: err.message });
     }
 });
+
