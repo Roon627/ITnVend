@@ -20,7 +20,7 @@ export default function SlipValidator({ onFileSelected, showInlinePreview = true
     try {
       const url = selected ? URL.createObjectURL(selected) : null;
       if (typeof onFileSelected === 'function') onFileSelected(selected, url);
-    } catch (e) {
+    } catch {
       // ignore
     }
   };
@@ -169,8 +169,8 @@ export default function SlipValidator({ onFileSelected, showInlinePreview = true
           .catch((e) => {
             console.debug('Failed to persist slip (non-blocking):', e?.message || e);
           });
-      } catch (e) {
-        // ignore persistence errors — validation already showed result
+      } catch {
+        // ignore persistence errors - validation already showed result
       }
 
       if (response && response.match === false) {

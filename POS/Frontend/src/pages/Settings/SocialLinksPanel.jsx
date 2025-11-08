@@ -51,29 +51,32 @@ export default function SocialLinksPanel({ formState, updateField, canEdit }) {
       </div>
 
       <div className="mt-6 grid gap-5 md:grid-cols-2">
-        {SOCIAL_FIELDS.map(({ key, label, placeholder, icon: Icon, helper }) => (
-          <div key={key} className="rounded-2xl border border-slate-100 bg-white/90 p-4 shadow-inner">
-            <label className="flex items-center gap-3 text-sm font-semibold text-slate-700" htmlFor={key}>
-              <span className="flex h-9 w-9 items-center justify-center rounded-full bg-rose-100 text-rose-500">
-                <Icon aria-hidden="true" />
-              </span>
-              {label}
-            </label>
-            <input
-              id={key}
-              name={key}
-              type="url"
-              inputMode="url"
-              autoComplete="off"
-              value={formState[key] || ''}
-              onChange={(event) => updateField(key, event.target.value)}
-              placeholder={placeholder}
-              disabled={!canEdit}
-              className="mt-3 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-700 shadow-sm transition focus:border-rose-400 focus:outline-none focus:ring-2 focus:ring-rose-200 disabled:cursor-not-allowed disabled:bg-slate-50"
-            />
-            <p className="mt-2 text-xs text-slate-500">{helper}</p>
-          </div>
-        ))}
+        {SOCIAL_FIELDS.map(({ key, label, placeholder, icon, helper }) => {
+          const IconComponent = icon;
+          return (
+            <div key={key} className="rounded-2xl border border-slate-100 bg-white/90 p-4 shadow-inner">
+              <label className="flex items-center gap-3 text-sm font-semibold text-slate-700" htmlFor={key}>
+                <span className="flex h-9 w-9 items-center justify-center rounded-full bg-rose-100 text-rose-500">
+                  <IconComponent aria-hidden="true" />
+                </span>
+                {label}
+              </label>
+              <input
+                id={key}
+                name={key}
+                type="url"
+                inputMode="url"
+                autoComplete="off"
+                value={formState[key] || ''}
+                onChange={(event) => updateField(key, event.target.value)}
+                placeholder={placeholder}
+                disabled={!canEdit}
+                className="mt-3 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-700 shadow-sm transition focus:border-rose-400 focus:outline-none focus:ring-2 focus:ring-rose-200 disabled:cursor-not-allowed disabled:bg-slate-50"
+              />
+              <p className="mt-2 text-xs text-slate-500">{helper}</p>
+            </div>
+          );
+        })}
       </div>
     </section>
   );

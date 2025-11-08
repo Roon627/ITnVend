@@ -16,7 +16,6 @@ export default function OutletsPanel({
   createOutlet,
   isManager,
   isAdmin,
-  defaultSettings: _defaultSettings,
   formState,
   updateField
 }) {

@@ -78,19 +78,22 @@ export default function Footer() {
             <p className="text-sm text-slate-500">Follow us for launch drops, behind-the-scenes stories, and flash deals. Tap an icon to jump in now, or explore every channel from the social hub.</p>
             <div className="flex flex-wrap items-center justify-center gap-4">
               {socials.length > 0 ? (
-                socials.map(({ label, icon: Icon, href }) => (
-                  <a
-                    key={label}
-                    href={href}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="group relative inline-flex h-12 w-12 items-center justify-center rounded-full bg-white text-rose-500 shadow-lg shadow-rose-100 transition hover:-translate-y-1 hover:text-rose-600"
-                    aria-label={label}
-                  >
-                    <span className="absolute inset-0 rounded-full bg-gradient-to-br from-rose-100 to-sky-100 opacity-0 transition group-hover:opacity-100" aria-hidden="true" />
-                    <Icon className="relative text-lg" aria-hidden="true" />
-                  </a>
-                ))
+                socials.map(({ label, icon, href }) => {
+                  const IconComponent = icon;
+                  return (
+                    <a
+                      key={label}
+                      href={href}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="group relative inline-flex h-12 w-12 items-center justify-center rounded-full bg-white text-rose-500 shadow-lg shadow-rose-100 transition hover:-translate-y-1 hover:text-rose-600"
+                      aria-label={label}
+                    >
+                      <span className="absolute inset-0 rounded-full bg-gradient-to-br from-rose-100 to-sky-100 opacity-0 transition group-hover:opacity-100" aria-hidden="true" />
+                      <IconComponent className="relative text-lg" aria-hidden="true" />
+                    </a>
+                  );
+                })
               ) : (
                 <span className="rounded-full border border-dashed border-rose-200 px-4 py-2 text-xs font-medium text-rose-400">
                   Social handles coming soon—stay tuned!

@@ -1,10 +1,8 @@
 import { useEffect, useState, useMemo, useCallback } from 'react';
 import { api } from '../lib/api';
-import { useAuth } from '../components/AuthContext';
 import SlipValidator from '../components/SlipValidator';
 
 export default function Slips() {
-  const { user } = useAuth();
   const [items, setItems] = useState([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);

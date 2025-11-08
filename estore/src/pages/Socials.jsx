@@ -58,7 +58,7 @@ export default function Socials() {
           return cleanPath ? `@${cleanPath}` : fallbackHandle;
         }
         return link;
-      } catch (err) {
+      } catch {
         return link;
       }
     };
@@ -90,7 +90,9 @@ export default function Socials() {
         </div>
 
         <div className="grid gap-6 md:grid-cols-2">
-          {channels.map(({ name, handle, caption, href, icon: Icon, accent }) => (
+          {channels.map(({ name, handle, caption, href, icon, accent }) => {
+            const IconComponent = icon;
+            return (
             <a
               key={name}
               href={href}
@@ -102,7 +104,7 @@ export default function Socials() {
               <div className="relative flex flex-col gap-4">
                 <div className="inline-flex items-center gap-3">
                   <span className="flex h-12 w-12 items-center justify-center rounded-full bg-white text-rose-500 shadow-md shadow-rose-100 transition group-hover:text-rose-600">
-                    <Icon aria-hidden="true" />
+                    <IconComponent aria-hidden="true" />
                   </span>
                   <div>
                     <h2 className="text-lg font-semibold text-slate-800">{name}</h2>
@@ -116,7 +118,8 @@ export default function Socials() {
                 </span>
               </div>
             </a>
-          ))}
+          );
+          })}
         </div>
         {channels.length === 0 && (
           <div className="mt-6 rounded-3xl border border-dashed border-rose-200 bg-white/60 p-8 text-center text-sm text-rose-400">

@@ -75,12 +75,7 @@ export function SettingsProvider({ children }) {
     const candidate = pickBrandLogo(settings);
     if (!candidate) return null;
     return resolveMediaUrl(candidate);
-  }, [
-    settings?.logo_url,
-    settings?.outlet?.logo_url,
-    settings?.branding?.logo_url,
-    settings?.brand?.logo_url
-  ]);
+  }, [settings]);
 
   useEffect(() => {
     if (typeof document === 'undefined') return;

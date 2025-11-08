@@ -65,10 +65,6 @@ export default function POS() {
   const canManageTransactions = userRole === 'admin' || userRole === 'accounts';
   const searchInputRef = useRef(null);
   const payNowBtnRef = useRef(null);
-  const selectedCustomer = selectedCustomerId
-    ? customers.find((c) => String(c.id) === String(selectedCustomerId)) || null
-    : null;
-
   const resetPaymentDetails = useCallback(() => {
     setPaymentReference('');
     setPaymentSlipPath(null);
@@ -489,7 +485,7 @@ export default function POS() {
     handleCheckout('invoice');
   };
 
-  const handleCheckout = async (type = 'invoice', extras = {}) => {
+  const handleCheckout = async (type = 'invoice') => {
     const normalizedType = typeof type === 'string' ? type.toLowerCase() : 'invoice';
     const validItemsForCheckout = cart.filter(i => Number(i.quantity || 0) > 0);
     if (!selectedCustomerId || validItemsForCheckout.length === 0) {
@@ -812,7 +808,6 @@ export default function POS() {
                           ? transaction.payment_methods.map(humanizeLabel).join(', ')
                           : '';
                         const isExpanded = expandedHistoryId === transaction.id;
-                        const typeIsQuote = (transaction.type || '').toLowerCase() === 'quote';
                         const statusRaw = (transaction.status || '').toLowerCase();
 
                         return (

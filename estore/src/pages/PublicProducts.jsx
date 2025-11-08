@@ -28,7 +28,6 @@ export default function PublicProducts() {
   const [searchInput, setSearchInput] = useState(initialFromParams.search);
   const [loading, setLoading] = useState(false);
   const [highlights, setHighlights] = useState(null);
-  const [highlightsLoaded, setHighlightsLoaded] = useState(false);
   const { addToCart, cartCount } = useCart();
   const { formatCurrency } = useSettings();
 
@@ -70,9 +69,6 @@ export default function PublicProducts() {
       })
       .catch(() => {
         if (mounted) setHighlights(null);
-      })
-      .finally(() => {
-        if (mounted) setHighlightsLoaded(true);
       });
     return () => {
       mounted = false;

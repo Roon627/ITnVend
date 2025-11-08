@@ -15,7 +15,7 @@ export function parseServerTimestamp(ts) {
     }
     const d = new Date(s);
     if (!isNaN(d.getTime())) return d;
-  } catch (err) {
+  } catch {
     // fall through
   }
   return null;

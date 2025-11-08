@@ -21,7 +21,7 @@ export default function ResetPassword() {
       toast.push('Missing reset token', 'error');
       navigate('/forgot-password');
     }
-  }, [token]);
+  }, [token, toast, navigate]);
 
   async function submit(e) {
     e.preventDefault();
@@ -34,6 +34,7 @@ export default function ResetPassword() {
       navigate('/login');
     } catch (err) {
       toast.push('Failed to reset password. The token may be invalid or expired.', 'error');
+      console.debug('Failed to reset password', err?.message || err);
     } finally {
       setLoading(false);
     }

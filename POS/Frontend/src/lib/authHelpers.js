@@ -9,8 +9,11 @@ export const LS_REFRESH_KEY = 'ITnvend_refresh_token';
 export function parseJwt(token) {
   try {
     const payload = token.split('.')[1];
-    // atob is available in the browser environment used by this frontend
-    const decoded = JSON.parse(atob(payload));
+    if (!payload) return null;
+    // JWTs are base64url-encoded; convert to standard base64 before decoding
+    const normalized = payload.replace(/-/g, '+').replace(/_/g, '/');
+    const padded = normalized.padEnd(normalized.length + ((4 - (normalized.length % 4)) % 4), '=');
+    const decoded = JSON.parse(atob(padded));
     return decoded;
   } catch {
     return null;

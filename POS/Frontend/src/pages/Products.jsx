@@ -514,10 +514,6 @@ function ProductModal({
   vendors = [],
   createBrand = async () => false,
   createMaterial = async () => false,
-  createColor = async () => false,
-  createCategoryRoot = async () => false,
-  createSubcategory = async () => false,
-  createSubsubcategory = async () => false,
 }) {
   const fileInputRef = useRef(null);
   const galleryFileInputRef = useRef(null);
@@ -883,7 +879,7 @@ function ProductModal({
                 value={draft.categoryId || ''}
                 onChange={async (v) => {
                   // refresh lookups/tree in case user added categories in Manage Lookups
-                  try { if (typeof onTagsChanged === 'function') await onTagsChanged(); } catch (e) { /* ignore */ }
+                  try { if (typeof onTagsChanged === 'function') await onTagsChanged(); } catch { /* ignore */ }
                   const found = categoryTree.find((c) => c.id === v);
                   const updatedDraft = { ...(draft || {}), categoryId: v, subcategoryId: '', subsubcategoryId: '', category: found ? found.name : '' };
                   // perform atomic update to avoid transient stale state for dependent selects
@@ -896,7 +892,7 @@ function ProductModal({
                 label="Subcategory"
                 value={draft.subcategoryId || ''}
                 onChange={async (v) => {
-                  try { if (typeof onTagsChanged === 'function') await onTagsChanged(); } catch (e) { /* ignore */ }
+                  try { if (typeof onTagsChanged === 'function') await onTagsChanged(); } catch { /* ignore */ }
                   let name = '';
                   for (const c of categoryTree) {
                     const child = (c.children || []).find((ch) => ch.id === v);
@@ -1183,6 +1179,7 @@ export default function Products() {
       });
     } catch (err) {
       toast.push('Failed to load products', 'error');
+      console.debug('Failed to load products', err?.message || err);
     } finally {
       setLoading(false);
     }
@@ -1241,99 +1238,6 @@ export default function Products() {
       return false;
     }
   };
-  const createColor = async (name) => {
-    try {
-      const created = await api.post('/colors', { name });
-      const newId = extractId(created);
-      if (!newId) throw new Error('API did not return a valid ID for the new color.');
-
-      setLookups(prev => ({ ...prev, colors: [...(prev?.colors || []), { id: newId, name }] }));
-      handleModalFieldChange('colorId', newId);
-      toast.push('Color added', 'info');
-      return true;
-    } catch (e) {
-      toast.push(e?.message || 'Failed to add color', 'error');
-      fetchLookupsAndTree(); // Fallback to refetch on error
-      return false;
-    }
-  };
-
-  // categories
-  const createCategoryRoot = async (name) => {
-    try {
-      const created = await api.post('/categories', { name });
-      const newId = extractId(created);
-      if (!newId) throw new Error('API did not return a valid ID for the new category.');
-
-      setCategoryTree(prev => [...prev, { id: newId, name, children: [] }]);
-      handleModalFieldChange('categoryId', newId);
-      handleModalFieldChange('category', name);
-      // clear descendants when switching root
-      handleModalFieldChange('subcategoryId', '');
-      handleModalFieldChange('subsubcategoryId', '');
-      handleModalFieldChange('subcategory', '');
-      toast.push('Category added', 'info');
-      return true;
-    } catch (e) {
-      toast.push(e?.message || 'Failed to add category', 'error');
-      fetchLookupsAndTree(); // Fallback to refetch on error
-      return false;
-    }
-  };
-  const createSubcategory = async (name) => {
-    if (!modalDraft.categoryId) {
-      toast.push('Select a category first', 'warning');
-      return false;
-    }
-    try {
-      const created = await api.post('/categories', { name, parentId: modalDraft.categoryId });
-      const newId = extractId(created);
-      if (!newId) throw new Error('API did not return a valid ID for the new subcategory.');
-
-      setCategoryTree(prev => prev.map(cat => 
-        cat.id === modalDraft.categoryId 
-          ? { ...cat, children: [...(cat.children || []), { id: newId, name, children: [] }] }
-          : cat
-      ));
-      handleModalFieldChange('subcategoryId', newId);
-      handleModalFieldChange('subsubcategoryId', '');
-      handleModalFieldChange('subcategory', name);
-      toast.push('Subcategory added', 'info');
-      return true;
-    } catch (e) {
-      toast.push(e?.message || 'Failed to add subcategory', 'error');
-      fetchLookupsAndTree(); // Fallback to refetch on error
-      return false;
-    }
-  };
-  const createSubsubcategory = async (name) => {
-    if (!modalDraft.subcategoryId) {
-      toast.push('Select a subcategory first', 'warning');
-      return false;
-    }
-    try {
-      const created = await api.post('/categories', { name, parentId: modalDraft.subcategoryId });
-      const newId = extractId(created);
-      if (!newId) throw new Error('API did not return a valid ID for the new sub-subcategory.');
-      
-      setCategoryTree(prev => prev.map(cat => ({
-        ...cat,
-        children: (cat.children || []).map(sub => 
-          sub.id === modalDraft.subcategoryId
-            ? { ...sub, children: [...(sub.children || []), { id: newId, name }] }
-            : sub
-        )
-      })));
-      handleModalFieldChange('subsubcategoryId', newId);
-      toast.push('Sub-subcategory added', 'info');
-      return true;
-    } catch (e) {
-      toast.push(e?.message || 'Failed to add sub-subcategory', 'error');
-      fetchLookupsAndTree(); // Fallback to refetch on error
-      return false;
-    }
-  };
-
   // Auto-generate SKU when enabled
   useEffect(() => {
     if (!modalDraft) return;
@@ -1350,7 +1254,7 @@ export default function Products() {
   const openCreateModal = async () => {
     try {
       await fetchLookupsAndTree();
-    } catch (e) { /* ignore */ }
+    } catch { /* ignore */ }
     setModalDraft({
       ...EMPTY_FORM,
     });
@@ -1428,6 +1332,7 @@ export default function Products() {
       await fetchProducts();
     } catch (err) {
       toast.push(err?.message || 'Failed to add product', 'error');
+      console.debug('Failed to add product', err?.message || err);
     } finally {
       setAdding(false);
       if (newImageInputRef.current) newImageInputRef.current.value = '';
@@ -1447,6 +1352,7 @@ export default function Products() {
       await fetchProducts();
     } catch (err) {
       toast.push(err?.message || 'Failed to delete product', 'error');
+      console.debug('Failed to delete product', err?.message || err);
     }
   };
 
@@ -1457,13 +1363,14 @@ export default function Products() {
       await fetchProducts();
     } catch (err) {
       toast.push('Failed to update stock', 'error');
+      console.debug('Failed to update stock', err?.message || err);
     }
   };
 
   const handleBeginEdit = async (product) => {
     try {
       await fetchLookupsAndTree();
-    } catch (e) { /* ignore */ }
+    } catch { /* ignore */ }
     setModalDraft({
       id: product.id,
       name: product.name || '',
@@ -1680,7 +1587,7 @@ export default function Products() {
           });
           onlyStockChanged = changedKeys.length === 1 && changedKeys[0] === 'stock';
         }
-      } catch (e) {
+      } catch {
         // ignore comparison errors
       }
 
@@ -1765,6 +1672,8 @@ export default function Products() {
       toast.push('Image updated', 'info');
     } catch (err) {
       toast.push(err?.message || 'Failed to upload image', 'error');
+      console.debug('Failed to upload modal image', err?.message || err);
+      console.debug('Failed to upload product image', err?.message || err);
     } finally {
       setModalUploading(false);
     }
@@ -1808,6 +1717,7 @@ export default function Products() {
       }
     } catch (err) {
       toast.push(err?.message || 'Failed to upload gallery image', 'error');
+      console.debug('Failed to upload gallery image', err?.message || err);
     } finally {
       setModalGalleryUploading(false);
     }
@@ -1881,6 +1791,7 @@ export default function Products() {
     } catch (err) {
       setBulkRows([]);
       setBulkError('Failed to parse CSV file');
+      console.debug('Failed to parse bulk CSV file', err?.message || err);
     }
   };
 
@@ -2330,10 +2241,6 @@ export default function Products() {
         onTagsChanged={fetchLookupsAndTree}
         createBrand={createBrand}
         createMaterial={createMaterial}
-        createColor={createColor}
-        createCategoryRoot={createCategoryRoot}
-        createSubcategory={createSubcategory}
-        createSubsubcategory={createSubsubcategory}
       />
     </div>
   );

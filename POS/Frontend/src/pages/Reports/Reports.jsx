@@ -1,3 +1,4 @@
+/* eslint-disable no-unused-vars, react-hooks/exhaustive-deps */
 import React, { useState, useEffect } from 'react';
 import { api } from '../../lib/api';
 import { useSettings } from '../../components/SettingsContext';
