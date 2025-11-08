@@ -1,11 +1,13 @@
 import { useEffect, useState } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
+import { FaPhone, FaEnvelope } from 'react-icons/fa';
 import api from '../lib/api';
 import { useCart } from '../components/CartContext';
 import { useSettings } from '../components/SettingsContext';
 import { resolveMediaUrl } from '../lib/media';
 import { withPreorderFlags, isPreorderProduct } from '../lib/preorder';
 import AvailabilityTag from '../components/AvailabilityTag';
+import { isUserListing, getSellerContact, buildContactLink, buyerNoticeText } from '../lib/listings';
 
 export default function ProductDetail() {
   const { id } = useParams();
@@ -43,6 +45,11 @@ export default function ProductDetail() {
     product.availability_status ||
     product.availabilityStatus ||
     (preorder ? 'preorder' : 'in_stock');
+  const userListing = isUserListing(product);
+  const sellerContact = getSellerContact(product);
+  const contactLink = buildContactLink(sellerContact);
+  const contactHasInfo = Boolean(sellerContact.phone || sellerContact.email);
+  const buyerNotice = buyerNoticeText();
 
   const handlePreorder = () => {
     const params = new URLSearchParams();
@@ -90,6 +97,11 @@ export default function ProductDetail() {
               {product.category || 'Market item'}
             </span>
             <h1 className="text-3xl font-black text-slate-900 sm:text-4xl">{product.name}</h1>
+            {userListing && (
+              <span className="inline-flex items-center gap-2 rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-[11px] font-semibold uppercase tracking-wider text-amber-700">
+                Seller listing
+              </span>
+            )}
             {preorder && (
               <span className="inline-flex items-center gap-2 rounded-full border border-rose-200 bg-rose-50 px-3 py-1 text-xs font-semibold uppercase tracking-wider text-rose-500">
                 Preorder item
@@ -102,7 +114,9 @@ export default function ProductDetail() {
               <p className="text-sm font-semibold uppercase tracking-wider text-rose-400">Price</p>
               <p className="mt-1 text-3xl font-bold text-rose-600">{formatCurrency(product.price)}</p>
               <p className="mt-3 text-sm text-rose-500">
-                Your POS will pull this value directly when a cart containing this item is submitted from the storefront.
+                {userListing
+                  ? 'Community seller listing — coordinate inspection, payment, and delivery directly with the seller.'
+                  : 'Your POS will pull this value directly when a cart containing this item is submitted from the storefront.'}
               </p>
             </div>
 
@@ -118,23 +132,66 @@ export default function ProductDetail() {
               )}
             </section>
 
+            {userListing && (
+              <section className="space-y-3 rounded-2xl border border-amber-100 bg-white/90 p-6 text-slate-700 shadow-sm">
+                <h2 className="text-lg font-semibold text-amber-600">Seller contact</h2>
+                <div className="font-semibold text-slate-900">{sellerContact.name || 'Seller'}</div>
+                <div className="flex flex-col gap-2 text-sm">
+                  {sellerContact.phone && (
+                    <a href={`tel:${sellerContact.phone.replace(/[^0-9+]/g, '')}`} className="inline-flex items-center gap-2 text-amber-700 hover:text-amber-800">
+                      <FaPhone className="text-[14px]" />
+                      <span>{sellerContact.phone}</span>
+                    </a>
+                  )}
+                  {sellerContact.email && (
+                    <a href={`mailto:${sellerContact.email}`} className="inline-flex items-center gap-2 text-amber-700 hover:text-amber-800">
+                      <FaEnvelope className="text-[14px]" />
+                      <span>{sellerContact.email}</span>
+                    </a>
+                  )}
+                  {!contactHasInfo && <p className="text-xs text-slate-500">Contact details will appear here once verified.</p>}
+                </div>
+                <p className="text-xs text-rose-500">{buyerNotice}</p>
+              </section>
+            )}
+
             <div className="flex flex-wrap gap-3">
-              <button
-                onClick={() => addToCart(product)}
-                className="inline-flex items-center gap-3 rounded-full bg-rose-500 px-6 py-3 text-white shadow-lg shadow-rose-300 transition hover:-translate-y-0.5 hover:bg-rose-400 focus:outline-none focus:ring-2 focus:ring-rose-200"
-                aria-label={`Add ${product.name} to cart`}
-              >
-                Add to cart
-              </button>
-              {preorder ? (
-                <button
-                  type="button"
-                  onClick={handlePreorder}
-                  className="inline-flex items-center gap-3 rounded-full border border-rose-200 px-5 py-3 text-sm font-semibold text-rose-600 transition hover:bg-rose-100"
-                >
-                  Preorder via Shop &amp; Ship
-                </button>
-              ) : null}
+              {userListing ? (
+                contactHasInfo ? (
+                  <a
+                    href={contactLink || '#'}
+                    onClick={(e) => {
+                      if (!contactLink) e.preventDefault();
+                    }}
+                    className="inline-flex items-center gap-3 rounded-full bg-amber-500 px-6 py-3 text-white shadow-lg shadow-amber-300 transition hover:-translate-y-0.5 hover:bg-amber-400 focus:outline-none focus:ring-2 focus:ring-amber-200"
+                  >
+                    Contact seller
+                  </a>
+                ) : (
+                  <div className="inline-flex items-center gap-3 rounded-full border border-amber-200 px-6 py-3 text-sm font-semibold text-amber-700">
+                    Awaiting seller contact
+                  </div>
+                )
+              ) : (
+                <>
+                  <button
+                    onClick={() => addToCart(product)}
+                    className="inline-flex items-center gap-3 rounded-full bg-rose-500 px-6 py-3 text-white shadow-lg shadow-rose-300 transition hover:-translate-y-0.5 hover:bg-rose-400 focus:outline-none focus:ring-2 focus:ring-rose-200"
+                    aria-label={`Add ${product.name} to cart`}
+                  >
+                    Add to cart
+                  </button>
+                  {preorder ? (
+                    <button
+                      type="button"
+                      onClick={handlePreorder}
+                      className="inline-flex items-center gap-3 rounded-full border border-rose-200 px-5 py-3 text-sm font-semibold text-rose-600 transition hover:bg-rose-100"
+                    >
+                      Preorder via Shop &amp; Ship
+                    </button>
+                  ) : null}
+                </>
+              )}
               <Link
                 to="/market"
                 className="inline-flex items-center gap-2 rounded-full border border-rose-200 px-5 py-3 text-sm font-semibold text-rose-600 transition hover:bg-rose-100"
@@ -148,6 +205,11 @@ export default function ProductDetail() {
                 Home
               </Link>
             </div>
+            {userListing && (
+              <p className="text-xs text-rose-500">
+                Marketplace notice: ITnVend introduces buyer and seller but does not guarantee payment, condition, or delivery. Please document the transaction carefully.
+              </p>
+            )}
           </div>
         </div>
       </div>

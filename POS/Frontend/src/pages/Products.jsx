@@ -1496,10 +1496,10 @@ export default function Products() {
     setModalDraft((prev) => (prev ? { ...prev, [key]: value } : prev));
   };
 
-  const closeModal = () => {
+  const closeModal = useCallback(() => {
     setModalOpen(false);
     setModalDraft(null);
-  };
+  }, []);
 
   const handleBulkFile = async (file) => {
     try {

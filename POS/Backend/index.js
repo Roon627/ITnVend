@@ -1587,7 +1587,12 @@ app.get('/api/products', async (req, res) => {
                 sub.name AS subcategory_name_resolved,
                 subsub.name AS subsubcategory_name_resolved,
                 v.legal_name AS vendor_name,
-                v.slug AS vendor_slug
+                v.slug AS vendor_slug,
+                ci.id AS casual_item_id,
+                ci.status AS casual_status,
+                cs.name AS casual_seller_name,
+                cs.email AS casual_seller_email,
+                cs.phone AS casual_seller_phone
             FROM products p
             LEFT JOIN brands b ON p.brand_id = b.id
             LEFT JOIN materials mat ON p.material_id = mat.id
@@ -1596,6 +1601,8 @@ app.get('/api/products', async (req, res) => {
             LEFT JOIN product_categories sub ON p.subcategory_id = sub.id
             LEFT JOIN product_categories subsub ON p.subsubcategory_id = subsub.id
             LEFT JOIN vendors v ON p.vendor_id = v.id
+            LEFT JOIN casual_items ci ON ci.product_id = p.id
+            LEFT JOIN casual_sellers cs ON cs.id = ci.casual_seller_id
             WHERE 1=1
         `;
         const params = [];
@@ -1676,12 +1683,15 @@ app.get('/api/products', async (req, res) => {
             }, {});
         }
 
-        const products = productRows.map((row) => ({
-            id: row.id,
-            name: row.name,
-            price: row.price,
-            stock: row.stock,
-            category: row.category,
+        const products = productRows.map((row) => {
+            const isCasual = !!row.casual_item_id;
+            const listingSource = isCasual ? 'casual' : (row.vendor_id ? 'vendor' : 'inventory');
+            return {
+                id: row.id,
+                name: row.name,
+                price: row.price,
+                stock: row.stock,
+                category: row.category,
             subcategory: row.subcategory,
             image: row.image,
             image_source: row.image_source,
@@ -1718,7 +1728,16 @@ app.get('/api/products', async (req, res) => {
             vendor_name: row.vendor_name,
             vendor_slug: row.vendor_slug,
             tags: tagsByProduct[row.id] || [],
-        }));
+            is_casual_listing: isCasual,
+            listing_source: listingSource,
+            casual_item_id: row.casual_item_id,
+                casual_status: row.casual_status,
+                seller_contact_name: isCasual ? (row.casual_seller_name || null) : null,
+                seller_contact_email: isCasual ? (row.casual_seller_email || null) : null,
+                seller_contact_phone: isCasual ? (row.casual_seller_phone || null) : null,
+                seller_contact_notice: isCasual ? 'Coordinate payment and inspection directly with the seller. ITnVend hosts the listing but does not broker the transaction.' : null,
+            };
+        });
 
         await cacheService.set(cacheKey, products, 180);
 
@@ -3859,6 +3878,15 @@ app.post('/api/sellers/submit-item', casualSubmissionLimiter, async (req, res) =
     const user_category = req.body?.user_category || null;
     const user_subcategory = req.body?.user_subcategory || null;
     const user_tag = req.body?.user_tag || null;
+    const rawDetails = req.body?.product_details || req.body?.productDetails || null;
+    let detailsPayload = null;
+    if (rawDetails && typeof rawDetails === 'object') {
+        try {
+            detailsPayload = JSON.stringify(rawDetails);
+        } catch (err) {
+            console.warn('Failed to serialize provided product_details payload', err?.message || err);
+        }
+    }
 
     if (!name || !productTitle) return res.status(400).json({ error: 'Name and productTitle required' });
 
@@ -3882,10 +3910,43 @@ app.post('/api/sellers/submit-item', casualSubmissionLimiter, async (req, res) =
         const casualSellerId = sellerRes.lastID;
 
         // create casual item
+        if (!detailsPayload) {
+            const fallbackDetails = {
+                name: productTitle,
+                description: description || null,
+                condition,
+                askingPrice: askingPrice || 0,
+                quantity: Number(req.body?.quantity || 1) || 1,
+                category: req.body?.category || null,
+                subcategory: req.body?.subcategory || null,
+                user_category,
+                user_subcategory,
+                user_tag,
+                brand: req.body?.brand || null,
+                model: req.body?.model || null,
+                sku: req.body?.sku || null,
+                serialNumber: req.body?.serialNumber || null,
+                warranty: req.body?.warranty || null,
+                feature: !!feature,
+                photos,
+                inventoryManagedBySeller: true,
+                sellerTermsAcknowledged: !!req.body?.seller_terms_agreed,
+                agreements: {
+                    sellerResponsibleForPayment: true,
+                    platformIsListingOnly: true,
+                },
+            };
+            try {
+                detailsPayload = JSON.stringify(fallbackDetails);
+            } catch {
+                detailsPayload = null;
+            }
+        }
+
         const itemRes = await db.run(
-            `INSERT INTO casual_items (casual_seller_id, title, description, condition, asking_price, featured, listing_fee, status)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-            [casualSellerId, productTitle, description || null, condition, askingPrice || 0, feature ? 1 : 0, LISTING_FEE, 'pending_payment']
+            `INSERT INTO casual_items (casual_seller_id, title, description, condition, asking_price, featured, listing_fee, status, details_payload)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [casualSellerId, productTitle, description || null, condition, askingPrice || 0, feature ? 1 : 0, LISTING_FEE, 'pending_payment', detailsPayload]
         );
         const casualItemId = itemRes.lastID;
 

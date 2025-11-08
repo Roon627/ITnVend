@@ -69,6 +69,21 @@ function isImageUrl(url = '') {
   return /\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(url.split('?')[0] || '');
 }
 
+function parseDetailsPayload(row) {
+  if (!row) return null;
+  const raw = row.details_payload || row.detailsPayload || row.product_details || row.productDetails;
+  if (!raw) return null;
+  if (typeof raw === 'object') return raw;
+  if (typeof raw === 'string') {
+    try {
+      return JSON.parse(raw);
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
 function DocumentCard({ url, index }) {
   const resolved = resolveMediaUrl(url);
   if (!resolved) return null;
@@ -107,6 +122,34 @@ export default function Submissions() {
   const [selected, setSelected] = useState(null);
   const toast = useToast();
   const vendorDocuments = selected?.type === 'vendor' ? extractDocumentList(selected.row) : [];
+  const casualDetails = selected?.type === 'casual' ? parseDetailsPayload(selected.row) : null;
+  const casualTags = casualDetails && Array.isArray(casualDetails.tags)
+    ? casualDetails.tags.filter((tag) => typeof tag === 'string' && tag.trim())
+    : [];
+  const casualMeta = casualDetails
+    ? [
+        { label: 'Brand', value: casualDetails.brand || '—' },
+        { label: 'Model', value: casualDetails.model || '—' },
+        { label: 'SKU', value: casualDetails.sku || '—' },
+        {
+          label: 'Price',
+          value: casualDetails.price != null ? `${casualDetails.price} MVR` : (selected?.row?.asking_price != null ? `${selected.row.asking_price} MVR` : '—'),
+        },
+        {
+          label: 'Cost',
+          value: casualDetails.cost != null ? `${casualDetails.cost} MVR` : '—',
+        },
+        {
+          label: 'Stock',
+          value: casualDetails.stock != null ? casualDetails.stock : (selected?.row?.quantity || 1),
+        },
+        { label: 'Availability', value: casualDetails.availabilityStatus || '—' },
+        { label: 'Type', value: casualDetails.type || '—' },
+        { label: 'Track inventory', value: casualDetails.trackInventory === false ? 'No' : 'Yes' },
+        { label: 'Delivery', value: casualDetails.deliveryType || '—' },
+        { label: 'Audience', value: casualDetails.audience || '—' },
+      ]
+    : [];
 
   async function fetchSubmissions() {
     setLoading(true);
@@ -429,6 +472,68 @@ export default function Submissions() {
                     <div className="text-gray-700">{selected.row.seller_name || selected.row.seller_email}</div>
                     {selected.row.invoice_id && (
                       <div className="mt-3 text-sm"><a href={`/invoices/${selected.row.invoice_id}`} className="text-blue-600">View invoice #{selected.row.invoice_id}</a></div>
+                    )}
+                    {casualDetails && (
+                      <div className="mt-4 rounded-xl border border-slate-100 bg-white/70 p-4 space-y-3">
+                        <div className="text-xs font-semibold uppercase text-slate-500 tracking-wide">Submitted product details</div>
+                        <div className="grid gap-3 sm:grid-cols-2">
+                          {casualMeta.map((entry) => (
+                            <div key={entry.label}>
+                              <div className="text-xs uppercase text-slate-400">{entry.label}</div>
+                              <div className="text-sm text-slate-700 break-words">{entry.value ?? '—'}</div>
+                            </div>
+                          ))}
+                          <div>
+                            <div className="text-xs uppercase text-slate-400">Category path</div>
+                            <div className="text-sm text-slate-700 break-words">
+                              {[casualDetails.category, casualDetails.subcategory, casualDetails.subsubcategory].filter(Boolean).join(' › ') || '—'}
+                            </div>
+                          </div>
+                          <div>
+                            <div className="text-xs uppercase text-slate-400">Preorder</div>
+                            <div className="text-sm text-slate-700">
+                              {casualDetails.availableForPreorder ? 'Enabled' : 'No'}
+                            </div>
+                          </div>
+                        </div>
+                        {casualDetails.shortDescription && (
+                          <div>
+                            <div className="text-xs uppercase text-slate-400">Short description</div>
+                            <div className="text-sm text-slate-700">{casualDetails.shortDescription}</div>
+                          </div>
+                        )}
+                        {casualDetails.technicalDetails && (
+                          <div>
+                            <div className="text-xs uppercase text-slate-400">Technical details</div>
+                            <div className="text-sm text-slate-700 whitespace-pre-wrap">{casualDetails.technicalDetails}</div>
+                          </div>
+                        )}
+                        {casualDetails.vendorNotes && (
+                          <div className="rounded-lg border border-blue-100 bg-blue-50/60 p-3 text-sm text-blue-700">
+                            <div className="text-xs uppercase tracking-wide text-blue-500">Seller notes</div>
+                            <div className="mt-1 whitespace-pre-wrap">{casualDetails.vendorNotes}</div>
+                          </div>
+                        )}
+                        {casualTags.length > 0 && (
+                          <div>
+                            <div className="text-xs uppercase text-slate-400">Tags</div>
+                            <div className="mt-1 flex flex-wrap gap-1">
+                              {casualTags.map((tag) => (
+                                <span key={tag} className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-700">
+                                  #{tag}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                        {casualDetails.availableForPreorder && (
+                          <div className="rounded-lg border border-amber-200 bg-amber-50/70 p-3 text-xs text-amber-800">
+                            <div><strong>Release date:</strong> {casualDetails.preorderReleaseDate || '—'}</div>
+                            <div><strong>ETA:</strong> {casualDetails.preorderEta || '—'}</div>
+                            {casualDetails.preorderNotes && <div className="mt-1 whitespace-pre-wrap">{casualDetails.preorderNotes}</div>}
+                          </div>
+                        )}
+                      </div>
                     )}
                   </div>
                   <div>

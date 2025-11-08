@@ -1021,6 +1021,7 @@ export async function setupDatabase() {
             user_category TEXT,
             user_subcategory TEXT,
             user_tag TEXT,
+            details_payload TEXT,
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (casual_seller_id) REFERENCES casual_sellers(id),
             FOREIGN KEY (product_id) REFERENCES products(id),
@@ -1043,6 +1044,7 @@ export async function setupDatabase() {
     await ensureColumn(db, 'casual_items', 'user_category', "TEXT");
     await ensureColumn(db, 'casual_items', 'user_subcategory', "TEXT");
     await ensureColumn(db, 'casual_items', 'user_tag', "TEXT");
+    await ensureColumn(db, 'casual_items', 'details_payload', "TEXT");
     await db.run("UPDATE shifts SET opened_by = COALESCE(opened_by, CAST(started_by AS TEXT)) WHERE started_by IS NOT NULL");
     await db.run("UPDATE shifts SET closed_at = ended_at WHERE closed_at IS NULL AND ended_at IS NOT NULL");
     await db.run("UPDATE shifts SET starting_cash = COALESCE(starting_cash, starting_balance) WHERE starting_balance IS NOT NULL");
