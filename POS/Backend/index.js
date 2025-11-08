@@ -88,6 +88,31 @@ function orderCaseInsensitive(column) {
     return isPostgres() ? `LOWER(${column})` : `${column} COLLATE NOCASE`;
 }
 
+function normalizeGalleryInput(input) {
+    if (!input) return [];
+    const arr = Array.isArray(input) ? input : [input];
+    const seen = new Set();
+    const entries = [];
+    for (const entry of arr) {
+        if (typeof entry !== 'string') continue;
+        const trimmed = entry.trim();
+        if (!trimmed || seen.has(trimmed)) continue;
+        seen.add(trimmed);
+        entries.push(trimmed);
+    }
+    return entries;
+}
+
+function parseGalleryFromRow(value) {
+    if (!value) return [];
+    try {
+        const parsed = JSON.parse(value);
+        return normalizeGalleryInput(Array.isArray(parsed) ? parsed : []);
+    } catch {
+        return [];
+    }
+}
+
 const PRODUCT_BASE_SELECT = `
             SELECT
                 p.*,
@@ -99,6 +124,8 @@ const PRODUCT_BASE_SELECT = `
                 subsub.name AS subsubcategory_name_resolved,
                 v.legal_name AS vendor_name,
                 v.slug AS vendor_slug,
+                v.tagline AS vendor_tagline,
+                v.public_description AS vendor_public_description,
                 ci.id AS casual_item_id,
                 ci.status AS casual_status,
                 ci.featured AS casual_featured,
@@ -141,6 +168,7 @@ async function transformProductRows(rows = []) {
     return rows.map((row) => {
         const isCasual = !!row.casual_item_id;
         const listingSource = isCasual ? 'casual' : (row.vendor_id ? 'vendor' : 'inventory');
+        const gallery = parseGalleryFromRow(row.gallery);
         return {
             id: row.id,
             name: row.name,
@@ -182,6 +210,8 @@ async function transformProductRows(rows = []) {
             vendor_id: row.vendor_id,
             vendor_name: row.vendor_name,
             vendor_slug: row.vendor_slug,
+            vendor_tagline: row.vendor_tagline,
+            vendor_public_description: row.vendor_public_description,
             tags: tagsByProduct[row.id] || [],
             is_casual_listing: isCasual,
             listing_source: listingSource,
@@ -195,6 +225,7 @@ async function transformProductRows(rows = []) {
             highlight_active: row.highlight_active ? 1 : 0,
             highlight_label: row.highlight_label || null,
             highlight_priority: row.highlight_priority || 0,
+            gallery,
         };
     });
 }
@@ -2224,6 +2255,8 @@ app.post('/api/products', authMiddleware, requireRole('cashier'), async (req, re
     }
 
     const brandName = await fetchBrandName(brandIdInt);
+    const galleryInput = normalizeGalleryInput(req.body?.gallery || req.body?.gallery_paths || req.body?.galleryPaths);
+    const galleryValue = galleryInput.length ? JSON.stringify(galleryInput) : null;
     let finalSku = sku?.trim() || null;
     if ((!finalSku || normalizedAutoSku) && name) {
         const computedSku = computeAutoSku({
@@ -2247,9 +2280,9 @@ app.post('/api/products', authMiddleware, requireRole('cashier'), async (req, re
                 brand_id, category_id, subcategory_id, subsubcategory_id,
                 material_id, color_id, audience, delivery_type, warranty_term,
                 preorder_eta, year, auto_sku, availability_status, vendor_id,
-                highlight_active, highlight_label, highlight_priority
+                highlight_active, highlight_label, highlight_priority, gallery
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ? )`,
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ? )`,
             [
                 name,
                 normalizedPrice,
@@ -2286,6 +2319,7 @@ app.post('/api/products', authMiddleware, requireRole('cashier'), async (req, re
                 normalizedHighlightActive,
                 normalizedHighlightLabel,
                 normalizedHighlightPriority,
+                galleryValue,
             ]
         );
 
@@ -2344,6 +2378,7 @@ app.post('/api/products', authMiddleware, requireRole('cashier'), async (req, re
             highlight_active: normalizedHighlightActive,
             highlight_label: normalizedHighlightLabel,
             highlight_priority: normalizedHighlightPriority,
+            gallery: galleryInput,
         });
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -2486,6 +2521,13 @@ app.put('/api/products/:id', authMiddleware, requireRole('cashier'), async (req,
         const descriptionValue = description !== undefined ? description : existing.description;
         const technicalValue = technicalDetails !== undefined ? technicalDetails : existing.technical_details;
         const shortDescriptionValue = shortDescription !== undefined ? (shortDescription ? shortDescription.trim() : null) : existing.short_description;
+        let normalizedGallery = existing.gallery ? parseGalleryFromRow(existing.gallery) : [];
+        if (req.body && Object.prototype.hasOwnProperty.call(req.body, 'gallery')) {
+            normalizedGallery = normalizeGalleryInput(req.body.gallery);
+        } else if (req.body && (req.body.gallery_paths || req.body.galleryPaths)) {
+            normalizedGallery = normalizeGalleryInput(req.body.gallery_paths || req.body.galleryPaths);
+        }
+        const galleryValue = normalizedGallery.length ? JSON.stringify(normalizedGallery) : null;
 
         const trimmedBarcode = barcode !== undefined ? (barcode ? barcode.trim() : null) : (existing.barcode || null);
         if (trimmedBarcode && !/^[0-9]{8,13}$/.test(trimmedBarcode)) {
@@ -2547,7 +2589,8 @@ app.put('/api/products/:id', authMiddleware, requireRole('cashier'), async (req,
                 vendor_id = ?,
                 highlight_active = ?,
                 highlight_label = ?,
-                highlight_priority = ?
+                highlight_priority = ?,
+                gallery = ?
              WHERE id = ?`,
             [
                 updatedName,
@@ -2585,6 +2628,7 @@ app.put('/api/products/:id', authMiddleware, requireRole('cashier'), async (req,
                 normalizedHighlightActive,
                 normalizedHighlightLabel,
                 normalizedHighlightPriority,
+                galleryValue,
                 id,
             ]
         );
@@ -2656,6 +2700,7 @@ app.put('/api/products/:id', authMiddleware, requireRole('cashier'), async (req,
             highlight_active: normalizedHighlightActive,
             highlight_label: normalizedHighlightLabel,
             highlight_priority: normalizedHighlightPriority,
+            gallery: normalizedGallery,
         });
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -3815,6 +3860,9 @@ function mapProductForPublic(row) {
         vendor_id: row.vendor_id,
         vendor_name: row.vendor_name,
         vendor_slug: row.vendor_slug,
+        vendor_tagline: row.vendor_tagline,
+        vendor_public_description: row.vendor_public_description,
+        gallery: row.gallery ? parseGalleryFromRow(row.gallery) : [],
     };
 }
 

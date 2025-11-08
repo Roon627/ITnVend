@@ -2,6 +2,13 @@ import { useMemo, useState } from 'react';
 import AvailabilityTag from './AvailabilityTag';
 import ProductPreviewModal from './ProductPreviewModal';
 import { resolveMediaUrl } from '../lib/media';
+import {
+  isUserListing,
+  isVendorListing,
+  getSellerContact,
+  buildContactLink,
+  productDescriptionCopy,
+} from '../lib/listings';
 
 export default function HighlightsCarousel({ sections = [], formatCurrency, onAdd }) {
   const tabs = useMemo(
@@ -41,8 +48,30 @@ export default function HighlightsCarousel({ sections = [], formatCurrency, onAd
       )}
       <div className="flex gap-4 overflow-x-auto pb-2 snap-x">
         {items.map((item) => {
-          const image = resolveMediaUrl(item.image || item.image_source || item.imageUrl);
-          const badge = item.highlight_label || activeSection.badgeLabel || null;
+          const galleryPaths = Array.isArray(item.gallery)
+            ? item.gallery
+                .map((entry) => {
+                  if (typeof entry === 'string') return entry;
+                  if (entry?.url) return entry.url;
+                  if (entry?.path) return entry.path;
+                  return null;
+                })
+                .filter(Boolean)
+            : [];
+          const primaryImageSource = [item.image, item.image_source, item.imageUrl, ...galleryPaths].find(Boolean);
+          const image = resolveMediaUrl(primaryImageSource);
+          const userListing = isUserListing(item);
+          const vendorListing = isVendorListing(item);
+          const sellerContact = getSellerContact(item);
+          const contactLink = buildContactLink(sellerContact);
+          const contactHasInfo = Boolean(sellerContact.phone);
+          const descriptionCopy = productDescriptionCopy(item);
+          let badge = item.highlight_label || activeSection.badgeLabel || null;
+          if (userListing) {
+            badge = 'Private seller';
+          } else if (vendorListing) {
+            badge = item.vendor_name ? `Vendor · ${item.vendor_name}` : 'Marketplace partner';
+          }
           return (
             <div
               key={`highlight-${activeSection.key}-${item.id}`}
@@ -65,8 +94,8 @@ export default function HighlightsCarousel({ sections = [], formatCurrency, onAd
                   </span>
                 )}
                 <div className="text-base font-semibold text-slate-900 line-clamp-2">{item.name}</div>
-                <p className="text-xs text-slate-500 line-clamp-2">
-                  {item.short_description || item.description || 'Fresh in stock and ready to ship.'}
+                <p className="text-xs text-slate-500 line-clamp-3">
+                  {descriptionCopy.primary || 'Curated inventory from the ITnVend network.'}
                 </p>
                 <div className="text-lg font-bold text-rose-500">
                   {typeof formatCurrency === 'function' ? formatCurrency(item.price) : `${item.price} MVR`}
@@ -79,14 +108,32 @@ export default function HighlightsCarousel({ sections = [], formatCurrency, onAd
                   >
                     View details
                   </button>
-                  {onAdd && (
-                    <button
-                      type="button"
-                      onClick={() => onAdd(item)}
-                      className="rounded-full border border-rose-500 bg-rose-500 px-3 py-1.5 text-sm font-semibold text-white shadow-sm hover:bg-rose-400"
-                    >
-                      Add
-                    </button>
+                  {userListing ? (
+                    contactHasInfo ? (
+                      <a
+                        href={contactLink || '#'}
+                        onClick={(e) => {
+                          if (!contactLink) e.preventDefault();
+                        }}
+                        className="inline-flex items-center justify-center rounded-full border border-amber-300 bg-amber-500 px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-white shadow-sm hover:bg-amber-400"
+                      >
+                        Contact seller
+                      </a>
+                    ) : (
+                      <div className="inline-flex items-center justify-center rounded-full border border-slate-200 bg-white/80 px-3 py-1.5 text-[11px] font-semibold uppercase text-slate-400">
+                        Contact pending
+                      </div>
+                    )
+                  ) : (
+                    onAdd && (
+                      <button
+                        type="button"
+                        onClick={() => onAdd(item)}
+                        className="rounded-full border border-rose-500 bg-rose-500 px-3 py-1.5 text-sm font-semibold text-white shadow-sm hover:bg-rose-400"
+                      >
+                        Add
+                      </button>
+                    )
                   )}
                 </div>
               </div>

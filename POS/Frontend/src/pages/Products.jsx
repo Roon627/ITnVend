@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Modal from '../components/Modal';
 import { Link } from 'react-router-dom';
-import { FaEdit, FaTrash, FaUpload, FaTimes, FaPlus, FaFileImport, FaExternalLinkAlt } from 'react-icons/fa';
+import { FaEdit, FaTrash, FaUpload, FaTimes, FaPlus, FaFileImport, FaExternalLinkAlt, FaArrowLeft, FaArrowRight, FaStar } from 'react-icons/fa';
 import api from '../lib/api';
 import { useToast } from '../components/ToastContext';
 import { useSettings } from '../components/SettingsContext';
@@ -51,6 +51,7 @@ const EMPTY_FORM = {
   highlightActive: false,
   highlightLabel: '',
   highlightPriority: '',
+  gallery: [],
 };
 
 const AVAILABILITY_STATUS_OPTIONS = [
@@ -136,13 +137,139 @@ function parseCsv(text) {
   return { headers, rows };
 }
 
-function buildProductUploadCategory(category, subcategory, subsubcategory) {
+const slugifySegment = (value = '') =>
+  (value || '')
+    .toString()
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/(^-|-$)+/g, '');
+
+function buildProductUploadCategory(category, subcategory, subsubcategory, productLabel) {
   const segments = [category, subcategory, subsubcategory]
-    .map((value) => (value ? String(value).trim().toLowerCase() : ''))
-    .filter(Boolean)
-    .map((value) => value.replace(/[^a-z0-9\-_]+/g, '-'));
+    .map((value) => slugifySegment(value))
+    .filter(Boolean);
+  const productSegment = slugifySegment(productLabel);
+  if (productSegment) segments.push(productSegment);
   return ['products', ...segments].join('/');
 }
+
+function idsMatch(a, b) {
+  if (a == null || b == null) return false;
+  return String(a) === String(b);
+}
+
+function resolveCategoryLabelsFromDraft(draft = {}, categoryTree = []) {
+  const normalizedDraft = draft || {};
+  const tree = Array.isArray(categoryTree) ? categoryTree : [];
+
+  let categoryName = (normalizedDraft.category || '').toString().trim();
+  let subcategoryName = (normalizedDraft.subcategory || '').toString().trim();
+  let subsubcategoryName = (normalizedDraft.subsubcategory || '').toString().trim();
+
+  const findCategoryById = (id) => tree.find((cat) => idsMatch(cat.id, id));
+  const findSubcategoryById = (id) => {
+    for (const category of tree) {
+      if (!Array.isArray(category.children)) continue;
+      const hit = category.children.find((child) => idsMatch(child.id, id));
+      if (hit) return { category, subcategory: hit };
+    }
+    return null;
+  };
+  const findSubsubcategoryById = (id) => {
+    for (const category of tree) {
+      if (!Array.isArray(category.children)) continue;
+      for (const subcategory of category.children) {
+        if (!Array.isArray(subcategory.children)) continue;
+        const hit = subcategory.children.find((child) => idsMatch(child.id, id));
+        if (hit) return { category, subcategory, subsubcategory: hit };
+      }
+    }
+    return null;
+  };
+
+  if (!categoryName && normalizedDraft.categoryId) {
+    const found = findCategoryById(normalizedDraft.categoryId);
+    if (found) categoryName = found.name || '';
+  }
+  if ((!subcategoryName || !categoryName) && normalizedDraft.subcategoryId) {
+    const found = findSubcategoryById(normalizedDraft.subcategoryId);
+    if (found) {
+      subcategoryName = subcategoryName || found.subcategory.name || '';
+      categoryName = categoryName || found.category.name || '';
+    }
+  }
+  if ((!subsubcategoryName || !subcategoryName || !categoryName) && normalizedDraft.subsubcategoryId) {
+    const found = findSubsubcategoryById(normalizedDraft.subsubcategoryId);
+    if (found) {
+      subsubcategoryName = subsubcategoryName || found.subsubcategory.name || '';
+      subcategoryName = subcategoryName || found.subcategory.name || '';
+      categoryName = categoryName || found.category.name || '';
+    }
+  }
+
+  return {
+    categoryName,
+    subcategoryName,
+    subsubcategoryName,
+  };
+}
+
+function buildUploadCategoryFromDraft(draft = {}, categoryTree = []) {
+  const { categoryName, subcategoryName, subsubcategoryName } = resolveCategoryLabelsFromDraft(draft, categoryTree);
+  const label =
+    draft.slug ||
+    draft.sku ||
+    (draft.id ? `product-${draft.id}` : '') ||
+    draft.name ||
+    draft.model ||
+    'new-product';
+  return buildProductUploadCategory(categoryName, subcategoryName, subsubcategoryName, label);
+}
+
+const formatGalleryEntries = (gallery) => {
+  if (!Array.isArray(gallery)) return [];
+  return gallery
+    .map((entry, index) => {
+      const path = typeof entry === 'string' ? entry.trim() : entry?.path?.trim?.() || '';
+      if (!path) return null;
+      return {
+        id: `${path}-${index}-${Date.now()}`,
+        path,
+        url: resolveMediaUrl(path),
+      };
+    })
+    .filter(Boolean);
+};
+
+const galleryPayloadFromState = (gallery) =>
+  (Array.isArray(gallery) ? gallery : [])
+    .map((entry) => {
+      if (typeof entry === 'string') return entry.trim();
+      return entry?.path || entry?.url || '';
+    })
+    .map((value) => value.trim())
+    .filter(Boolean);
+
+const buildGalleryEntry = (pathOrUrl, absoluteUrl) => {
+  const candidate = (pathOrUrl || absoluteUrl || '').trim();
+  if (!candidate) return null;
+  const resolved = resolveMediaUrl(absoluteUrl || pathOrUrl || '');
+  if (!resolved) return null;
+  const id = `${candidate}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+  return {
+    id,
+    path: pathOrUrl || absoluteUrl || '',
+    url: resolved,
+  };
+};
+
+const addGalleryEntry = (gallery = [], entry) => {
+  if (!entry) return gallery;
+  const exists = gallery.some((img) => (img.path || img.url) === (entry.path || entry.url));
+  if (exists) return gallery;
+  return [...gallery, entry];
+};
 
 function mapCsvRowToProduct(row) {
   const get = createRowAccessor(row);
@@ -251,7 +378,11 @@ function ProductInsight({ product, formatCurrency, onTagClick }) {
       <div className="text-sm text-slate-500">Select a product to see stock levels, pricing, and technical notes.</div>
     );
   }
-  const previewSrc = resolveMediaUrl(product.image_source || product.imageUrl || product.image);
+  const previewSrc =
+    resolveMediaUrl(product.image_source || product.imageUrl || product.image) ||
+    (Array.isArray(product.gallery) && product.gallery.length
+      ? resolveMediaUrl(product.gallery[0])
+      : null);
   const tagList = Array.isArray(product.tags) ? product.tags : [];
   const availabilityStatus = normalizeAvailabilityStatus(product.availability_status || product.availabilityStatus || (product.preorder_enabled ? 'preorder' : null));
   const availabilityLabel = AVAILABILITY_STATUS_LABELS[availabilityStatus] || AVAILABILITY_STATUS_LABELS.in_stock;
@@ -368,6 +499,10 @@ function ProductModal({
   onChange,
   onSave,
   onUploadImage,
+  onUploadGallery = () => {},
+  onRemoveGalleryItem = () => {},
+  onMoveGalleryItem = () => {},
+  galleryUploading = false,
   uploading,
   saving,
   stockChanged,
@@ -385,6 +520,7 @@ function ProductModal({
   createSubsubcategory = async () => false,
 }) {
   const fileInputRef = useRef(null);
+  const galleryFileInputRef = useRef(null);
   const modalRef = useRef(null);
   const [modalVisible, setModalVisible] = useState(false);
   // close on Escape for convenience
@@ -437,7 +573,9 @@ function ProductModal({
     return () => window.removeEventListener('keydown', onKey);
   }, [open]);
   if (!open || !draft) return null;
-  const previewSrc = resolveMediaUrl(draft.imagePreview || draft.imageUrl || draft.image);
+  const previewSrc =
+    resolveMediaUrl(draft.imagePreview || draft.imageUrl || draft.image) ||
+    (Array.isArray(draft.gallery) && draft.gallery.length ? draft.gallery[0].url : null);
 
   const handleFieldChange = (key) => (event) => {
     // support being called with synthetic event or direct value
@@ -844,6 +982,99 @@ function ProductModal({
             </div>
 
             <div className="border rounded-lg p-4 bg-white">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                <div>
+                  <p className="text-sm font-semibold text-slate-700">Gallery photos</p>
+                  <p className="text-xs text-slate-500">Add supporting angles. The first image is used as the cover.</p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <input
+                    ref={galleryFileInputRef}
+                    type="file"
+                    accept="image/*"
+                    multiple
+                    className="hidden"
+                    onChange={(event) => {
+                      const files = Array.from(event.target.files || []);
+                      if (files.length) onUploadGallery(files);
+                      if (galleryFileInputRef.current) galleryFileInputRef.current.value = '';
+                    }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => galleryFileInputRef.current?.click()}
+                    className="inline-flex items-center gap-2 rounded-md border px-3 py-2 text-sm hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
+                    disabled={galleryUploading}
+                  >
+                    <FaUpload /> {galleryUploading ? 'Uploading...' : 'Add photos'}
+                  </button>
+                </div>
+              </div>
+              {Array.isArray(draft.gallery) && draft.gallery.length ? (
+                <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3">
+                  {draft.gallery.map((entry, index) => {
+                    const entryId = (entry && (entry.id || entry.path || entry.url)) || `gallery-${index}`;
+                    const thumbnail = entry?.url || resolveMediaUrl(entry?.path || entry);
+                    return (
+                      <div key={entryId} className="group relative overflow-hidden rounded-lg border bg-slate-50">
+                        {thumbnail ? (
+                          <img src={thumbnail} alt={`${draft.name || 'Product'} gallery ${index + 1}`} className="h-28 w-full object-cover" />
+                        ) : (
+                          <div className="flex h-28 w-full items-center justify-center text-xs text-slate-500">Missing preview</div>
+                        )}
+                        {index === 0 && (
+                          <span className="absolute left-2 top-2 inline-flex items-center gap-1 rounded-full bg-black/70 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white">
+                            <FaStar className="h-3 w-3" /> Cover
+                          </span>
+                        )}
+                        <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-black/0 opacity-0 transition group-hover:bg-black/60 group-hover:opacity-100">
+                          <div className="flex gap-1">
+                            <button
+                              type="button"
+                              onClick={() => onMoveGalleryItem(entryId, 'left')}
+                              disabled={index === 0}
+                              className="rounded-full bg-white/90 p-1 text-slate-600 hover:bg-white disabled:opacity-40"
+                              title="Move left"
+                            >
+                              <FaArrowLeft />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => onMoveGalleryItem(entryId, 'right')}
+                              disabled={index === draft.gallery.length - 1}
+                              className="rounded-full bg-white/90 p-1 text-slate-600 hover:bg-white disabled:opacity-40"
+                              title="Move right"
+                            >
+                              <FaArrowRight />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => onMoveGalleryItem(entryId, 'cover')}
+                              disabled={index === 0}
+                              className="rounded-full bg-white/90 p-1 text-amber-600 hover:bg-white disabled:opacity-40"
+                              title="Make cover"
+                            >
+                              <FaStar />
+                            </button>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => onRemoveGalleryItem(entryId)}
+                            className="inline-flex items-center gap-1 rounded-md border border-red-200 bg-white/90 px-2 py-0.5 text-xs font-medium text-red-600 hover:bg-white"
+                          >
+                            <FaTrash /> Remove
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <p className="mt-3 text-xs text-slate-500">No gallery photos yet. Use \"Add photos\" to upload additional shots.</p>
+              )}
+            </div>
+
+            <div className="border rounded-lg p-4 bg-white">
               <h3 className="text-sm font-semibold text-slate-700 mb-2">Tags</h3>
               <TagChips options={lookups?.tags || []} value={draft.tags || []} onChange={(arr) => handleFieldChange('tags')({ target: { value: arr } })} onTagsChanged={onTagsChanged} />
             </div>
@@ -888,6 +1119,7 @@ export default function Products() {
   const [modalDraft, setModalDraft] = useState(null);
   const [modalSaving, setModalSaving] = useState(false);
   const [modalUploading, setModalUploading] = useState(false);
+  const [modalGalleryUploading, setModalGalleryUploading] = useState(false);
   const [modalOriginalDraft, setModalOriginalDraft] = useState(null);
   const [modalStockReason, setModalStockReason] = useState('');
   const [lookups, setLookups] = useState(null);
@@ -1183,6 +1415,7 @@ export default function Products() {
         preorderNotes: form.availableForPreorder ? form.preorderNotes || null : null,
         preorderEta: form.availableForPreorder ? form.preorderEta || null : null,
         vendorId: normalizeVendorId(form.vendorId),
+        gallery: galleryPayloadFromState(form.gallery),
       };
       const created = await api.post('/products', payload);
       toast.push('Product added', 'info');
@@ -1272,6 +1505,7 @@ export default function Products() {
       highlightActive: product.highlight_active ? true : false,
       highlightLabel: product.highlight_label || '',
       highlightPriority: product.highlight_priority != null ? String(product.highlight_priority) : '',
+      gallery: formatGalleryEntries(product.gallery),
     });
     setModalOpen(true);
     setModalOriginalDraft({
@@ -1310,6 +1544,7 @@ export default function Products() {
       highlightActive: product.highlight_active ? true : false,
       highlightLabel: product.highlight_label || '',
       highlightPriority: product.highlight_priority != null ? String(product.highlight_priority) : '',
+      gallery: formatGalleryEntries(product.gallery),
     });
     setModalStockReason('');
   };
@@ -1349,6 +1584,7 @@ export default function Products() {
           preorderNotes: modalDraft.availableForPreorder ? modalDraft.preorderNotes || null : null,
           preorderEta: modalDraft.availableForPreorder ? modalDraft.preorderEta || null : null,
           vendorId: normalizeVendorId(modalDraft.vendorId),
+          gallery: galleryPayloadFromState(modalDraft.gallery),
           highlightActive: modalDraft.highlightActive ? 1 : 0,
           highlightLabel: modalDraft.highlightLabel && modalDraft.highlightLabel.trim() ? modalDraft.highlightLabel.trim() : null,
           highlightPriority: modalDraft.highlightPriority ? parseInt(modalDraft.highlightPriority, 10) || 0 : 0,
@@ -1401,6 +1637,7 @@ export default function Products() {
         preorderNotes: modalDraft.availableForPreorder ? modalDraft.preorderNotes || null : null,
         preorderEta: modalDraft.availableForPreorder ? modalDraft.preorderEta || null : null,
         vendorId: normalizeVendorId(modalDraft.vendorId),
+        gallery: galleryPayloadFromState(modalDraft.gallery),
         highlightActive: modalDraft.highlightActive ? 1 : 0,
         highlightLabel: modalDraft.highlightLabel && modalDraft.highlightLabel.trim() ? modalDraft.highlightLabel.trim() : null,
         highlightPriority: modalDraft.highlightPriority ? parseInt(modalDraft.highlightPriority, 10) || 0 : 0,
@@ -1430,6 +1667,7 @@ export default function Products() {
             preorderNotes: modalOriginalDraft.availableForPreorder ? modalOriginalDraft.preorderNotes || null : null,
             preorderEta: modalOriginalDraft.availableForPreorder ? modalOriginalDraft.preorderEta || null : null,
             vendorId: normalizeVendorId(modalOriginalDraft.vendorId),
+            gallery: galleryPayloadFromState(modalOriginalDraft.gallery),
             highlightActive: modalOriginalDraft.highlightActive ? 1 : 0,
             highlightLabel: modalOriginalDraft.highlightLabel && modalOriginalDraft.highlightLabel.trim() ? modalOriginalDraft.highlightLabel.trim() : null,
             highlightPriority: modalOriginalDraft.highlightPriority ? parseInt(modalOriginalDraft.highlightPriority, 10) || 0 : 0,
@@ -1490,7 +1728,7 @@ export default function Products() {
     try {
       const formData = new FormData();
       formData.append('file', file);
-      const uploadCategory = buildProductUploadCategory(form.category, form.subcategory);
+      const uploadCategory = buildUploadCategoryFromDraft(form, categoryTree);
       formData.append('category', uploadCategory);
       const result = await api.upload('/uploads', formData);
       const storedPath = result?.path || result?.url || '';
@@ -1511,36 +1749,12 @@ export default function Products() {
   };
 
   const handleModalImageUpload = async (file) => {
-    if (!file) return;
+    if (!file || !modalDraft) return;
     setModalUploading(true);
     try {
       const formData = new FormData();
       formData.append('file', file);
-      // prefer category names from selected lookup ids when available
-      const cName = modalDraft?.category || (modalDraft?.categoryId ? (() => {
-        const found = categoryTree.find((c) => c.id === modalDraft.categoryId);
-        return found ? found.name : '';
-      })() : '');
-      const sName = modalDraft?.subcategory || (modalDraft?.subcategoryId ? (() => {
-        let found = null;
-        for (const c of categoryTree) {
-          if (!c.children) continue;
-          const s = (c.children || []).find((s) => s.id === modalDraft.subcategoryId);
-          if (s) { found = s; break; }
-        }
-        return found ? found.name : '';
-      })() : '');
-      const ssName = (modalDraft?.subsubcategoryId ? (() => {
-        for (const c of categoryTree) {
-          const s = (c.children || []).find((x) => x.id === modalDraft.subcategoryId);
-          if (s) {
-            const ss = (s.children || []).find((x) => x.id === modalDraft.subsubcategoryId);
-            return ss ? ss.name : '';
-          }
-        }
-        return '';
-      })() : '');
-      const uploadCategory = buildProductUploadCategory(cName, sName, ssName);
+      const uploadCategory = buildUploadCategoryFromDraft(modalDraft, categoryTree);
       formData.append('category', uploadCategory);
       const result = await api.upload('/uploads', formData);
       const storedPath = result?.path || result?.url || '';
@@ -1556,6 +1770,88 @@ export default function Products() {
     }
   };
 
+  const galleryIdentifier = (entry) => {
+    if (!entry) return '';
+    if (typeof entry === 'string') return entry;
+    return entry.id || entry.path || entry.url || '';
+  };
+
+  const handleModalGalleryUpload = async (filesOrList) => {
+    if (!modalDraft) return;
+    const files = Array.isArray(filesOrList) ? filesOrList : Array.from(filesOrList || []);
+    const validFiles = files.filter((file) => file && typeof file === 'object');
+    if (!validFiles.length) return;
+    setModalGalleryUploading(true);
+    try {
+      const uploadCategory = buildUploadCategoryFromDraft(modalDraft, categoryTree);
+      const addedEntries = [];
+      for (const file of validFiles) {
+        const formData = new FormData();
+        formData.append('file', file);
+        formData.append('category', uploadCategory);
+        const result = await api.upload('/uploads', formData);
+        const storedPath = result?.path || result?.url || '';
+        const absoluteUrl = result?.url || storedPath;
+        const entry = buildGalleryEntry(storedPath, absoluteUrl);
+        if (entry) addedEntries.push(entry);
+      }
+      if (addedEntries.length) {
+        setModalDraft((prev) => {
+          if (!prev) return prev;
+          let gallery = Array.isArray(prev.gallery) ? [...prev.gallery] : [];
+          addedEntries.forEach((entry) => {
+            gallery = addGalleryEntry(gallery, entry);
+          });
+          return { ...prev, gallery };
+        });
+        toast.push(`${addedEntries.length} photo${addedEntries.length > 1 ? 's' : ''} added to the gallery`, 'info');
+      }
+    } catch (err) {
+      toast.push(err?.message || 'Failed to upload gallery image', 'error');
+    } finally {
+      setModalGalleryUploading(false);
+    }
+  };
+
+  const handleModalGalleryRemove = (identifier) => {
+    if (!identifier) return;
+    let removed = false;
+    setModalDraft((prev) => {
+      if (!prev) return prev;
+      const gallery = Array.isArray(prev.gallery) ? prev.gallery : [];
+      const next = gallery.filter((entry) => {
+        const id = galleryIdentifier(entry);
+        if (id === identifier) {
+          removed = true;
+          return false;
+        }
+        return true;
+      });
+      if (!removed) return prev;
+      return { ...prev, gallery: next };
+    });
+    if (removed) toast.push('Photo removed from gallery', 'info');
+  };
+
+  const handleModalGalleryReorder = (identifier, direction) => {
+    if (!identifier || !direction) return;
+    setModalDraft((prev) => {
+      if (!prev) return prev;
+      const gallery = Array.isArray(prev.gallery) ? [...prev.gallery] : [];
+      if (gallery.length < 2) return prev;
+      const index = gallery.findIndex((entry) => galleryIdentifier(entry) === identifier);
+      if (index === -1) return prev;
+      let nextIndex = index;
+      if (direction === 'cover') nextIndex = 0;
+      else if (direction === 'left') nextIndex = Math.max(0, index - 1);
+      else if (direction === 'right') nextIndex = Math.min(gallery.length - 1, index + 1);
+      if (nextIndex === index) return prev;
+      const [selected] = gallery.splice(index, 1);
+      gallery.splice(nextIndex, 0, selected);
+      return { ...prev, gallery };
+    });
+  };
+
   const _handleModalChange = (key, value) => {
     setModalDraft((prev) => (prev ? { ...prev, [key]: value } : prev));
   };
@@ -1563,6 +1859,9 @@ export default function Products() {
   const closeModal = useCallback(() => {
     setModalOpen(false);
     setModalDraft(null);
+    setModalOriginalDraft(null);
+    setModalStockReason('');
+    setModalGalleryUploading(false);
   }, []);
 
   const handleBulkFile = async (file) => {
@@ -2016,6 +2315,10 @@ export default function Products() {
         onChange={handleModalFieldChange}
         onSave={handleModalSave}
         onUploadImage={handleModalImageUpload}
+        onUploadGallery={handleModalGalleryUpload}
+        onRemoveGalleryItem={handleModalGalleryRemove}
+        onMoveGalleryItem={handleModalGalleryReorder}
+        galleryUploading={modalGalleryUploading}
         uploading={modalUploading}
         saving={modalSaving}
         stockChanged={modalOriginalDraft && modalDraft && (parseInt(modalDraft.stock||0,10) !== parseInt(modalOriginalDraft.stock||0,10))}

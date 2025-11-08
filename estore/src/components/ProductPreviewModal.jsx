@@ -1,19 +1,40 @@
 import React from 'react';
-import { FaPhone } from 'react-icons/fa';
+import { FaPhone, FaEnvelope } from 'react-icons/fa';
 import Modal from './Modal';
 import ImageCarousel from './ImageCarousel';
 import { resolveMediaUrl } from '../lib/media';
 import { isPreorderProduct } from '../lib/preorder';
 import AvailabilityTag from './AvailabilityTag';
-import { isUserListing, getSellerContact, buildContactLink, buyerNoticeText } from '../lib/listings';
+import {
+  isUserListing,
+  isVendorListing,
+  getSellerContact,
+  buildContactLink,
+  buyerNoticeText,
+  productDescriptionCopy,
+} from '../lib/listings';
 
 export default function ProductPreviewModal({ open, product, onClose, onAdd, formatCurrency }) {
   if (!open || !product) return null;
   const images = [];
+  const pushImage = (src) => {
+    const resolved = resolveMediaUrl(src);
+    if (resolved) images.push(resolved);
+  };
   // product may have multiple image fields; collect them if available
-  if (product.image) images.push(resolveMediaUrl(product.image));
-  if (product.image_source) images.push(resolveMediaUrl(product.image_source));
-  if (product.imageUrl) images.push(resolveMediaUrl(product.imageUrl));
+  pushImage(product.image);
+  pushImage(product.image_source);
+  pushImage(product.imageUrl);
+  if (Array.isArray(product.gallery)) {
+    product.gallery.forEach((entry) => {
+      if (!entry) return;
+      if (typeof entry === 'string') {
+        pushImage(entry);
+      } else if (entry.url || entry.path) {
+        pushImage(entry.url || entry.path);
+      }
+    });
+  }
   // dedupe
   const uniq = [...new Set(images.filter(Boolean))];
 
@@ -27,6 +48,14 @@ export default function ProductPreviewModal({ open, product, onClose, onAdd, for
   const contactLink = buildContactLink(sellerContact);
   const contactHasInfo = Boolean(sellerContact.phone);
   const buyerNotice = buyerNoticeText();
+  const vendorListing = isVendorListing(product);
+  const descriptionCopy = productDescriptionCopy(product);
+  const vendorIntro =
+    product.vendor_public_description ||
+    product.vendor_tagline ||
+    (product.vendor_name
+      ? `${product.vendor_name} is part of our curated marketplace network. ITnVend coordinates payment and fulfilment for this item.`
+      : 'Partner vendor item fulfilled through ITnVend. We coordinate payment and fulfilment end-to-end.');
   const formatPrice =
     typeof formatCurrency === 'function'
       ? formatCurrency
@@ -71,25 +100,43 @@ export default function ProductPreviewModal({ open, product, onClose, onAdd, for
 
           <section className="space-y-3">
             <h4 className="text-sm font-semibold text-slate-800">Details</h4>
-            <p className="text-sm text-slate-600">{product.description || 'No description available.'}</p>
+            <p className="text-sm text-slate-600">
+              {descriptionCopy.primary || 'No description available.'}
+            </p>
+            {descriptionCopy.secondary && (
+              <p className="text-xs text-slate-500">{descriptionCopy.secondary}</p>
+            )}
           </section>
 
           {userListing && (
             <section className="space-y-3 rounded-2xl border border-amber-100 bg-white/90 p-4 text-sm text-slate-700">
               <h4 className="text-sm font-semibold text-amber-600">Seller contact</h4>
               <div className="font-semibold text-slate-900">{sellerContact.name || 'Seller'}</div>
-              <div className="flex flex-col gap-2 text-sm">
-                {sellerContact.phone && (
-                  <a href={`tel:${sellerContact.phone.replace(/[^0-9+]/g, '')}`} className="inline-flex items-center gap-2 text-amber-700 hover:text-amber-800">
-                    <FaPhone className="text-[13px]" />
-                    <span>{sellerContact.phone}</span>
-                  </a>
-                )}
-                {!contactHasInfo && <p className="text-xs text-slate-500">Seller will provide contact details after we notify them.</p>}
-              </div>
-              <p className="text-xs text-rose-500">{buyerNotice}</p>
-            </section>
-          )}
+                <div className="flex flex-col gap-2 text-sm">
+                  {sellerContact.phone && (
+                    <a href={`tel:${sellerContact.phone.replace(/[^0-9+]/g, '')}`} className="inline-flex items-center gap-2 text-amber-700 hover:text-amber-800">
+                      <FaPhone className="text-[13px]" />
+                      <span>{sellerContact.phone}</span>
+                    </a>
+                  )}
+                  {sellerContact.email && (
+                    <a href={`mailto:${sellerContact.email}`} className="inline-flex items-center gap-2 text-amber-700 hover:text-amber-800">
+                      <FaEnvelope className="text-[13px]" />
+                      <span>{sellerContact.email}</span>
+                    </a>
+                  )}
+                  {!contactHasInfo && <p className="text-xs text-slate-500">Seller will provide contact details after we notify them.</p>}
+                </div>
+                <p className="text-xs text-rose-500">{buyerNotice}</p>
+              </section>
+            )}
+
+            {vendorListing && (
+              <section className="space-y-3 rounded-2xl border border-emerald-100 bg-emerald-50/80 p-4 text-sm text-emerald-800">
+                <h4 className="text-sm font-semibold text-emerald-700">Marketplace partner</h4>
+                <p>{vendorIntro}</p>
+              </section>
+            )}
 
           {preorder && (
             <p className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-xs text-rose-500">

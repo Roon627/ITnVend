@@ -2,8 +2,10 @@ import { Fragment, useEffect, useMemo, useState } from 'react';
 import { Link, NavLink, useLocation } from 'react-router-dom';
 import { FaBars, FaShoppingCart, FaTimes, FaStore, FaHandshake, FaPaperPlane, FaListUl, FaUserFriends, FaShieldAlt, FaUserPlus, FaChevronDown, FaShoppingBag } from 'react-icons/fa';
 import { useCart } from './CartContext';
+import { useSettings } from './SettingsContext';
+import { resolveMediaUrl } from '../lib/media';
 
-const POS_BRAND_LOGO = 'https://pos.itnvend.com:4000/uploads/logos/1762295200252-icons8-it-64.png.png';
+const DEFAULT_BRAND_LOGO = '/images/logo.png';
 
 const NAV_LINKS = [
   { to: '/market', label: 'Market Hub', description: 'Fresh drops & bundles', icon: FaStore },
@@ -19,6 +21,7 @@ export default function PublicNavbar() {
     const cartCount = cartContext?.cartCount ?? 0;
     const cartItems = cartContext?.cart ?? [];
     const location = useLocation();
+    const { settings, logoUrl } = useSettings() || {};
     const [mobileOpen, setMobileOpen] = useState(false);
     const [elevated, setElevated] = useState(false);
     const [showNotice, setShowNotice] = useState(true);
@@ -68,6 +71,13 @@ export default function PublicNavbar() {
       'shadow-[0_5px_25px_rgba(244,114,182,0.25)] transition-colors duration-200 hover:border-white/60 hover:shadow-[0_10px_35px_rgba(244,114,182,0.45)]'
     ].join(' ');
 
+    const resolvedLogo = resolveMediaUrl(logoUrl) || DEFAULT_BRAND_LOGO;
+    const brandName =
+      settings?.branding?.name ||
+      settings?.outlet?.name ||
+      settings?.brand?.name ||
+      'ITnVend';
+
     return (
       <>
       {showNotice && (
@@ -106,12 +116,13 @@ export default function PublicNavbar() {
         <div className="mx-auto flex max-w-6xl items-center gap-6 px-6 py-3 lg:py-4">
             <Link to="/" className="flex items-center gap-3 text-left">
               <img
-                src={POS_BRAND_LOGO}
-                alt="ITnVend"
+                src={resolvedLogo}
+                alt={brandName}
                 className="h-12 w-12 rounded-2xl border border-white/70 bg-white/80 object-contain p-2 shadow-md shadow-rose-200/40"
+                loading="lazy"
               />
               <span className="flex flex-col leading-tight text-slate-900">
-                <span className="text-[12px] font-black tracking-tight uppercase">ITnVend</span>
+                <span className="text-[12px] font-black tracking-tight uppercase">{brandName}</span>
                 <span className="text-[8px] font-semibold uppercase tracking-[0.35em] text-slate-500">Marketplace</span>
                 <span className="text-[8px] text-rose-400">Retail, subscriptions &amp; smiles in sync</span>
               </span>

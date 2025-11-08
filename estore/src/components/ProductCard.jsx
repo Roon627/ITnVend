@@ -4,7 +4,7 @@ import { resolveMediaUrl } from '../lib/media';
 import ProductPreviewModal from './ProductPreviewModal';
 import { isPreorderProduct } from '../lib/preorder';
 import AvailabilityTag from './AvailabilityTag';
-import { isUserListing, getSellerContact, buildContactLink } from '../lib/listings';
+import { isUserListing, isVendorListing, getSellerContact, buildContactLink, productDescriptionCopy } from '../lib/listings';
 
 // Dark-styled product card used across Home and PublicProducts
 export default function ProductCard({ product, onAdd = () => {}, formatCurrency = (n) => n }) {
@@ -17,9 +17,11 @@ export default function ProductCard({ product, onAdd = () => {}, formatCurrency 
     product.availabilityStatus ||
     (isPreorder ? 'preorder' : 'in_stock');
   const userListing = isUserListing(product);
+  const vendorListing = isVendorListing(product);
   const sellerContact = getSellerContact(product);
   const contactLink = buildContactLink(sellerContact);
   const contactHasInfo = Boolean(sellerContact.phone);
+  const { primary: detailBlurb } = productDescriptionCopy(product);
 
   return (
     <>
@@ -51,8 +53,13 @@ export default function ProductCard({ product, onAdd = () => {}, formatCurrency 
                 Seller listing
               </span>
             )}
-            {product.description && (
-              <p className="mt-3 text-sm text-slate-600 line-clamp-2">{product.description}</p>
+            {!userListing && vendorListing && (
+              <span className="mt-2 inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.3em] text-emerald-700">
+                Marketplace partner
+              </span>
+            )}
+            {detailBlurb && (
+              <p className="mt-3 text-sm text-slate-600 line-clamp-3">{detailBlurb}</p>
             )}
           </div>
 

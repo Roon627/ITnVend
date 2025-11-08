@@ -959,6 +959,7 @@ export async function setupDatabase() {
     await ensureColumn(db, 'products', 'auto_sku', 'INTEGER DEFAULT 1');
     await ensureColumn(db, 'products', 'tags_cache', 'TEXT');
     await ensureColumn(db, 'products', 'vendor_id', 'INTEGER');
+    await ensureColumn(db, 'products', 'gallery', 'TEXT');
     await ensureColumn(db, 'products', 'highlight_active', 'INTEGER DEFAULT 0');
     await ensureColumn(db, 'products', 'highlight_label', 'TEXT');
     await ensureColumn(db, 'products', 'highlight_priority', 'INTEGER DEFAULT 0');

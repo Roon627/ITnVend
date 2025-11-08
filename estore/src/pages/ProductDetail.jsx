@@ -7,7 +7,14 @@ import { useSettings } from '../components/SettingsContext';
 import { resolveMediaUrl } from '../lib/media';
 import { withPreorderFlags, isPreorderProduct } from '../lib/preorder';
 import AvailabilityTag from '../components/AvailabilityTag';
-import { isUserListing, getSellerContact, buildContactLink, buyerNoticeText } from '../lib/listings';
+import {
+  isUserListing,
+  isVendorListing,
+  getSellerContact,
+  buildContactLink,
+  buyerNoticeText,
+  productDescriptionCopy,
+} from '../lib/listings';
 
 export default function ProductDetail() {
   const { id } = useParams();
@@ -50,6 +57,14 @@ export default function ProductDetail() {
   const contactLink = buildContactLink(sellerContact);
   const contactHasInfo = Boolean(sellerContact.phone || sellerContact.email);
   const buyerNotice = buyerNoticeText();
+  const descriptionCopy = productDescriptionCopy(product);
+  const vendorListing = isVendorListing(product);
+  const vendorIntro =
+    product.vendor_public_description ||
+    product.vendor_tagline ||
+    (product.vendor_name
+      ? `${product.vendor_name} is part of our curated marketplace network. ITnVend coordinates payment, fulfilment, and delivery for this item.`
+      : 'Partner vendor item fulfilled through ITnVend. We coordinate payment, fulfilment, and delivery for this listing.');
 
   const handlePreorder = () => {
     const params = new URLSearchParams();
@@ -123,14 +138,34 @@ export default function ProductDetail() {
             <section className="space-y-3 rounded-2xl border border-rose-100 bg-white p-6 text-slate-700 shadow-sm">
               <h2 className="text-lg font-semibold text-slate-900">Details</h2>
               <p className="leading-relaxed text-slate-600">
-                {product.description || 'This item syncs with ITnVend POS for ordering, fulfilment, and inventory workflows.'}
+                {descriptionCopy.primary ||
+                  'This item syncs with ITnVend POS for ordering, fulfilment, and inventory workflows.'}
               </p>
+              {descriptionCopy.secondary && (
+                <p className="rounded-xl bg-slate-50 p-4 text-sm text-slate-500">{descriptionCopy.secondary}</p>
+              )}
               {product.notes && (
                 <p className="rounded-xl bg-rose-50 p-4 text-sm font-medium text-rose-600">
                   Notes: {product.notes}
                 </p>
               )}
             </section>
+
+            {vendorListing && (
+              <section className="space-y-3 rounded-2xl border border-emerald-100 bg-emerald-50/70 p-6 text-sm text-emerald-900 shadow-sm">
+                <h2 className="text-base font-semibold text-emerald-700">Marketplace partner</h2>
+                <p>{vendorIntro}</p>
+                {product.vendor_slug && (
+                  <Link
+                    to={`/vendors/${product.vendor_slug}`}
+                    className="inline-flex items-center gap-2 text-sm font-semibold text-emerald-700 hover:text-emerald-800"
+                  >
+                    Explore vendor profile
+                    <span aria-hidden>→</span>
+                  </Link>
+                )}
+              </section>
+            )}
 
             {userListing && (
               <section className="space-y-3 rounded-2xl border border-amber-100 bg-white/90 p-6 text-slate-700 shadow-sm">
