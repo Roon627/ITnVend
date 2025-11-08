@@ -4,6 +4,7 @@ import os from 'os';
 import fs from 'fs';
 import path from 'path';
 import https from 'https';
+import { fileURLToPath } from 'url';
 import { Server } from 'socket.io';
 import { setupDatabase } from './database.js';
 import { generateInvoicePdf } from './invoice-service.js';
@@ -19,9 +20,16 @@ import validateSlipPublicRouter from './routes/validateSlipPublic.js';
 import slipsRouter from './routes/slips.js';
 import { createSlipProcessingQueue } from './lib/slipProcessingQueue.js';
 
-const CERTS_DIR = path.join(process.cwd(), 'certs');
+const __filename = fileURLToPath(import.meta.url);
+const backendRoot = path.dirname(__filename);
+const uploadsRoot = path.join(backendRoot, 'uploads');
+const imagesDir = path.join(backendRoot, 'public', 'images');
+const CERTS_DIR = path.join(backendRoot, 'certs');
 const HTTPS_CERT_PATH = path.join(CERTS_DIR, 'pos-itnvend-com.pem');
 const HTTPS_KEY_PATH = path.join(CERTS_DIR, 'pos-itnvend-com-key.pem');
+
+try { fs.mkdirSync(uploadsRoot, { recursive: true }); } catch (err) { /* ignore */ }
+try { fs.mkdirSync(imagesDir, { recursive: true }); } catch (err) { /* ignore */ }
 
 function loadHttpsOptions() {
     try {
@@ -161,7 +169,6 @@ function createRateLimiter({ windowMs = 60 * 60 * 1000, max = 20, keyFn = (req) 
 }
 
 function resolveSlipFilePath(row) {
-    const uploadsRoot = path.join(process.cwd(), 'uploads');
     const raw = row?.storage_path || row?.storage_key || '';
     if (!raw) return null;
     if (/^(https?:\/\/|s3:\/\/)/i.test(raw)) return null;
@@ -259,8 +266,9 @@ app.use('/api/validate-slip', authMiddleware, requireRole(['accounts', 'manager'
 // Public endpoint for storefront slip pre-validation (accepts data URL JSON)
 app.use('/api/validate-slip-public', validateSlipPublicRouter);
 
-// serve uploaded files (slips) from /uploads - local disk storage uses this path
-app.use('/uploads', express.static(path.join(process.cwd(), 'uploads')));
+// serve uploaded files (slips/assets) from /uploads - local disk storage uses this path
+app.use('/uploads', express.static(imagesDir));
+app.use('/uploads', express.static(uploadsRoot));
 
 // Slips persistence endpoints (authenticated)
 app.use('/api/slips', authMiddleware, requireRole(['accounts', 'manager', 'admin']), slipsRouter);
@@ -1067,18 +1075,14 @@ app.get('/api/shifts/active', authMiddleware, async (req, res) => {
 });
 
 // Serve uploaded images from backend/public/images and organize by category
-// Use process.cwd() + public path so this works whether the server is started from the repo root
-// or when running inside a container with working_dir set to the backend folder.
+// The directory is resolved relative to this file so it stays consistent regardless of the working dir.
 // Use lowercase `images` to match the frontend public/images convention and avoid
 // case-sensitivity issues on Linux filesystems.
-const imagesDir = path.join(process.cwd(), 'public', 'images');
-try { fs.mkdirSync(imagesDir, { recursive: true }); } catch (e) { /* ignore */ }
-app.use('/uploads', express.static(imagesDir));
 app.use('/images', express.static(imagesDir));
 
 // Serve slip uploads saved under ./uploads/slips at /uploads/slips
 try {
-    const slipsStatic = path.join(process.cwd(), 'uploads', 'slips');
+    const slipsStatic = path.join(uploadsRoot, 'slips');
     fs.mkdirSync(slipsStatic, { recursive: true });
     app.use('/uploads/slips', express.static(slipsStatic));
 } catch (e) { /* ignore */ }
@@ -1267,9 +1271,13 @@ async function startServer() {
         await recoverSlipJobs(db, slipProcessingQueue);
         // ensure settings has jwt_secret column (safe add)
         try { await db.run("ALTER TABLE settings ADD COLUMN jwt_secret TEXT"); } catch (e) { /* ignore if exists */ }
-        // load or create JWT secret (persist in settings row)
+        // Prefer explicit JWT secret from environment when available
+        const envJwtSecret = (process.env.JWT_SECRET || '').trim();
         const srow = await db.get('SELECT jwt_secret FROM settings WHERE id = 1');
-        if (srow && srow.jwt_secret) {
+        if (envJwtSecret) {
+            JWT_SECRET = envJwtSecret;
+            try { await db.run('UPDATE settings SET jwt_secret = ? WHERE id = 1', [JWT_SECRET]); } catch (e) { /* ignore */ }
+        } else if (srow && srow.jwt_secret) {
             JWT_SECRET = srow.jwt_secret;
         } else {
             JWT_SECRET = crypto.randomBytes(32).toString('hex');
@@ -1461,7 +1469,7 @@ app.post('/api/login', async (req, res) => {
             await logActivity('staff', staff.id, 'login', staff.username, 'staff login');
             // set HttpOnly refresh token cookie (helper sets both new + legacy names)
             setRefreshCookie(res, refreshToken);
-            return res.json({ token, role: roleName });
+            return res.json({ token, role: roleName, username: staff.username, refreshToken });
         }
 
         // fallback to demo in-memory users for compatibility
@@ -1470,7 +1478,7 @@ app.post('/api/login', async (req, res) => {
     // create JWT for demo users as well (no refresh token persisted)
     const demoToken = jwt.sign({ username: user.username, role: user.role }, JWT_SECRET, { expiresIn: '30d' });
     sessions.set(demoToken, { username: user.username, role: user.role });
-    res.json({ token: demoToken, role: user.role });
+    res.json({ token: demoToken, role: user.role, username: user.username, refreshToken: null });
 
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -1887,12 +1895,16 @@ app.post('/api/categories', authMiddleware, requireRole('manager'), async (req, 
 
     try {
         console.log('[categories:create] payload:', { name: trimmedName, parentId: normalizedParentId });
+        const parentClause = normalizedParentId === null ? 'parent_id IS NULL' : 'parent_id = ?';
+        const existingParams = normalizedParentId === null
+            ? [trimmedName]
+            : [trimmedName, normalizedParentId];
         const existingByName = await db.get(
             `SELECT id, name, slug, parent_id
              FROM product_categories
              WHERE name = ?
-               AND ((parent_id IS NULL AND ? IS NULL) OR parent_id = ?)`
-            , [trimmedName, normalizedParentId, normalizedParentId]
+               AND ${parentClause}`,
+            existingParams
         );
         if (existingByName) {
             return res.status(200).json(existingByName);
@@ -1941,13 +1953,17 @@ app.put('/api/categories/:id', authMiddleware, requireRole('manager'), async (re
             return res.status(404).json({ error: 'Category not found' });
         }
 
+        const parentClause = normalizedParentId === null ? 'parent_id IS NULL' : 'parent_id = ?';
+        const conflictParams = normalizedParentId === null
+            ? [trimmedName, categoryId]
+            : [trimmedName, normalizedParentId, categoryId];
         const existingByName = await db.get(
             `SELECT id
              FROM product_categories
              WHERE name = ?
-               AND ((parent_id IS NULL AND ? IS NULL) OR parent_id = ?)
+               AND ${parentClause}
                AND id != ?`,
-            [trimmedName, normalizedParentId, normalizedParentId, categoryId]
+            conflictParams
         );
         if (existingByName) {
             return res.status(409).json({ error: 'A category with that name already exists at this level.' });
@@ -3709,20 +3725,19 @@ app.get('/api/public/vendors/:slug/products', async (req, res) => {
 app.get('/api/casual-items', authMiddleware, requireRole(['accounts','manager','admin']), async (req, res) => {
     try {
         const status = req.query.status || null;
-        const photosColumn = `${concatExpr('cip.path')} as photos`;
+        const photosSelect = `(SELECT ${concatExpr('cip.path')} FROM casual_item_photos cip WHERE cip.casual_item_id = ci.id) as photos`;
         let rows;
         const baseSql = `
             SELECT ci.*, cs.name as seller_name, cs.email as seller_email, cs.phone as seller_phone, i.id as invoice_id, i.total as invoice_total,
-                   ${photosColumn}
+                   ${photosSelect}
             FROM casual_items ci
             LEFT JOIN casual_sellers cs ON cs.id = ci.casual_seller_id
             LEFT JOIN invoices i ON i.id = ci.invoice_id
-            LEFT JOIN casual_item_photos cip ON cip.casual_item_id = ci.id
         `;
         if (status) {
-            rows = await db.all(`${baseSql} WHERE ci.status = ? GROUP BY ci.id ORDER BY ci.created_at DESC`, [status]);
+            rows = await db.all(`${baseSql} WHERE ci.status = ? ORDER BY ci.created_at DESC`, [status]);
         } else {
-            rows = await db.all(`${baseSql} GROUP BY ci.id ORDER BY ci.created_at DESC`);
+            rows = await db.all(`${baseSql} ORDER BY ci.created_at DESC`);
         }
         res.json(rows || []);
     } catch (err) {
@@ -3735,16 +3750,14 @@ app.get('/api/submissions', authMiddleware, requireRole(['cashier','accounts','m
     try {
             const pendingVendors = await db.all("SELECT * FROM vendors WHERE status = 'pending' ORDER BY created_at DESC");
             // Include photos and invoice info for casual items so staff can inspect submissions
-            const pendingPhotosColumn = `${concatExpr('cip.path')} as photos`;
+            const pendingPhotosColumn = `(SELECT ${concatExpr('cip.path')} FROM casual_item_photos cip WHERE cip.casual_item_id = ci.id) as photos`;
             const pendingCasual = await db.all(`
                 SELECT ci.*, cs.name as seller_name, cs.email as seller_email, i.id as invoice_id, i.total as invoice_total,
                        ${pendingPhotosColumn}
                 FROM casual_items ci
                 LEFT JOIN casual_sellers cs ON cs.id = ci.casual_seller_id
                 LEFT JOIN invoices i ON i.id = ci.invoice_id
-                LEFT JOIN casual_item_photos cip ON cip.casual_item_id = ci.id
                 WHERE ci.status LIKE '%pending%'
-                GROUP BY ci.id
                 ORDER BY ci.created_at DESC
             `);
             // General/other submissions could be extended; for now return empty array
@@ -6096,7 +6109,7 @@ app.post('/api/token/refresh', async (req, res) => {
         // set rotated refresh token cookie
     // set rotated refresh token cookie (helper sets both names with appropriate options)
     setRefreshCookie(res, newRefresh);
-        res.json({ token, role: roleName });
+        res.json({ token, role: roleName, username: staff.username, refreshToken: newRefresh });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
@@ -6136,7 +6149,7 @@ app.post('/api/staff/:id/switch', authMiddleware, requireRole('admin'), async (r
         await logActivity('staff', id, 'impersonated', req.user?.username, `impersonated ${staff.username}`);
     // set refresh cookie(s) using helper
     setRefreshCookie(res, refreshToken);
-        res.json({ token, role: roleName });
+        res.json({ token, role: roleName, username: staff.username, refreshToken });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }

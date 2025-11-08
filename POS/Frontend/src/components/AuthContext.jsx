@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useState, useRef } from 'react';
 import api, { setAuthToken } from '../lib/api';
-import { parseJwt, LS_TOKEN_KEY, LS_ROLE_KEY, LS_USERNAME_KEY } from '../lib/authHelpers';
+import { parseJwt, LS_TOKEN_KEY, LS_ROLE_KEY, LS_USERNAME_KEY, LS_REFRESH_KEY } from '../lib/authHelpers';
 
 const AuthContext = createContext(null);
 
@@ -38,13 +38,15 @@ export function AuthProvider({ children }) {
     lastRefreshAttemptRef.current = now;
 
     try {
-      // call refresh endpoint; refresh token is sent via HttpOnly cookie
-      const res = await api.post('/token/refresh', {});
+      const storedRefresh = getStoredRefreshToken();
+      const payload = storedRefresh ? { refreshToken: storedRefresh } : {};
+      const res = await api.post('/token/refresh', payload);
       if (res && res.token) {
         setAuthToken(res.token);
         localStorage.setItem('ITnvend_role', res.role);
         localStorage.setItem('ITnvend_username', res.username || localStorage.getItem('ITnvend_username'));
         setUser((u) => ({ token: res.token, role: res.role, username: res.username || (u && u.username) || localStorage.getItem('ITnvend_username') }));
+        if (res.refreshToken) persistRefreshToken(res.refreshToken);
         setReauthRequired(false);
         scheduleRefresh();
         return true;
@@ -59,6 +61,9 @@ export function AuthProvider({ children }) {
         } catch (parseErr) {
           console.debug('No JSON body available for refresh failure', parseErr);
         }
+      }
+      if (err?.status === 401) {
+        persistRefreshToken(null);
       }
     }
     setReauthRequired(true);
@@ -105,12 +110,14 @@ export function AuthProvider({ children }) {
     }
   }
 
-  async function login(username, password) {
+  async function login(username, password, remember = false) {
+    void remember; // parameter reserved for future use (e.g., extended persistence toggles)
     const res = await api.post('/login', { username, password });
     // res contains { token, role }
     setAuthToken(res.token);
     localStorage.setItem(LS_ROLE_KEY, res.role);
     localStorage.setItem(LS_USERNAME_KEY, username);
+    persistRefreshToken(res.refreshToken || null);
     // token is also stored by setAuthToken helper
     setUser({ token: res.token, role: res.role, username });
     setReauthRequired(false);
@@ -119,12 +126,11 @@ export function AuthProvider({ children }) {
   }
 
   // Switch to a different user token (impersonation)
-  function switchUser(token, role, username) {
+  function switchUser(token, role, username, refreshToken = null) {
     setAuthToken(token);
     if (role) localStorage.setItem(LS_ROLE_KEY, role);
     if (username) localStorage.setItem(LS_USERNAME_KEY, username);
-    // switch may also include a refresh token stored by caller
-    // refresh token is stored as HttpOnly cookie set by server on impersonation/login
+    if (refreshToken) persistRefreshToken(refreshToken);
     setUser({ token, role, username });
     scheduleRefresh();
   }
@@ -133,6 +139,7 @@ export function AuthProvider({ children }) {
     setAuthToken(null);
     localStorage.removeItem(LS_ROLE_KEY);
     localStorage.removeItem(LS_USERNAME_KEY);
+    persistRefreshToken(null);
     // clear refresh token cookie server-side
     try { api.post('/token/logout'); } catch (logoutErr) { console.warn('Failed to revoke refresh token cookie', logoutErr); }
     setUser(null);
@@ -147,16 +154,17 @@ export function AuthProvider({ children }) {
 
   // schedule refresh when AuthProvider mounts
   useEffect(() => {
-    // Only try to refresh if we have a potentially valid token or refresh cookies
+    // Only try to refresh if we have a potentially valid token or refresh cookies/fallback
     const hasToken = localStorage.getItem(LS_TOKEN_KEY);
     const hasRefreshCookie = typeof document !== 'undefined' &&
       (document.cookie.includes('ITnvend_refresh=') || document.cookie.includes('irnvend_refresh='));
+    const storedRefresh = getStoredRefreshToken();
 
     if (hasToken) {
       // We have a token, schedule refresh based on its expiration
       scheduleRefresh();
-    } else if (hasRefreshCookie && !user) {
-      // We have refresh cookies but no user, try one refresh attempt
+    } else if ((hasRefreshCookie || storedRefresh) && !user) {
+      // We have refresh tokens (cookie or stored fallback) but no user, try one refresh attempt
       attemptRefresh();
     }
 
@@ -176,3 +184,23 @@ export function AuthProvider({ children }) {
 export function useAuth() {
   return useContext(AuthContext);
 }
+  const getStoredRefreshToken = () => {
+    try {
+      return localStorage.getItem(LS_REFRESH_KEY);
+    } catch (err) {
+      console.warn('Failed to read refresh token from storage', err);
+      return null;
+    }
+  };
+
+  const persistRefreshToken = (value) => {
+    try {
+      if (value) {
+        localStorage.setItem(LS_REFRESH_KEY, value);
+      } else {
+        localStorage.removeItem(LS_REFRESH_KEY);
+      }
+    } catch (err) {
+      console.warn('Failed to persist refresh token', err);
+    }
+  };

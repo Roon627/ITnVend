@@ -1,6 +1,5 @@
 import React, { useMemo } from 'react';
 import { useSettings } from './SettingsContext';
-import resolveMediaUrl from '../lib/media';
 
 function computeInitials(source) {
   if (!source) return 'IT';
@@ -13,12 +12,9 @@ function computeInitials(source) {
 }
 
 export default function BrandLogo({ size = 40, className = '', square = true }) {
-  const { settings } = useSettings();
+  const { settings, brandLogoUrl } = useSettings();
   const outletName = settings?.outlet?.name || settings?.outlet_name || 'ITnVend';
-  const logoUrl = useMemo(() => {
-    const candidate = settings?.logo_url || settings?.outlet?.logo_url || settings?.branding?.logo_url;
-    return resolveMediaUrl(candidate);
-  }, [settings?.logo_url, settings?.outlet?.logo_url, settings?.branding?.logo_url]);
+  const logoUrl = brandLogoUrl;
 
   const dimensionStyle = useMemo(() => ({ width: size, height: size }), [size]);
   const fallbackInitials = useMemo(() => computeInitials(outletName), [outletName]);

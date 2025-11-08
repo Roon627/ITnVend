@@ -2,6 +2,8 @@ import React from 'react';
 import api from '../../lib/api';
 import resolveMediaUrl from '../../lib/media';
 
+const INVALID_LOGO_VALUES = new Set(['0', 'null', 'undefined', 'false']);
+
 export default function OutletsPanel({
   outlets,
   selectedOutletId,
@@ -13,10 +15,66 @@ export default function OutletsPanel({
   CURRENCY_OPTIONS,
   createOutlet,
   isManager,
+  isAdmin,
   defaultSettings: _defaultSettings,
   formState,
   updateField
 }) {
+  const handleLogoFileChange = async (event) => {
+    if (!isAdmin) return;
+    const file = event.target.files && event.target.files[0];
+    if (!file) return;
+    try {
+      const reader = new FileReader();
+      reader.onload = async () => {
+        const dataUrl = reader.result;
+        try {
+          const json = await api.post('/settings/upload-logo', { filename: file.name, data: dataUrl });
+          const sanitizedUrl = typeof json?.url === 'string' ? json.url.trim() : '';
+          updateField('logo_url', sanitizedUrl);
+        } catch (err) {
+          console.error('Upload failed', err);
+        }
+      };
+      reader.onerror = (err) => {
+        console.error('Failed to read logo file', err);
+      };
+      reader.readAsDataURL(file);
+    } catch (err) {
+      console.error('Unexpected logo upload error', err);
+    }
+  };
+
+  const normalizedLogoValue = (() => {
+    if (typeof formState.logo_url === 'string') {
+      const trimmed = formState.logo_url.trim();
+      if (!trimmed) return '';
+      if (INVALID_LOGO_VALUES.has(trimmed.toLowerCase())) return '';
+      return trimmed;
+    }
+    return '';
+  })();
+
+  const renderLogoPreview = () => {
+    if (normalizedLogoValue) {
+      const resolved = resolveMediaUrl(normalizedLogoValue);
+      if (resolved) {
+        return (
+          <img
+            src={resolved}
+            alt="Brand logo preview"
+            className="h-12 w-12 object-contain rounded-md border bg-white"
+          />
+        );
+      }
+    }
+    return (
+      <div className="h-12 w-12 rounded-md border bg-gray-50 flex items-center justify-center text-xs text-gray-400">
+        No logo uploaded
+      </div>
+    );
+  };
+
   return (
     <div className="bg-white p-6 rounded-md shadow space-y-6">
       <section className="space-y-2">
@@ -122,41 +180,36 @@ export default function OutletsPanel({
                   />
                   <p className="mt-1 text-xs text-slate-500">A short closing note to appear after payment instructions on invoices (e.g. "Please keep this invoice as proof of payment.").</p>
                 </div>
-
-                <div>
-                  <label className="block text-sm font-medium">Brand Logo</label>
-                  <div className="mt-2 flex items-center gap-3">
-                    {formState.logo_url ? (
-                      <img src={resolveMediaUrl(formState.logo_url)} alt="logo" className="h-12 w-12 object-contain rounded-md border" />
-                    ) : (
-                      <div className="h-12 w-12 rounded-md border bg-gray-50 flex items-center justify-center text-xs text-gray-400">No logo</div>
-                    )}
-                    <div className="flex flex-col">
-                      <input type="file" accept="image/*" onChange={async (e) => {
-                        const file = e.target.files && e.target.files[0];
-                        if (!file) return;
-                        try {
-                          const reader = new FileReader();
-                          reader.onload = async () => {
-                            const data = reader.result;
-                            try {
-                              // Use authenticated client so Authorization header and cookies are included
-                              const json = await api.post('/settings/upload-logo', { filename: file.name, data });
-                              if (json?.url) updateField('logo_url', json.url);
-                            } catch (err) {
-                              console.error('Upload failed', err);
-                            }
-                          };
-                          reader.readAsDataURL(file);
-                        } catch (err) { console.error(err); }
-                      }} />
-                      <p className="mt-1 text-xs text-slate-500">Upload a PNG, JPG or SVG. This will be shown on invoices and email templates.</p>
-                    </div>
-                  </div>
-                </div>
               </div>
             </div>
           )}
+
+          <div className="md:col-span-2 border-t pt-4">
+            <label className="block text-sm font-medium text-gray-700">Brand Logo</label>
+            <p className="mt-1 text-xs text-slate-500">
+              This logo appears on invoices, quotes, and default email templates. It is shared across all outlets.
+            </p>
+            <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-center">
+              {renderLogoPreview()}
+              <div className="flex flex-col gap-1">
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={handleLogoFileChange}
+                  disabled={!isAdmin}
+                  className="text-sm"
+                />
+                <p className="text-xs text-slate-500">
+                  Upload a PNG, JPG, SVG, or GIF. Recommended size 512×512px or larger with transparent background.
+                </p>
+                {!isAdmin && (
+                  <p className="text-xs font-medium text-rose-500">
+                    Only administrators can update the shared brand logo.
+                  </p>
+                )}
+              </div>
+            </div>
+          </div>
         </div>
       </section>
     </div>

@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { api, setAuthToken } from '../lib/api';
+import { LS_REFRESH_KEY } from '../lib/authHelpers';
 import { useToast } from '../components/ToastContext';
 import { useTheme } from '../components/ThemeContext';
 
@@ -134,12 +135,17 @@ export default function Staff() {
       setAuthToken(res.token);
       // also update AuthContext if available
       if (typeof window !== 'undefined' && window.__ITNVEND_SWITCH_USER__) {
-        window.__ITNVEND_SWITCH_USER__(res.token, res.role, s.username);
+        window.__ITNVEND_SWITCH_USER__(res.token, res.role, s.username, res.refreshToken || null);
       }
       // fallback localStorage updates
       localStorage.setItem('ITnvend_role', res.role);
-  localStorage.setItem('ITnvend_token', res.token);
-  localStorage.setItem('ITnvend_username', s.username);
+      localStorage.setItem('ITnvend_token', res.token);
+      localStorage.setItem('ITnvend_username', s.username);
+      if (res.refreshToken) {
+        localStorage.setItem(LS_REFRESH_KEY, res.refreshToken);
+      } else {
+        localStorage.removeItem(LS_REFRESH_KEY);
+      }
       // quick reload to reflect new permissions
       location.reload();
     } catch (err) {

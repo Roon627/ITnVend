@@ -4,6 +4,7 @@
 export const LS_TOKEN_KEY = 'ITnvend_token';
 export const LS_ROLE_KEY = 'ITnvend_role';
 export const LS_USERNAME_KEY = 'ITnvend_username';
+export const LS_REFRESH_KEY = 'ITnvend_refresh_token';
 
 export function parseJwt(token) {
   try {

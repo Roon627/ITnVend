@@ -30,12 +30,24 @@ const CURRENCY_OPTIONS = [
   { code: 'INR', label: 'INR - Indian Rupee' },
 ];
 
+const INVALID_LOGO_VALUES = new Set(['0', 'null', 'undefined', 'false']);
+const normalizeLogoUrl = (value) => {
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed) return '';
+    if (INVALID_LOGO_VALUES.has(trimmed.toLowerCase())) return '';
+    return trimmed;
+  }
+  return '';
+};
+
 const DEFAULT_FORM = {
   outlet_name: '',
   currency: 'MVR',
   gst_rate: 0,
   store_address: '',
   invoice_template: FRIENDLY_INVOICE_NOTE,
+  logo_url: '',
   email_provider: '',
   email_api_key: '',
   email_from: '',
@@ -187,7 +199,7 @@ export default function Settings() {
   email_template_password_reset_subject: withFallback(globalSettings.email_template_password_reset_subject, FRIENDLY_PASSWORD_SUBJECT),
   email_template_password_reset: withFallback(globalSettings.email_template_password_reset, FRIENDLY_PASSWORD_TEMPLATE),
       email_template_new_order_staff: withFallback(globalSettings.email_template_new_order_staff, FRIENDLY_STAFF_ORDER_TEMPLATE),
-  logo_url: globalSettings.logo_url ?? '',
+      logo_url: normalizeLogoUrl(globalSettings.logo_url),
   payment_instructions: (activeOutletId ? (globalSettings.outlet?.payment_instructions ?? '') : (globalSettings.payment_instructions ?? '')) ,
   footer_note: (activeOutletId ? (globalSettings.outlet?.footer_note ?? '') : (globalSettings.footer_note ?? '')) ,
   social_facebook: globalSettings.social_links?.facebook ?? globalSettings.social_facebook ?? '',
@@ -275,7 +287,7 @@ export default function Settings() {
           email_template_password_reset_subject: formState.email_template_password_reset_subject,
           email_template_password_reset: formState.email_template_password_reset,
           email_template_new_order_staff: formState.email_template_new_order_staff,
-          logo_url: formState.logo_url,
+          logo_url: normalizeLogoUrl(formState.logo_url),
           footer_note: formState.footer_note,
           social_facebook: formState.social_facebook,
           social_instagram: formState.social_instagram,
@@ -350,14 +362,15 @@ export default function Settings() {
             creatingOutlet={creatingOutlet}
             setCreatingOutlet={setCreatingOutlet}
             newOutlet={newOutlet}
-            setNewOutlet={setNewOutlet}
-            CURRENCY_OPTIONS={CURRENCY_OPTIONS}
-            createOutlet={createOutlet}
-            isManager={isManager}
-            defaultSettings={defaultSettings}
-            formState={formState}
-            updateField={updateField}
-          />
+          setNewOutlet={setNewOutlet}
+          CURRENCY_OPTIONS={CURRENCY_OPTIONS}
+          createOutlet={createOutlet}
+          isManager={isManager}
+          isAdmin={isAdmin}
+          defaultSettings={defaultSettings}
+          formState={formState}
+          updateField={updateField}
+        />
         );
       case 'smtp':
         return (

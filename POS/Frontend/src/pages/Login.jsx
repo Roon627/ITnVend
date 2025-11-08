@@ -2,6 +2,8 @@ import { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../components/AuthContext';
 import { useToast } from '../components/ToastContext';
+import { useSettings } from '../components/SettingsContext';
+import BrandLogo from '../components/BrandLogo';
 
 export default function Login() {
   const [username, setUsername] = useState('');
@@ -10,7 +12,9 @@ export default function Login() {
   const auth = useAuth();
   const toast = useToast();
   const navigate = useNavigate();
+  const { settings, brandLogoUrl } = useSettings();
   const POS_PATH = '/pos';
+  const outletName = settings?.outlet?.name || settings?.outlet_name || 'ITnVend';
 
   async function submit(e) {
     e.preventDefault();
@@ -31,7 +35,11 @@ export default function Login() {
         <div className="hidden md:flex flex-col justify-center p-8 rounded-lg" aria-hidden="true">
           <div className="mb-6">
             <div className="w-28 h-28 rounded-lg flex items-center justify-center bg-white shadow-md overflow-hidden">
-              <img src="/images/logo.png" alt="ITnVend" className="w-20 h-20 object-contain" />
+              {brandLogoUrl ? (
+                <img src={brandLogoUrl} alt={`${outletName} logo`} className="w-20 h-20 object-contain" loading="lazy" />
+              ) : (
+                <BrandLogo size={72} square className="border-0 shadow-none bg-transparent" />
+              )}
             </div>
           </div>
           <h1 className="text-3xl font-extrabold text-[var(--color-heading)] mb-3">Welcome to ITnVend</h1>

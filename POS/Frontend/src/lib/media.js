@@ -18,15 +18,20 @@ function buildAbsolute(path, search = '', hash = '') {
   return `${normalizedUploadBase}${path}${search}${hash}`;
 }
 
+const INVALID_SENTINELS = new Set(['0', 'null', 'undefined', 'false']);
+
 export function resolveMediaUrl(value) {
   if (!value || typeof value !== 'string') return value || null;
-  if (value.startsWith('data:')) return value; // already inline
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  if (INVALID_SENTINELS.has(trimmed.toLowerCase())) return null;
+  if (trimmed.startsWith('data:')) return trimmed; // already inline
 
   // Absolute URLs
-  if (/^https?:\/\//i.test(value)) {
-    if (!normalizedUploadBase) return value;
+  if (/^https?:\/\//i.test(trimmed)) {
+    if (!normalizedUploadBase) return trimmed;
     try {
-      const url = new URL(value);
+      const url = new URL(trimmed);
 
       const shouldRewrite =
         LOCAL_HOSTS.has(url.hostname.toLowerCase()) ||
@@ -39,14 +44,14 @@ export function resolveMediaUrl(value) {
       }
     } catch (err) {
       console.debug('resolveMediaUrl failed to parse URL', err);
-      return value;
+      return trimmed;
     }
-    return value;
+    return trimmed;
   }
 
   // Windows/Unix absolute filesystem paths - try to extract public/images portion
-  if (value.includes(':\\') || value.startsWith('/') || value.includes('public/images')) {
-    const normalizedValue = value.replace(/\\/g, '/');
+  if (trimmed.includes(':\\') || trimmed.startsWith('/') || trimmed.includes('public/images')) {
+    const normalizedValue = trimmed.replace(/\\/g, '/');
     const marker = '/public/images/';
     const idx = normalizedValue.toLowerCase().indexOf(marker);
     if (idx !== -1) {
@@ -55,11 +60,11 @@ export function resolveMediaUrl(value) {
     }
   }
 
-  if (value.startsWith('/uploads/')) {
-    return buildAbsolute(value);
+  if (trimmed.startsWith('/uploads/')) {
+    return buildAbsolute(trimmed);
   }
 
-  return value;
+  return trimmed;
 }
 
 export default resolveMediaUrl;
