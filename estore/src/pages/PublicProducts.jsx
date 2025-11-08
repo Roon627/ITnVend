@@ -5,6 +5,7 @@ import { useCart } from '../components/CartContext';
 import { useSettings } from '../components/SettingsContext';
 import { FaShoppingCart, FaSearch, FaUndoAlt, FaHeart } from 'react-icons/fa';
 import ProductCard from '../components/ProductCard';
+import HighlightsCarousel from '../components/HighlightsCarousel';
 import { mapPreorderFlags } from '../lib/preorder';
 
 const initialFilters = { category: '', subcategory: '', search: '' };
@@ -26,6 +27,8 @@ export default function PublicProducts() {
   const [filters, setFilters] = useState(initialFromParams);
   const [searchInput, setSearchInput] = useState(initialFromParams.search);
   const [loading, setLoading] = useState(false);
+  const [highlights, setHighlights] = useState(null);
+  const [highlightsLoaded, setHighlightsLoaded] = useState(false);
   const { addToCart, cartCount } = useCart();
   const { formatCurrency } = useSettings();
 
@@ -56,6 +59,24 @@ export default function PublicProducts() {
       .get('/products/categories')
       .then((res) => setCategories(res || {}))
       .catch(() => setCategories({}));
+  }, []);
+
+  useEffect(() => {
+    let mounted = true;
+    api
+      .get('/storefront/highlights')
+      .then((res) => {
+        if (mounted) setHighlights(res || {});
+      })
+      .catch(() => {
+        if (mounted) setHighlights(null);
+      })
+      .finally(() => {
+        if (mounted) setHighlightsLoaded(true);
+      });
+    return () => {
+      mounted = false;
+    };
   }, []);
 
   useEffect(() => {
@@ -95,6 +116,33 @@ export default function PublicProducts() {
     () => (filters.category ? categories[filters.category] || [] : []),
     [filters.category, categories]
   );
+
+  const highlightSections = useMemo(() => {
+    if (!highlights) return [];
+    return [
+      {
+        key: 'highlighted',
+        label: 'Featured picks',
+        description: 'Hand-curated hero slots from the ITnVend team.',
+        badgeLabel: 'Featured',
+        items: highlights.highlighted || [],
+      },
+      {
+        key: 'hotCasual',
+        label: 'Seller hotlist',
+        description: 'Boosted community listings with the seller feature fee.',
+        badgeLabel: 'Hot drop',
+        items: highlights.hotCasual || [],
+      },
+      {
+        key: 'newArrivals',
+        label: 'New arrivals',
+        description: 'Fresh inventory that landed this week.',
+        badgeLabel: 'New',
+        items: highlights.newArrivals || [],
+      },
+    ].filter((section) => section.items && section.items.length > 0);
+  }, [highlights]);
 
   const handleFilterChange = (event) => {
     const { name, value } = event.target;
@@ -184,6 +232,15 @@ export default function PublicProducts() {
 
       <main className="relative -mt-16 pb-16">
         <div className="container mx-auto px-6">
+          {highlightSections.length > 0 && (
+            <div className="mb-8">
+              <HighlightsCarousel
+                sections={highlightSections}
+                formatCurrency={formatCurrency}
+                onAdd={(product) => addToCart(product)}
+              />
+            </div>
+          )}
           <div className="rounded-3xl border border-rose-200 bg-white/95 p-6 shadow-rose-100 backdrop-blur">
             <div className="flex flex-col gap-6 lg:flex-row lg:items-start">
               <aside className="w-full space-y-6 lg:max-w-xs">

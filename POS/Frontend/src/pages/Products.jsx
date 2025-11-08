@@ -48,6 +48,9 @@ const EMPTY_FORM = {
   year: '',
   availabilityStatus: 'in_stock',
   vendorId: '',
+  highlightActive: false,
+  highlightLabel: '',
+  highlightPriority: '',
 };
 
 const AVAILABILITY_STATUS_OPTIONS = [
@@ -690,6 +693,52 @@ function ProductModal({
               )}
             </div>
 
+            <div className="rounded-2xl border border-slate-200 bg-white/90 p-4 shadow-sm">
+              <div className="flex items-center justify-between">
+                <label className="inline-flex items-center gap-2 text-sm font-semibold text-slate-700">
+                  <input
+                    type="checkbox"
+                    checked={!!draft.highlightActive}
+                    onChange={handleFieldChange('highlightActive')}
+                    className="rounded border-slate-300 text-blue-600"
+                  />
+                  Feature on storefront hero
+                </label>
+                {draft.highlightActive && draft.highlightLabel && (
+                  <span className="text-xs font-semibold uppercase tracking-widest text-rose-500">
+                    {draft.highlightLabel}
+                  </span>
+                )}
+              </div>
+              <p className="mt-1 text-xs text-slate-500">
+                Highlighted products appear in the public “Hot & New” carousel. Use priority to control ordering (higher = sooner).
+              </p>
+              {draft.highlightActive && (
+                <div className="mt-3 grid gap-4 md:grid-cols-2">
+                  <label className="text-sm font-medium text-slate-600">
+                    Badge label
+                    <input
+                      value={draft.highlightLabel || ''}
+                      onChange={handleFieldChange('highlightLabel')}
+                      maxLength={40}
+                      className="mt-1 w-full rounded-md border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      placeholder="e.g. Hot drop"
+                    />
+                  </label>
+                  <label className="text-sm font-medium text-slate-600">
+                    Priority
+                    <input
+                      type="number"
+                      value={draft.highlightPriority || ''}
+                      onChange={handleFieldChange('highlightPriority')}
+                      className="mt-1 w-full rounded-md border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      placeholder="Higher shows first"
+                    />
+                  </label>
+                </div>
+              )}
+            </div>
+
             <div className="mt-2 grid gap-4 md:grid-cols-3">
               <SelectField
                 label="Category"
@@ -1220,6 +1269,9 @@ export default function Products() {
       tags: Array.isArray(product.tags) ? product.tags.map((t) => t.id || t) : product.tags || [],
       preorderReleaseDate: product.preorder_release_date || '',
       preorderNotes: product.preorder_notes || '',
+      highlightActive: product.highlight_active ? true : false,
+      highlightLabel: product.highlight_label || '',
+      highlightPriority: product.highlight_priority != null ? String(product.highlight_priority) : '',
     });
     setModalOpen(true);
     setModalOriginalDraft({
@@ -1255,6 +1307,9 @@ export default function Products() {
       tags: Array.isArray(product.tags) ? product.tags.map((t) => t.id || t) : product.tags || [],
       preorderReleaseDate: product.preorder_release_date || '',
       preorderNotes: product.preorder_notes || '',
+      highlightActive: product.highlight_active ? true : false,
+      highlightLabel: product.highlight_label || '',
+      highlightPriority: product.highlight_priority != null ? String(product.highlight_priority) : '',
     });
     setModalStockReason('');
   };
@@ -1294,6 +1349,9 @@ export default function Products() {
           preorderNotes: modalDraft.availableForPreorder ? modalDraft.preorderNotes || null : null,
           preorderEta: modalDraft.availableForPreorder ? modalDraft.preorderEta || null : null,
           vendorId: normalizeVendorId(modalDraft.vendorId),
+          highlightActive: modalDraft.highlightActive ? 1 : 0,
+          highlightLabel: modalDraft.highlightLabel && modalDraft.highlightLabel.trim() ? modalDraft.highlightLabel.trim() : null,
+          highlightPriority: modalDraft.highlightPriority ? parseInt(modalDraft.highlightPriority, 10) || 0 : 0,
         };
         const created = await api.post('/products', payload);
         toast.push('Product added', 'info');
@@ -1343,6 +1401,9 @@ export default function Products() {
         preorderNotes: modalDraft.availableForPreorder ? modalDraft.preorderNotes || null : null,
         preorderEta: modalDraft.availableForPreorder ? modalDraft.preorderEta || null : null,
         vendorId: normalizeVendorId(modalDraft.vendorId),
+        highlightActive: modalDraft.highlightActive ? 1 : 0,
+        highlightLabel: modalDraft.highlightLabel && modalDraft.highlightLabel.trim() ? modalDraft.highlightLabel.trim() : null,
+        highlightPriority: modalDraft.highlightPriority ? parseInt(modalDraft.highlightPriority, 10) || 0 : 0,
       };
 
       // Detect if only stock changed compared to original draft
@@ -1369,6 +1430,9 @@ export default function Products() {
             preorderNotes: modalOriginalDraft.availableForPreorder ? modalOriginalDraft.preorderNotes || null : null,
             preorderEta: modalOriginalDraft.availableForPreorder ? modalOriginalDraft.preorderEta || null : null,
             vendorId: normalizeVendorId(modalOriginalDraft.vendorId),
+            highlightActive: modalOriginalDraft.highlightActive ? 1 : 0,
+            highlightLabel: modalOriginalDraft.highlightLabel && modalOriginalDraft.highlightLabel.trim() ? modalOriginalDraft.highlightLabel.trim() : null,
+            highlightPriority: modalOriginalDraft.highlightPriority ? parseInt(modalOriginalDraft.highlightPriority, 10) || 0 : 0,
           };
           const changedKeys = Object.keys(payload).filter((k) => {
             const a = payload[k] == null ? null : payload[k];

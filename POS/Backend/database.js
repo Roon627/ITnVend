@@ -959,6 +959,10 @@ export async function setupDatabase() {
     await ensureColumn(db, 'products', 'auto_sku', 'INTEGER DEFAULT 1');
     await ensureColumn(db, 'products', 'tags_cache', 'TEXT');
     await ensureColumn(db, 'products', 'vendor_id', 'INTEGER');
+    await ensureColumn(db, 'products', 'highlight_active', 'INTEGER DEFAULT 0');
+    await ensureColumn(db, 'products', 'highlight_label', 'TEXT');
+    await ensureColumn(db, 'products', 'highlight_priority', 'INTEGER DEFAULT 0');
+    await ensureColumn(db, 'products', 'created_at', 'DATETIME DEFAULT CURRENT_TIMESTAMP');
     await db.run('CREATE UNIQUE INDEX IF NOT EXISTS idx_products_sku ON products(sku)');
     await db.run('CREATE INDEX IF NOT EXISTS idx_products_brand ON products(brand_id)');
     await db.run('CREATE INDEX IF NOT EXISTS idx_products_category ON products(category_id)');

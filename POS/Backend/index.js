@@ -88,6 +88,136 @@ function orderCaseInsensitive(column) {
     return isPostgres() ? `LOWER(${column})` : `${column} COLLATE NOCASE`;
 }
 
+const PRODUCT_BASE_SELECT = `
+            SELECT
+                p.*,
+                b.name AS brand_name,
+                mat.name AS material_name,
+                col.name AS color_name,
+                cat.name AS category_name_resolved,
+                sub.name AS subcategory_name_resolved,
+                subsub.name AS subsubcategory_name_resolved,
+                v.legal_name AS vendor_name,
+                v.slug AS vendor_slug,
+                ci.id AS casual_item_id,
+                ci.status AS casual_status,
+                ci.featured AS casual_featured,
+                cs.name AS casual_seller_name,
+                cs.email AS casual_seller_email,
+                cs.phone AS casual_seller_phone
+            FROM products p
+            LEFT JOIN brands b ON p.brand_id = b.id
+            LEFT JOIN materials mat ON p.material_id = mat.id
+            LEFT JOIN colors col ON p.color_id = col.id
+            LEFT JOIN product_categories cat ON p.category_id = cat.id
+            LEFT JOIN product_categories sub ON p.subcategory_id = sub.id
+            LEFT JOIN product_categories subsub ON p.subsubcategory_id = subsub.id
+            LEFT JOIN vendors v ON p.vendor_id = v.id
+            LEFT JOIN casual_items ci ON ci.product_id = p.id
+            LEFT JOIN casual_sellers cs ON cs.id = ci.casual_seller_id
+            WHERE 1=1
+        `;
+
+async function transformProductRows(rows = []) {
+    if (!rows || rows.length === 0) return [];
+    const productIds = rows.map((row) => row.id);
+    let tagsByProduct = {};
+    if (productIds.length) {
+        const placeholders = productIds.map(() => '?').join(',');
+        const tagRows = await db.all(
+            `SELECT pt.product_id, t.id, t.name, t.slug
+             FROM product_tags pt
+             INNER JOIN tags t ON t.id = pt.tag_id
+             WHERE pt.product_id IN (${placeholders})
+             ORDER BY t.name`,
+            productIds
+        );
+        tagsByProduct = tagRows.reduce((acc, row) => {
+            if (!acc[row.product_id]) acc[row.product_id] = [];
+            acc[row.product_id].push({ id: row.id, name: row.name, slug: row.slug });
+            return acc;
+        }, {});
+    }
+    return rows.map((row) => {
+        const isCasual = !!row.casual_item_id;
+        const listingSource = isCasual ? 'casual' : (row.vendor_id ? 'vendor' : 'inventory');
+        return {
+            id: row.id,
+            name: row.name,
+            price: row.price,
+            stock: row.stock,
+            category: row.category,
+            subcategory: row.subcategory,
+            image: row.image,
+            image_source: row.image_source,
+            description: row.description,
+            technical_details: row.technical_details,
+            sku: row.sku,
+            barcode: row.barcode,
+            cost: row.cost,
+            track_inventory: row.track_inventory,
+            preorder_enabled: row.preorder_enabled,
+            preorder_release_date: row.preorder_release_date,
+            preorder_notes: row.preorder_notes,
+            short_description: row.short_description,
+            type: row.type,
+            brand_id: row.brand_id,
+            brand_name: row.brand_name,
+            category_id: row.category_id,
+            category_name: row.category_name_resolved || row.category,
+            subcategory_id: row.subcategory_id,
+            subcategory_name: row.subcategory_name_resolved || row.subcategory,
+            subsubcategory_id: row.subsubcategory_id,
+            subsubcategory_name: row.subsubcategory_name_resolved || null,
+            material_id: row.material_id,
+            material_name: row.material_name,
+            color_id: row.color_id,
+            color_name: row.color_name,
+            audience: row.audience,
+            delivery_type: row.delivery_type,
+            warranty_term: row.warranty_term,
+            preorder_eta: row.preorder_eta,
+            year: row.year,
+            auto_sku: row.auto_sku,
+            vendor_id: row.vendor_id,
+            vendor_name: row.vendor_name,
+            vendor_slug: row.vendor_slug,
+            tags: tagsByProduct[row.id] || [],
+            is_casual_listing: isCasual,
+            listing_source: listingSource,
+            casual_item_id: row.casual_item_id,
+            casual_status: row.casual_status,
+            casual_featured: row.casual_featured ? 1 : 0,
+            seller_contact_name: isCasual ? (row.casual_seller_name || null) : null,
+            seller_contact_email: isCasual ? (row.casual_seller_email || null) : null,
+            seller_contact_phone: isCasual ? (row.casual_seller_phone || null) : null,
+            seller_contact_notice: isCasual ? 'Coordinate payment and inspection directly with the seller. ITnVend hosts the listing but does not broker the transaction.' : null,
+            highlight_active: row.highlight_active ? 1 : 0,
+            highlight_label: row.highlight_label || null,
+            highlight_priority: row.highlight_priority || 0,
+        };
+    });
+}
+
+async function fetchProductsForHighlight(whereClause = '', params = [], { orderBy = null, limit = null } = {}) {
+    let query = PRODUCT_BASE_SELECT;
+    const queryParams = [...params];
+    if (whereClause) {
+        query += ` AND ${whereClause}`;
+    }
+    if (orderBy) {
+        query += ` ORDER BY ${orderBy}`;
+    } else {
+        query += ` ORDER BY ${orderCaseInsensitive('p.name')}`;
+    }
+    if (limit) {
+        query += ' LIMIT ?';
+        queryParams.push(limit);
+    }
+    const rows = await db.all(query, queryParams);
+    return transformProductRows(rows);
+}
+
 // handle server listen errors (EADDRINUSE etc) so process logs a clear message
 server.on('error', (err) => {
         if (err && err.code === 'EADDRINUSE') {
@@ -1577,34 +1707,7 @@ app.get('/api/products', async (req, res) => {
             return res.json(cachedProducts);
         }
 
-        let query = `
-            SELECT
-                p.*,
-                b.name AS brand_name,
-                mat.name AS material_name,
-                col.name AS color_name,
-                cat.name AS category_name_resolved,
-                sub.name AS subcategory_name_resolved,
-                subsub.name AS subsubcategory_name_resolved,
-                v.legal_name AS vendor_name,
-                v.slug AS vendor_slug,
-                ci.id AS casual_item_id,
-                ci.status AS casual_status,
-                cs.name AS casual_seller_name,
-                cs.email AS casual_seller_email,
-                cs.phone AS casual_seller_phone
-            FROM products p
-            LEFT JOIN brands b ON p.brand_id = b.id
-            LEFT JOIN materials mat ON p.material_id = mat.id
-            LEFT JOIN colors col ON p.color_id = col.id
-            LEFT JOIN product_categories cat ON p.category_id = cat.id
-            LEFT JOIN product_categories sub ON p.subcategory_id = sub.id
-            LEFT JOIN product_categories subsub ON p.subsubcategory_id = subsub.id
-            LEFT JOIN vendors v ON p.vendor_id = v.id
-            LEFT JOIN casual_items ci ON ci.product_id = p.id
-            LEFT JOIN casual_sellers cs ON cs.id = ci.casual_seller_id
-            WHERE 1=1
-        `;
+        let query = PRODUCT_BASE_SELECT;
         const params = [];
 
         if (category && category !== 'all') {
@@ -1664,80 +1767,7 @@ app.get('/api/products', async (req, res) => {
 
         const productRows = await db.all(query, params);
 
-        const productIds = productRows.map((row) => row.id);
-        let tagsByProduct = {};
-        if (productIds.length) {
-            const placeholders = productIds.map(() => '?').join(',');
-            const tagRows = await db.all(
-                `SELECT pt.product_id, t.id, t.name, t.slug
-                 FROM product_tags pt
-                 INNER JOIN tags t ON t.id = pt.tag_id
-                 WHERE pt.product_id IN (${placeholders})
-                 ORDER BY t.name`,
-                productIds
-            );
-            tagsByProduct = tagRows.reduce((acc, row) => {
-                if (!acc[row.product_id]) acc[row.product_id] = [];
-                acc[row.product_id].push({ id: row.id, name: row.name, slug: row.slug });
-                return acc;
-            }, {});
-        }
-
-        const products = productRows.map((row) => {
-            const isCasual = !!row.casual_item_id;
-            const listingSource = isCasual ? 'casual' : (row.vendor_id ? 'vendor' : 'inventory');
-            return {
-                id: row.id,
-                name: row.name,
-                price: row.price,
-                stock: row.stock,
-                category: row.category,
-            subcategory: row.subcategory,
-            image: row.image,
-            image_source: row.image_source,
-            description: row.description,
-            technical_details: row.technical_details,
-            sku: row.sku,
-            barcode: row.barcode,
-            cost: row.cost,
-            track_inventory: row.track_inventory,
-            preorder_enabled: row.preorder_enabled,
-            preorder_release_date: row.preorder_release_date,
-            preorder_notes: row.preorder_notes,
-            short_description: row.short_description,
-            type: row.type,
-            brand_id: row.brand_id,
-            brand_name: row.brand_name,
-            category_id: row.category_id,
-            category_name: row.category_name_resolved || row.category,
-            subcategory_id: row.subcategory_id,
-            subcategory_name: row.subcategory_name_resolved || row.subcategory,
-            subsubcategory_id: row.subsubcategory_id,
-            subsubcategory_name: row.subsubcategory_name_resolved || null,
-            material_id: row.material_id,
-            material_name: row.material_name,
-            color_id: row.color_id,
-            color_name: row.color_name,
-            audience: row.audience,
-            delivery_type: row.delivery_type,
-            warranty_term: row.warranty_term,
-            preorder_eta: row.preorder_eta,
-            year: row.year,
-            auto_sku: row.auto_sku,
-            vendor_id: row.vendor_id,
-            vendor_name: row.vendor_name,
-            vendor_slug: row.vendor_slug,
-            tags: tagsByProduct[row.id] || [],
-            is_casual_listing: isCasual,
-            listing_source: listingSource,
-            casual_item_id: row.casual_item_id,
-                casual_status: row.casual_status,
-                seller_contact_name: isCasual ? (row.casual_seller_name || null) : null,
-                seller_contact_email: isCasual ? (row.casual_seller_email || null) : null,
-                seller_contact_phone: isCasual ? (row.casual_seller_phone || null) : null,
-                seller_contact_notice: isCasual ? 'Coordinate payment and inspection directly with the seller. ITnVend hosts the listing but does not broker the transaction.' : null,
-            };
-        });
+        const products = await transformProductRows(productRows);
 
         await cacheService.set(cacheKey, products, 180);
 
@@ -2056,6 +2086,28 @@ app.get('/api/storefront/preorders', async (req, res) => {
     }
 });
 
+app.get('/api/storefront/highlights', async (req, res) => {
+    try {
+        const [highlighted, hotCasual, newArrivals] = await Promise.all([
+            fetchProductsForHighlight('p.highlight_active = 1', [], {
+                orderBy: `p.highlight_priority DESC, ${orderCaseInsensitive('p.name')}`,
+                limit: 10,
+            }),
+            fetchProductsForHighlight('ci.featured = 1', [], {
+                orderBy: 'ci.created_at DESC',
+                limit: 10,
+            }),
+            fetchProductsForHighlight('', [], {
+                orderBy: 'p.created_at DESC',
+                limit: 10,
+            }),
+        ]);
+        res.json({ highlighted, hotCasual, newArrivals });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
 app.post('/api/products', authMiddleware, requireRole('cashier'), async (req, res) => {
     const {
         name,
@@ -2091,6 +2143,9 @@ app.post('/api/products', authMiddleware, requireRole('cashier'), async (req, re
         subcategory,
         availabilityStatus,
         vendorId,
+        highlightActive,
+        highlightLabel,
+        highlightPriority,
     } = req.body;
 
 
@@ -2120,6 +2175,11 @@ app.post('/api/products', authMiddleware, requireRole('cashier'), async (req, re
     const rawAvailabilityStatus = availabilityStatus ?? req.body?.availability_status;
     const normalizedAvailabilityStatus = normalizeEnum(rawAvailabilityStatus, AVAILABILITY_STATUSES, null) || (availableForPreorder ? 'preorder' : 'in_stock');
     const rawVendorId = vendorId ?? req.body?.vendor_id;
+    const normalizedHighlightActive = highlightActive === true || highlightActive === 1 ? 1 : 0;
+    const normalizedHighlightLabel =
+        typeof highlightLabel === 'string' && highlightLabel.trim() ? highlightLabel.trim().slice(0, 60) : null;
+    const highlightPriorityInt = parseInt(highlightPriority, 10);
+    const normalizedHighlightPriority = Number.isFinite(highlightPriorityInt) ? highlightPriorityInt : 0;
     let vendorIdInt = null;
     if (rawVendorId !== undefined && rawVendorId !== null && rawVendorId !== '') {
         const parsedVendorId = parseInt(rawVendorId, 10);
@@ -2186,9 +2246,10 @@ app.post('/api/products', authMiddleware, requireRole('cashier'), async (req, re
                 preorder_release_date, preorder_notes, short_description, type,
                 brand_id, category_id, subcategory_id, subsubcategory_id,
                 material_id, color_id, audience, delivery_type, warranty_term,
-                preorder_eta, year, auto_sku, availability_status, vendor_id
+                preorder_eta, year, auto_sku, availability_status, vendor_id,
+                highlight_active, highlight_label, highlight_priority
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ? )`,
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ? )`,
             [
                 name,
                 normalizedPrice,
@@ -2222,6 +2283,9 @@ app.post('/api/products', authMiddleware, requireRole('cashier'), async (req, re
                 normalizedAutoSku,
                 normalizedAvailabilityStatus,
                 vendorIdInt,
+                normalizedHighlightActive,
+                normalizedHighlightLabel,
+                normalizedHighlightPriority,
             ]
         );
 
@@ -2277,6 +2341,9 @@ app.post('/api/products', authMiddleware, requireRole('cashier'), async (req, re
             vendor_id: vendorIdInt,
             vendor_name: vendorNameForResponse,
             tags: tagRows,
+            highlight_active: normalizedHighlightActive,
+            highlight_label: normalizedHighlightLabel,
+            highlight_priority: normalizedHighlightPriority,
         });
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -2319,6 +2386,9 @@ app.put('/api/products/:id', authMiddleware, requireRole('cashier'), async (req,
         category,
         subcategory,
         availabilityStatus,
+        highlightActive,
+        highlightLabel,
+        highlightPriority,
     } = req.body;
 
     try {
@@ -2370,6 +2440,23 @@ app.put('/api/products/:id', authMiddleware, requireRole('cashier'), async (req,
                 }
                 vendorIdInt = vendorRow.id;
             }
+        }
+
+        let normalizedHighlightActive = existing.highlight_active ?? 0;
+        if (highlightActive !== undefined) {
+            normalizedHighlightActive = highlightActive === true || highlightActive === 1 ? 1 : 0;
+        }
+        let normalizedHighlightLabel = existing.highlight_label || null;
+        if (highlightLabel !== undefined) {
+            normalizedHighlightLabel =
+                highlightLabel && highlightLabel.toString().trim()
+                    ? highlightLabel.toString().trim().slice(0, 60)
+                    : null;
+        }
+        let normalizedHighlightPriority = existing.highlight_priority ?? 0;
+        if (highlightPriority !== undefined) {
+            const parsedPriority = parseInt(highlightPriority, 10);
+            normalizedHighlightPriority = Number.isFinite(parsedPriority) ? parsedPriority : 0;
         }
 
         let resolvedCategoryId = categoryId !== undefined ? (categoryId ? parseInt(categoryId, 10) : null) : (existing.category_id ?? null);
@@ -2457,7 +2544,10 @@ app.put('/api/products/:id', authMiddleware, requireRole('cashier'), async (req,
                 year = ?,
                 auto_sku = ?,
                 availability_status = ?,
-                vendor_id = ?
+                vendor_id = ?,
+                highlight_active = ?,
+                highlight_label = ?,
+                highlight_priority = ?
              WHERE id = ?`,
             [
                 updatedName,
@@ -2492,6 +2582,9 @@ app.put('/api/products/:id', authMiddleware, requireRole('cashier'), async (req,
                 autoFlag,
                 normalizedAvailabilityStatus,
                 vendorIdInt,
+                normalizedHighlightActive,
+                normalizedHighlightLabel,
+                normalizedHighlightPriority,
                 id,
             ]
         );
@@ -2560,6 +2653,9 @@ app.put('/api/products/:id', authMiddleware, requireRole('cashier'), async (req,
             vendor_id: vendorIdInt,
             vendor_name: vendorNameForResponse,
             tags: tagRows,
+            highlight_active: normalizedHighlightActive,
+            highlight_label: normalizedHighlightLabel,
+            highlight_priority: normalizedHighlightPriority,
         });
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -3804,6 +3900,13 @@ app.put('/api/casual-items/:id/approve', authMiddleware, requireRole(['manager',
             [item.title || `Item ${id}`, item.asking_price || 0, 1, 'Casual', `Listed by ${item.seller_name || 'One-time seller'} (casual_item_id:${id})\n\n${item.description || ''}`, 0, null]
         );
         const productId = prodRes.lastID;
+
+        if (item.featured) {
+            await db.run(
+                'UPDATE products SET highlight_active = 1, highlight_label = ?, highlight_priority = ? WHERE id = ?',
+                ['Seller hot drop', 80, productId]
+            );
+        }
 
         // Link product to casual_items and mark approved
         await db.run('UPDATE casual_items SET status = ?, product_id = ? WHERE id = ?', ['approved', productId, id]);
@@ -9017,4 +9120,3 @@ app.put('/api/categories/:id', authMiddleware, requireRole('manager'), async (re
         res.status(500).json({ error: err.message });
     }
 });
-
