@@ -10,7 +10,7 @@ export function isUserListing(product) {
 
 export function getSellerContact(product) {
   if (!product) {
-    return { name: null, phone: null, email: null };
+    return { name: null, phone: null };
   }
   const name =
     product.seller_contact_name ||
@@ -20,13 +20,11 @@ export function getSellerContact(product) {
     product.casual_seller_name ||
     null;
   const phone = product.seller_contact_phone || product.seller_phone || product.phone || null;
-  const email = product.seller_contact_email || product.seller_email || product.email || null;
-  return { name, phone, email };
+  return { name, phone };
 }
 
-export function buildContactLink({ phone, email }) {
+export function buildContactLink({ phone }) {
   if (phone) return `tel:${phone.replace(/[^0-9+]/g, '')}`;
-  if (email) return `mailto:${email}`;
   return null;
 }
 

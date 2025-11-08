@@ -1,5 +1,5 @@
 import React from 'react';
-import { FaPhone, FaEnvelope } from 'react-icons/fa';
+import { FaPhone } from 'react-icons/fa';
 import Modal from './Modal';
 import ImageCarousel from './ImageCarousel';
 import { resolveMediaUrl } from '../lib/media';
@@ -25,7 +25,7 @@ export default function ProductPreviewModal({ open, product, onClose, onAdd, for
   const userListing = isUserListing(product);
   const sellerContact = getSellerContact(product);
   const contactLink = buildContactLink(sellerContact);
-  const contactHasInfo = Boolean(sellerContact.phone || sellerContact.email);
+  const contactHasInfo = Boolean(sellerContact.phone);
   const buyerNotice = buyerNoticeText();
   const formatPrice =
     typeof formatCurrency === 'function'
@@ -83,12 +83,6 @@ export default function ProductPreviewModal({ open, product, onClose, onAdd, for
                   <a href={`tel:${sellerContact.phone.replace(/[^0-9+]/g, '')}`} className="inline-flex items-center gap-2 text-amber-700 hover:text-amber-800">
                     <FaPhone className="text-[13px]" />
                     <span>{sellerContact.phone}</span>
-                  </a>
-                )}
-                {sellerContact.email && (
-                  <a href={`mailto:${sellerContact.email}`} className="inline-flex items-center gap-2 text-amber-700 hover:text-amber-800">
-                    <FaEnvelope className="text-[13px]" />
-                    <span>{sellerContact.email}</span>
                   </a>
                 )}
                 {!contactHasInfo && <p className="text-xs text-slate-500">Seller will provide contact details after we notify them.</p>}
