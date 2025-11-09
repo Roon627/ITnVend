@@ -5,6 +5,7 @@ import api from '../lib/api';
 import { useToast } from '../components/ToastContext';
 import { useSettings } from '../components/SettingsContext';
 import InvoiceEditModal from '../components/InvoiceEditModal';
+import Modal from '../components/Modal';
 import { useAuth } from '../components/AuthContext';
 
 const STATUS_OPTIONS = {
@@ -1131,11 +1132,11 @@ export default function Invoices() {
         )}
 
         {showBuilder && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm px-4">
-            <div className="relative w-full max-w-2xl sm:max-h-[90vh] overflow-auto rounded-xl border border-border bg-surface p-6 text-foreground shadow-md sm:shadow-lg shadow-[0_2px_20px_rgba(0,0,0,0.05)] transition-all duration-200">
+          <Modal open={showBuilder} onClose={() => setShowBuilder(false)} labelledBy="builder-title">
+            <div className="relative w-full max-w-5xl max-h-[95vh] sm:max-h-[90vh] overflow-auto rounded-xl border border-border bg-surface p-4 sm:p-6 text-foreground shadow-md sm:shadow-lg shadow-[0_2px_20px_rgba(0,0,0,0.05)] transition-all duration-200">
               <div className="flex items-start justify-between gap-4">
                 <div className="space-y-2">
-                  <h2 className="text-xl font-semibold">{builderType === 'invoice' ? 'Create Invoice' : 'Create Quote'}</h2>
+                  <h2 id="builder-title" className="text-2xl sm:text-xl lg:text-2xl font-semibold">{builderType === 'invoice' ? 'Create Invoice' : 'Create Quote'}</h2>
                   <p className="text-sm text-muted-foreground">
                     Steps: search products and click to add them, then pick a customer on the right, then review totals and save. Use the cart to remove items before publishing.
                   </p>
@@ -1150,7 +1151,7 @@ export default function Invoices() {
                 </button>
               </div>
 
-              <div className="mt-6 grid grid-cols-1 gap-6 md:grid-cols-2">
+              <div className="mt-6 grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-2">
                 <div className="space-y-4">
                   <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
                     <input
@@ -1162,21 +1163,21 @@ export default function Invoices() {
                     />
                     <div className="text-sm text-muted-foreground">{builderProducts.length} products</div>
                   </div>
-                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
                     {builderFilteredProducts.map((product) => (
                       <button
                         key={product.id}
                         onClick={() => addBuilderItem(product)}
                         type="button"
-                        className={`rounded-md border border-border bg-background p-4 text-left transition hover:bg-muted/20 ${
+                        className={`rounded-md border border-border bg-background p-3 text-left transition hover:bg-muted/20 ${
                           product.stock > 0 || builderType === 'quote' ? '' : 'cursor-not-allowed'
                         }`}
                         disabled={product.stock <= 0 && builderType === 'invoice'}
                       >
-                        <div className="font-semibold">{product.name}</div>
-                        <div className="mb-2 text-sm text-muted-foreground">{product.category} &gt; {product.subcategory}</div>
+                        <div className="font-semibold truncate">{product.name}</div>
+                        <div className="mb-2 text-xs text-muted-foreground truncate">{product.category} &gt; {product.subcategory}</div>
                         <div className="flex justify-between text-sm">
-                          <span>{formatCurrency(product.price)}</span>
+                          <span className="font-semibold">{formatCurrency(product.price)}</span>
                           <span className={product.stock > 5 ? 'text-success' : 'text-red-500'}>
                             {product.stock} in stock
                           </span>
@@ -1239,7 +1240,7 @@ export default function Invoices() {
                 </div>
               </div>
             </div>
-          </div>
+          </Modal>
         )}
 
         {editingInvoiceId && (

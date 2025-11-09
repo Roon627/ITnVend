@@ -1,6 +1,8 @@
 import dotenv from 'dotenv';
-import sqlite3 from 'sqlite3';
-import { open } from 'sqlite';
+// sqlite support intentionally disabled for Postgres-only deployments.
+// If you need to re-enable SQLite, uncomment the imports below.
+// import sqlite3 from 'sqlite3';
+// import { open } from 'sqlite';
 import { Pool } from 'pg';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -322,18 +324,11 @@ export async function setupDatabase() {
         return cachedDb;
     }
 
-    const usePostgres = Boolean(DATABASE_URL);
-    let db;
-
-    if (usePostgres) {
-        db = createPostgresAdapter(DATABASE_URL);
-    } else {
-        const sqliteDb = await open({
-            filename: DATABASE_PATH,
-            driver: sqlite3.Database
-        });
-        db = decorateSqliteDb(sqliteDb);
+    // Enforce Postgres-only mode. Ensure DATABASE_URL is set in your environment.
+    if (!DATABASE_URL) {
+        throw new Error('DATABASE_URL is not set. This deployment is configured for Postgres only. Set DATABASE_URL in POS/Backend/.env');
     }
+    const db = createPostgresAdapter(DATABASE_URL);
 
     // Ensure foreign keys are enforced (SQLite requires pragma)
     if (db.dialect === DIALECTS.SQLITE) {
@@ -380,6 +375,9 @@ export async function setupDatabase() {
 
         // add customer_type column non-destructively
         await ensureColumn(db, 'customers', 'customer_type', "TEXT DEFAULT 'regular'");
+    // allow storing uploaded logo URL and attachments metadata for business customers
+    await ensureColumn(db, 'customers', 'logo_url', 'TEXT');
+    await ensureColumn(db, 'customers', 'attachments', 'TEXT');
         await ensureColumn(db, 'products', 'availability_status', "TEXT DEFAULT 'in_stock'");
         try {
             await db.run("UPDATE products SET availability_status = 'preorder' WHERE preorder_enabled = 1 AND (availability_status IS NULL OR availability_status = '' OR availability_status = 'in_stock')");

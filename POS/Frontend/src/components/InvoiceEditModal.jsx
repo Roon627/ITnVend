@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import api from '../lib/api';
 import { useToast } from './ToastContext';
 import { useSettings } from './SettingsContext';
+import Modal from './Modal';
 
 export default function InvoiceEditModal({ invoiceId, onClose, onSaved }) {
   const [loading, setLoading] = useState(true);
@@ -101,14 +102,12 @@ export default function InvoiceEditModal({ invoiceId, onClose, onSaved }) {
     }
   };
 
-  if (!invoiceId) return null;
-
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+    <Modal open={Boolean(invoiceId)} onClose={onClose} labelledBy={`invoice-edit-title`}> 
       <div className="bg-white w-full max-w-3xl rounded shadow-lg max-h-[90vh] overflow-auto">
         <div className="flex items-center justify-between p-4 border-b">
           <div>
-            <h3 className="text-lg font-semibold">Edit Invoice #{invoiceId}</h3>
+            <h3 id={`invoice-edit-title`} className="text-lg font-semibold">Edit Invoice #{invoiceId}</h3>
             <div className="text-sm text-gray-500">Customer: {invoice?.customer_name || '—'}</div>
           </div>
           <div className="flex items-center gap-2">
@@ -201,6 +200,6 @@ export default function InvoiceEditModal({ invoiceId, onClose, onSaved }) {
           )}
         </div>
       </div>
-    </div>
+    </Modal>
   );
 }

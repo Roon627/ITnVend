@@ -4,6 +4,7 @@ import { useAuth } from '../components/AuthContext';
 import { useSettings } from '../components/SettingsContext';
 import { FaBuilding, FaUsers, FaInbox, FaUserTie } from 'react-icons/fa';
 import api from '../lib/api';
+import Modal from '../components/Modal';
 import { useToast } from '../components/ToastContext';
 import StatCard from '../components/StatCard';
 import TableToolbar from '../components/TableToolbar';
@@ -45,21 +46,80 @@ function ActionCard({ title, desc, to, requiredRole }) {
 }
 
 function CustomerModal({ open, form, onClose, onChange, onSave, saving, mode = 'create' }) {
-  // mode: 'create' | 'view' | 'edit'
+  // Use the shared portal Modal to avoid stacking-context issues and ensure the overlay covers the whole viewport
   const readOnly = mode === 'view';
-  if (!open) return null;
   const title = mode === 'create' ? 'New customer' : mode === 'view' ? 'Customer details' : 'Edit customer';
   const subtitle = mode === 'create'
     ? 'Create a customer record for invoices and quotes'
     : mode === 'view'
       ? 'Read-only details pulled from the server' : 'Update customer details';
 
+  // uploads: local preview state, sync to parent form via onChange when changed
+  const [logoName, setLogoName] = useState(null);
+  const [docNames, setDocNames] = useState([]);
+
+  useEffect(() => {
+    // initialize previews from form values if present
+    if (form && form.logo_data) setLogoName((form.logo_name) || 'logo');
+    else if (form && form.logo_url) {
+      // derive a friendly name from the URL
+      try {
+        const parts = (form.logo_url || '').split('/');
+        setLogoName(parts[parts.length - 1] || 'logo');
+      } catch (e) { setLogoName('logo'); }
+    }
+    if (form && form.documents) {
+      try {
+        // form.documents may be an array or JSON string
+        const docs = Array.isArray(form.documents) ? form.documents : JSON.parse(form.documents || '[]');
+        setDocNames(docs.map(d => d.name || d));
+      } catch (err) {
+        setDocNames([]);
+      }
+    }
+  }, [form]);
+
+  const handleLogo = (e) => {
+    const f = e.target.files && e.target.files[0];
+    if (!f) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const data = reader.result;
+      setLogoName(f.name);
+      onChange('logo_data', data);
+      onChange('logo_name', f.name);
+    };
+    reader.readAsDataURL(f);
+  };
+
+  const handleDocs = (e) => {
+    const list = Array.from(e.target.files || []);
+    if (list.length === 0) return;
+    const results = [];
+    let remaining = list.length;
+    for (const f of list) {
+      const reader = new FileReader();
+      reader.onload = () => {
+        results.push({ name: f.name, data: reader.result });
+        remaining -= 1;
+        if (remaining === 0) {
+          // preserve any existing documents uploaded earlier
+          const prev = Array.isArray(form.documents) ? form.documents : (form.documents ? JSON.parse(form.documents || '[]') : []);
+          const merged = [...(prev || []), ...results];
+          onChange('documents', merged);
+          setDocNames(merged.map(d => d.name || d));
+        }
+      };
+      reader.readAsDataURL(f);
+    }
+  };
+
   return (
-    <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center px-4">
-      <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] overflow-auto transition-transform transform-gpu">
+    <Modal open={open} onClose={onClose} labelledBy="customer-modal-title">
+      <div className="bg-white rounded-lg shadow-xl w-full max-w-3xl sm:max-w-4xl max-h-[95vh] sm:max-h-[90vh] overflow-auto">
         <header className="flex items-center justify-between px-6 py-4 border-b">
           <div>
-            <h2 className="text-lg font-semibold text-gray-800">{title}</h2>
+            <h2 id="customer-modal-title" className="text-lg font-semibold text-gray-800">{title}</h2>
             <p className="text-sm text-gray-500">{subtitle}</p>
           </div>
           <button onClick={onClose} className="p-2 rounded hover:bg-gray-100">✕</button>
@@ -99,6 +159,24 @@ function CustomerModal({ open, form, onClose, onChange, onSave, saving, mode = '
             <input type="checkbox" name="is_business" checked={Boolean(form.is_business)} onChange={(e) => onChange('is_business', e.target.checked)} className="h-4 w-4 text-blue-600" disabled={readOnly} />
             Treat as business account (enables company-level reporting)
           </label>
+
+          {Boolean(form.is_business) && (
+            <div className="md:col-span-2">
+              <p className="text-sm font-semibold text-gray-600">Business uploads</p>
+              <div className="mt-3 grid gap-4 md:grid-cols-2">
+                <label className="flex flex-col items-center justify-center rounded-2xl border-2 border-dashed border-blue-200 bg-blue-50/10 px-4 py-6 text-center text-sm text-gray-600 cursor-pointer">
+                  Company logo (optional)
+                  <input type="file" accept="image/*" onChange={handleLogo} className="hidden" disabled={readOnly} />
+                  <div className="mt-2 text-xs text-muted-foreground">{logoName || 'No logo selected'}</div>
+                </label>
+                <label className="flex flex-col items-center justify-center rounded-2xl border-2 border-dashed border-indigo-200 bg-indigo-50/10 px-4 py-6 text-center text-sm text-gray-600 cursor-pointer">
+                  Supporting documents
+                  <input type="file" multiple onChange={handleDocs} className="hidden" disabled={readOnly} />
+                  <div className="mt-2 text-xs text-muted-foreground">{docNames.length ? docNames.join(', ') : 'No documents'}</div>
+                </label>
+              </div>
+            </div>
+          )}
           <div className="md:col-span-2 flex justify-end">
             <button type="button" onClick={onClose} className="inline-flex items-center gap-2 px-4 py-2 border rounded-md">{readOnly ? 'Close' : 'Cancel'}</button>
             {!readOnly && (
@@ -109,7 +187,7 @@ function CustomerModal({ open, form, onClose, onChange, onSave, saving, mode = '
           </div>
         </form>
       </div>
-    </div>
+    </Modal>
   );
 }
 

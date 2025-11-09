@@ -933,11 +933,7 @@ function enforcePreorderRateLimit(req, res, next) {
     next();
 }
 
-// Simple in-memory users & sessions for demo purposes
-const users = [
-    { username: 'admin', password: 'admin', role: 'admin' },
-    { username: 'cashier', password: 'cashier', role: 'cashier' }
-];
+// Sessions map (token -> user). Demo in-memory users removed for production safety.
 const sessions = new Map(); // token -> user
 
 function authMiddleware(req, res, next) {
@@ -1617,7 +1613,16 @@ app.post('/api/login', async (req, res) => {
             if (!ok) return res.status(401).json({ error: 'Invalid credentials' });
             // fetch roles
             const roles = await db.all('SELECT r.name FROM roles r JOIN staff_roles sr ON sr.role_id = r.id WHERE sr.staff_id = ?', [staff.id]);
-            const roleName = (roles && roles[0] && roles[0].name) ? roles[0].name : 'staff';
+            // pick the highest-privilege role when a user has multiple roles (so admin isn't shadowed by order)
+            const rankMap = { cashier: 1, accounts: 2, manager: 3, admin: 4 };
+            let roleName = 'staff';
+            if (roles && roles.length) {
+                // roles may be returned in arbitrary order; choose the role with the highest rank
+                roleName = roles.map(r => r.name).reduce((best, cur) => {
+                    if (!best) return cur;
+                    return (rankMap[cur] || 0) > (rankMap[best] || 0) ? cur : best;
+                }, null) || (roles[0] && roles[0].name) || 'staff';
+            }
             // create JWT token (long lived)
             const token = jwt.sign({ username: staff.username, role: roleName, staffId: staff.id }, JWT_SECRET, { expiresIn: '30d' });
             // create a refresh token and persist its hash
@@ -1633,13 +1638,8 @@ app.post('/api/login', async (req, res) => {
             return res.json({ token, role: roleName, username: staff.username, refreshToken });
         }
 
-        // fallback to demo in-memory users for compatibility
-        const user = users.find((u) => u.username === username && u.password === password);
-        if (!user) return res.status(401).json({ error: 'Invalid credentials' });
-    // create JWT for demo users as well (no refresh token persisted)
-    const demoToken = jwt.sign({ username: user.username, role: user.role }, JWT_SECRET, { expiresIn: '30d' });
-    sessions.set(demoToken, { username: user.username, role: user.role });
-    res.json({ token: demoToken, role: user.role, username: user.username, refreshToken: null });
+        // If no staff user found, fail authentication (no demo fallback)
+        if (!staff) return res.status(401).json({ error: 'Invalid credentials' });
 
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -4242,7 +4242,7 @@ app.post('/api/sellers/submit-item', casualSubmissionLimiter, async (req, res) =
 // Customer update
 app.put('/api/customers/:id', async (req, res) => {
     const { id } = req.params;
-    const { name, email, phone, address, gst_number, registration_number, is_business } = req.body;
+    const { name, email, phone, address, gst_number, registration_number, is_business, logo_data, documents } = req.body;
     try {
         await db.run(
             'UPDATE customers SET name = ?, email = ?, phone = ?, address = ?, gst_number = ?, registration_number = ?, is_business = COALESCE(?, is_business) WHERE id = ?',
@@ -4250,6 +4250,61 @@ app.put('/api/customers/:id', async (req, res) => {
         );
         const customer = await db.get('SELECT * FROM customers WHERE id = ?', [id]);
 
+        // handle optional uploads for updates (logo_data and documents)
+        try {
+            const attachmentsMeta = [];
+            if (logo_data && typeof logo_data === 'string' && logo_data.startsWith('data:')) {
+                const match = logo_data.match(/^data:(image\/[^;]+);base64,(.*)$/);
+                if (match) {
+                    const mime = match[1];
+                    const ext = mime.split('/')[1] || 'png';
+                    const b64 = match[2];
+                    const logosDir = path.join(uploadsRoot, 'customers', 'logos');
+                    fs.mkdirSync(logosDir, { recursive: true });
+                    const nameOnDisk = `customer-${id}-logo-${Date.now()}.${ext}`;
+                    const outPath = path.join(logosDir, nameOnDisk);
+                    fs.writeFileSync(outPath, Buffer.from(b64, 'base64'));
+                    const publicPath = `/uploads/customers/logos/${nameOnDisk}`;
+                    await db.run('UPDATE customers SET logo_url = COALESCE(?, logo_url) WHERE id = ?', [publicPath, id]);
+                }
+            }
+            if (Array.isArray(documents) && documents.length > 0) {
+                const docsDir = path.join(uploadsRoot, 'customers', String(id), 'docs');
+                fs.mkdirSync(docsDir, { recursive: true });
+                for (let i = 0; i < documents.length; i++) {
+                    const d = documents[i];
+                    if (!d || !d.data) continue;
+                    let b64 = null;
+                    let filename = d.name || `doc-${i}`;
+                    if (typeof d.data === 'string') {
+                        const m = d.data.match(/^data:([^;]+);base64,(.*)$/);
+                        if (m) {
+                            b64 = m[2];
+                            const ext = (m[1].split('/')[1] || '').split('+')[0];
+                            if (!filename.includes('.')) filename = `${filename}.${ext || 'bin'}`;
+                        } else {
+                            b64 = d.data;
+                        }
+                    }
+                    if (!b64) continue;
+                    const buf = Buffer.from(b64, 'base64');
+                    const safeName = filename.replace(/[^a-z0-9\-_.]/gi, '_');
+                    const outName = `${Date.now()}_${i}_${safeName}`;
+                    const outPath = path.join(docsDir, outName);
+                    fs.writeFileSync(outPath, buf);
+                    const publicPath = `/uploads/customers/${id}/docs/${outName}`;
+                    attachmentsMeta.push({ name: filename, path: publicPath });
+                }
+                if (attachmentsMeta.length > 0) {
+                    // merge with existing attachments if any
+                    const existing = customer.attachments ? (typeof customer.attachments === 'string' ? JSON.parse(customer.attachments || '[]') : customer.attachments) : [];
+                    const merged = [...existing, ...attachmentsMeta];
+                    await db.run('UPDATE customers SET attachments = ? WHERE id = ?', [JSON.stringify(merged), id]);
+                }
+            }
+        } catch (uploadErr) {
+            console.warn('Customer update file handling failed', uploadErr?.message || uploadErr);
+        }
         // Invalidate customer cache
         await cacheService.invalidateCustomers();
 
@@ -4419,7 +4474,7 @@ app.get('/api/customers/summary', async (req, res) => {
 });
 
 app.post('/api/customers', async (req, res) => {
-    const { name, email, phone, address, gst_number, registration_number, is_business } = req.body;
+    const { name, email, phone, address, gst_number, registration_number, is_business, logo_data, documents } = req.body;
     if (!name) return res.status(400).json({ error: 'Missing name' });
     try {
         const result = await db.run(
@@ -4428,10 +4483,70 @@ app.post('/api/customers', async (req, res) => {
         );
         const customer = await db.get('SELECT * FROM customers WHERE id = ?', [result.lastID]);
 
+        // handle optional logo (base64 data URL) and supporting documents for business customers
+        try {
+            const attachmentsMeta = [];
+            if (logo_data && typeof logo_data === 'string' && logo_data.startsWith('data:')) {
+                // parse base64 data URL
+                const match = logo_data.match(/^data:(image\/[^;]+);base64,(.*)$/);
+                if (match) {
+                    const mime = match[1];
+                    const ext = mime.split('/')[1] || 'png';
+                    const b64 = match[2];
+                    const buf = Buffer.from(b64, 'base64');
+                    const logosDir = path.join(uploadsRoot, 'customers', 'logos');
+                    fs.mkdirSync(logosDir, { recursive: true });
+                    const nameOnDisk = `customer-${customer.id}-logo-${Date.now()}.${ext}`;
+                    const outPath = path.join(logosDir, nameOnDisk);
+                    fs.writeFileSync(outPath, buf);
+                    const publicPath = `/uploads/customers/logos/${nameOnDisk}`;
+                    await db.run('UPDATE customers SET logo_url = COALESCE(?, logo_url) WHERE id = ?', [publicPath, customer.id]);
+                }
+            }
+
+            if (Array.isArray(documents) && documents.length > 0) {
+                const docsDir = path.join(uploadsRoot, 'customers', String(customer.id), 'docs');
+                fs.mkdirSync(docsDir, { recursive: true });
+                for (let i = 0; i < documents.length; i++) {
+                    const d = documents[i];
+                    if (!d || !d.data) continue;
+                    // try to support either base64 data URL or raw base64
+                    let b64 = null;
+                    let filename = d.name || `doc-${i}`;
+                    if (typeof d.data === 'string') {
+                        const m = d.data.match(/^data:([^;]+);base64,(.*)$/);
+                        if (m) {
+                            b64 = m[2];
+                            const ext = (m[1].split('/')[1] || '').split('+')[0];
+                            if (!filename.includes('.')) filename = `${filename}.${ext || 'bin'}`;
+                        } else {
+                            // assume raw base64
+                            b64 = d.data;
+                        }
+                    }
+                    if (!b64) continue;
+                    const buf = Buffer.from(b64, 'base64');
+                    const safeName = filename.replace(/[^a-z0-9\-_.]/gi, '_');
+                    const outName = `${Date.now()}_${i}_${safeName}`;
+                    const outPath = path.join(docsDir, outName);
+                    fs.writeFileSync(outPath, buf);
+                    const publicPath = `/uploads/customers/${customer.id}/docs/${outName}`;
+                    attachmentsMeta.push({ name: filename, path: publicPath });
+                }
+                if (attachmentsMeta.length > 0) {
+                    await db.run('UPDATE customers SET attachments = COALESCE(?, attachments) WHERE id = ?', [JSON.stringify(attachmentsMeta), customer.id]);
+                }
+            }
+        } catch (uploadErr) {
+            console.warn('Customer file upload handling failed', uploadErr?.message || uploadErr);
+        }
+
         // Invalidate customer cache
         await cacheService.invalidateCustomers();
 
-        res.status(201).json(customer);
+        // re-fetch customer to include any logo_url/attachments written above
+        const fresh = await db.get('SELECT * FROM customers WHERE id = ?', [customer.id]);
+        res.status(201).json(fresh);
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
@@ -6917,7 +7032,7 @@ app.get('/api/accounts/reports/balance-sheet', authMiddleware, requireRole(['acc
             LEFT JOIN general_ledger gl ON coa.id = gl.account_id ${dateCondition}
             WHERE coa.account_type = 'asset'
             GROUP BY coa.id, coa.account_code, coa.account_name, coa.category
-            HAVING balance != 0
+            HAVING (COALESCE(SUM(gl.debit), 0) - COALESCE(SUM(gl.credit), 0)) != 0
             ORDER BY coa.account_code
         `, params);
         
@@ -6930,7 +7045,7 @@ app.get('/api/accounts/reports/balance-sheet', authMiddleware, requireRole(['acc
             LEFT JOIN general_ledger gl ON coa.id = gl.account_id ${dateCondition}
             WHERE coa.account_type = 'liability'
             GROUP BY coa.id, coa.account_code, coa.account_name, coa.category
-            HAVING balance != 0
+            HAVING (COALESCE(SUM(gl.credit), 0) - COALESCE(SUM(gl.debit), 0)) != 0
             ORDER BY coa.account_code
         `, params);
         
@@ -6943,7 +7058,7 @@ app.get('/api/accounts/reports/balance-sheet', authMiddleware, requireRole(['acc
             LEFT JOIN general_ledger gl ON coa.id = gl.account_id ${dateCondition}
             WHERE coa.account_type = 'equity'
             GROUP BY coa.id, coa.account_code, coa.account_name, coa.category
-            HAVING balance != 0
+            HAVING (COALESCE(SUM(gl.credit), 0) - COALESCE(SUM(gl.debit), 0)) != 0
             ORDER BY coa.account_code
         `, params);
         
@@ -6983,7 +7098,7 @@ app.get('/api/accounts/reports/profit-loss', authMiddleware, requireRole(['accou
             LEFT JOIN general_ledger gl ON coa.id = gl.account_id ${dateCondition}
             WHERE coa.account_type = 'revenue'
             GROUP BY coa.id, coa.account_code, coa.account_name, coa.category
-            HAVING amount != 0
+            HAVING (COALESCE(SUM(gl.credit), 0) - COALESCE(SUM(gl.debit), 0)) != 0
             ORDER BY coa.account_code
         `, params);
         
@@ -6996,7 +7111,7 @@ app.get('/api/accounts/reports/profit-loss', authMiddleware, requireRole(['accou
             LEFT JOIN general_ledger gl ON coa.id = gl.account_id ${dateCondition}
             WHERE coa.account_type = 'expense'
             GROUP BY coa.id, coa.account_code, coa.account_name, coa.category
-            HAVING amount != 0
+            HAVING (COALESCE(SUM(gl.debit), 0) - COALESCE(SUM(gl.credit), 0)) != 0
             ORDER BY coa.account_code
         `, params);
         
@@ -7409,7 +7524,8 @@ app.get('/api/purchases', authMiddleware, requireRole(['manager', 'accounts']), 
             query += ` AND p.reversed = 0`;
         }
 
-        query += ` GROUP BY p.id ORDER BY p.created_at DESC LIMIT ?`;
+    // include supplier name in GROUP BY for Postgres (non-aggregated column)
+    query += ` GROUP BY p.id, s.name ORDER BY p.created_at DESC LIMIT ?`;
         params.push(parseInt(limit));
 
         const purchases = await db.all(query, params);
