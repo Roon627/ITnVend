@@ -456,6 +456,17 @@ function ProductInsight({ product, formatCurrency, onTagClick }) {
             </div>
           )}
 
+          {product.highlight_active && (
+            <div className="mt-4">
+              <h4 className="text-sm font-semibold text-slate-700 mb-1">Featured on storefront</h4>
+              <div className="flex items-center gap-3 text-sm">
+                <span className="inline-flex items-center rounded-md bg-rose-100 text-rose-700 px-2 py-1 text-sm font-semibold">{product.highlight_label || 'Featured'}</span>
+                {product.highlight_priority ? <span className="text-xs text-slate-500">Priority #{product.highlight_priority}</span> : null}
+              </div>
+              <p className="mt-2 text-xs text-slate-500">Products marked "Feature on storefront hero" appear in the public storefront highlights carousel.</p>
+            </div>
+          )}
+
           {tagList.length > 0 && (
             <div className="mt-4 flex flex-wrap gap-2">
               {tagList.map((t, i) => {
@@ -1964,6 +1975,7 @@ export default function Products() {
                         <th className="px-4 py-3 text-left font-medium">Price</th>
                         <th className="px-4 py-3 text-left font-medium">Stock</th>
                         <th className="px-4 py-3 text-left font-medium">Category</th>
+                        <th className="px-4 py-3 text-left font-medium">Featured</th>
                         <th className="px-4 py-3 text-right font-medium">Actions</th>
                       </tr>
                     </thead>
@@ -1977,6 +1989,18 @@ export default function Products() {
                           <td className="px-4 py-3 text-slate-700">{formatCurrency(product.price || 0)}</td>
                           <td className="px-4 py-3 text-slate-700">{product.track_inventory === 0 ? '--' : product.stock ?? 0}</td>
                           <td className="px-4 py-3 text-slate-700">{product.category || '--'}{product.subcategory ? ` / ${product.subcategory}` : ''}</td>
+                          <td className="px-4 py-3 text-slate-700">
+                            {product.highlight_active ? (
+                              <div className="inline-flex items-center gap-2">
+                                <span className="inline-flex items-center rounded-md bg-rose-100 text-rose-700 px-2 py-0.5 text-xs font-semibold">
+                                  {product.highlight_label || 'Featured'}
+                                </span>
+                                {product.highlight_priority ? <span className="text-xs text-slate-500">#{product.highlight_priority}</span> : null}
+                              </div>
+                            ) : (
+                              <div className="text-xs text-slate-400">—</div>
+                            )}
+                          </td>
                           <td className="px-4 py-3">
                             <div className="flex justify-end gap-2">
                               <button type="button" onClick={(e) => { e.stopPropagation(); handleBeginEdit(product); }} className="inline-flex items-center gap-1 rounded-md border px-3 py-1.5 text-xs"> <FaEdit /> Edit</button>

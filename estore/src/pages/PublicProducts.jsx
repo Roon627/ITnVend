@@ -29,7 +29,7 @@ export default function PublicProducts() {
   const [loading, setLoading] = useState(false);
   const [highlights, setHighlights] = useState(null);
   const { addToCart, cartCount } = useCart();
-  const { formatCurrency } = useSettings();
+  const { formatCurrency, settings } = useSettings();
 
   useEffect(() => {
     const next = filtersFromParams(searchParams);
@@ -139,6 +139,18 @@ export default function PublicProducts() {
       },
     ].filter((section) => section.items && section.items.length > 0);
   }, [highlights]);
+  
+  // Respect the admin setting that controls which storefront highlight sources
+  // populate the public header/hero area. Default to both.
+  const headerSource = settings?.storefront_header_source || 'both';
+
+  const filteredHighlightSections = useMemo(() => {
+    if (!highlightSections) return [];
+    if (headerSource === 'featured') {
+      return highlightSections.filter((s) => s.key !== 'hotCasual');
+    }
+    return highlightSections;
+  }, [highlightSections, headerSource]);
 
   const handleFilterChange = (event) => {
     const { name, value } = event.target;
@@ -195,6 +207,7 @@ export default function PublicProducts() {
               >
                 Back to overview
               </Link>
+              {/* Manage highlights removed from public site — highlights are managed from POS admin */}
             </div>
             {Object.keys(categories).length > 0 && (
               <div className="mt-6 flex flex-wrap gap-3">
@@ -228,15 +241,16 @@ export default function PublicProducts() {
 
       <main className="relative -mt-16 pb-16">
         <div className="container mx-auto px-6">
-          {highlightSections.length > 0 && (
+          {filteredHighlightSections.length > 0 && (
             <div className="mb-8">
               <HighlightsCarousel
-                sections={highlightSections}
+                sections={filteredHighlightSections}
                 formatCurrency={formatCurrency}
                 onAdd={(product) => addToCart(product)}
               />
             </div>
           )}
+          
           <div className="rounded-3xl border border-rose-200 bg-white/95 p-6 shadow-rose-100 backdrop-blur">
             <div className="flex flex-col gap-6 lg:flex-row lg:items-start">
               <aside className="w-full space-y-6 lg:max-w-xs">

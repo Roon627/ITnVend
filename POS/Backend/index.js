@@ -4976,10 +4976,11 @@ app.put('/api/settings', authMiddleware, requireRole(['admin', 'manager']), asyn
             email_template_invoice, email_template_quote, email_template_quote_request, email_template_new_order_staff,
             email_template_password_reset_subject, email_template_password_reset,
             social_facebook, social_instagram, social_whatsapp, social_telegram,
-            support_email, support_phone, support_hours } = req.body;
+            support_email, support_phone, support_hours,
+            storefront_header_source } = req.body;
 
     // Define fields managers are allowed to update
-    const managerAllowed = ['currency', 'gst_rate', 'store_address', 'invoice_template', 'current_outlet_id', 'outlet_name', 'payment_instructions', 'footer_note'];
+    const managerAllowed = ['currency', 'gst_rate', 'store_address', 'invoice_template', 'current_outlet_id', 'outlet_name', 'payment_instructions', 'footer_note', 'storefront_header_source'];
 
         // If caller is manager, ensure they only change allowed fields
         if (req.user && req.user.role === 'manager') {
@@ -4995,12 +4996,13 @@ app.put('/api/settings', authMiddleware, requireRole(['admin', 'manager']), asyn
             await ensureColumn(db, 'settings', 'support_email', 'TEXT');
             await ensureColumn(db, 'settings', 'support_phone', 'TEXT');
             await ensureColumn(db, 'settings', 'support_hours', 'TEXT');
+            // ensure our storefront header source column exists
+            await ensureColumn(db, 'settings', 'storefront_header_source', "TEXT DEFAULT 'both'");
         } catch (err) {
             console.warn('Failed to ensure support columns exist on settings', err?.message || err);
         }
-
         await db.run(
-            `UPDATE settings SET outlet_name = COALESCE(?, outlet_name), currency = COALESCE(?, currency), gst_rate = COALESCE(?, gst_rate), store_address = COALESCE(?, store_address), invoice_template = COALESCE(?, invoice_template), footer_note = COALESCE(?, footer_note), email_template_invoice = COALESCE(?, email_template_invoice), email_template_quote = COALESCE(?, email_template_quote), email_template_quote_request = COALESCE(?, email_template_quote_request), email_template_new_order_staff = COALESCE(?, email_template_new_order_staff), email_template_password_reset_subject = COALESCE(?, email_template_password_reset_subject), email_template_password_reset = COALESCE(?, email_template_password_reset), support_email = COALESCE(?, support_email), support_phone = COALESCE(?, support_phone), support_hours = COALESCE(?, support_hours), logo_url = COALESCE(?, logo_url), current_outlet_id = COALESCE(?, current_outlet_id) WHERE id = 1`,
+            `UPDATE settings SET outlet_name = COALESCE(?, outlet_name), currency = COALESCE(?, currency), gst_rate = COALESCE(?, gst_rate), store_address = COALESCE(?, store_address), invoice_template = COALESCE(?, invoice_template), footer_note = COALESCE(?, footer_note), email_template_invoice = COALESCE(?, email_template_invoice), email_template_quote = COALESCE(?, email_template_quote), email_template_quote_request = COALESCE(?, email_template_quote_request), email_template_new_order_staff = COALESCE(?, email_template_new_order_staff), email_template_password_reset_subject = COALESCE(?, email_template_password_reset_subject), email_template_password_reset = COALESCE(?, email_template_password_reset), support_email = COALESCE(?, support_email), support_phone = COALESCE(?, support_phone), support_hours = COALESCE(?, support_hours), logo_url = COALESCE(?, logo_url), storefront_header_source = COALESCE(?, storefront_header_source), current_outlet_id = COALESCE(?, current_outlet_id) WHERE id = 1`,
             [
                 outlet_name || null,
                 currency || null,
@@ -5018,6 +5020,7 @@ app.put('/api/settings', authMiddleware, requireRole(['admin', 'manager']), asyn
                 support_phone || null,
                 support_hours || null,
                 logo_url || null,
+                storefront_header_source || null,
                 current_outlet_id || null,
             ]
         );

@@ -998,6 +998,9 @@ export async function setupDatabase() {
     await ensureColumn(db, 'outlets', 'payment_instructions', 'TEXT');
     await ensureColumn(db, 'outlets', 'footer_note', 'TEXT');
     await ensureColumn(db, 'settings', 'footer_note', 'TEXT');
+    // Control which storefront sections appear in the public header/hero.
+    // Allowed values: 'both' (default) | 'featured'
+    await ensureColumn(db, 'settings', 'storefront_header_source', "TEXT DEFAULT 'both'");
 
     // Vendor extensions: commission rate (default 10%), bank/payment details and logo
     await ensureColumn(db, 'vendors', 'commission_rate', 'REAL DEFAULT 0.10');
