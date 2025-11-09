@@ -3,6 +3,8 @@ import { api, setAuthToken } from '../lib/api';
 import { LS_REFRESH_KEY } from '../lib/authHelpers';
 import { useToast } from '../components/ToastContext';
 import { useTheme } from '../components/ThemeContext';
+import StaffLockControl from '../components/StaffLockControl';
+import Modal from '../components/Modal';
 
 export default function Staff() {
   const [staff, setStaff] = useState([]);
@@ -17,6 +19,10 @@ export default function Staff() {
   const [activityLoading, setActivityLoading] = useState(false);
   const toast = useToast();
   const [roleErrors, setRoleErrors] = useState({});
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [confirmTitle, setConfirmTitle] = useState('');
+  const [confirmMessage, setConfirmMessage] = useState('');
+  const [confirmAction, setConfirmAction] = useState(null);
   const [selectedStaff] = useState(null);
   const { theme } = useTheme();
 
@@ -77,6 +83,28 @@ export default function Staff() {
       const currentRoleIds = (s.roles || []).map(r => r.id);
       const has = currentRoleIds.includes(roleId);
       const newRoles = has ? currentRoleIds.filter(r => r !== roleId) : [...currentRoleIds, roleId];
+      // If removing the last role, show confirmation modal because it will lock the account
+      if (newRoles.length === 0 && currentRoleIds.length > 0) {
+        setConfirmTitle('Lock account?');
+        setConfirmMessage(`Removing all roles from ${s.username} will lock this account. This will invalidate active sessions and prevent login. Continue?`);
+        setConfirmAction(() => async () => {
+          try {
+            await api.post(`/staff/${staffId}/roles`, { roles: newRoles });
+            const updatedStaff = staff.map(x => x.id === staffId ? { ...x, roles: roles.filter(r => newRoles.includes(r.id)) } : x);
+            setStaff(updatedStaff);
+            await load();
+            if (activityOpen) await loadActivity(staffId);
+            toast.push('Roles updated — account locked', 'warning');
+          } catch (err) {
+            console.error(err);
+            const msg = err?.message || String(err);
+            setError(msg);
+            toast?.push('Failed to update roles: ' + msg, 'error');
+          }
+        });
+        setConfirmOpen(true);
+        return;
+      }
       // call server to set roles
       await api.post(`/staff/${staffId}/roles`, { roles: newRoles });
       // optimistic update locally
@@ -103,6 +131,26 @@ export default function Staff() {
       if (editingId) {
         const payload = { display_name: form.display_name, email: form.email, phone: form.phone, roles: form.roles };
         if (form.password) payload.password = form.password;
+        // If this edit removes all roles, and the user currently has roles, warn first
+        const existing = staff.find(x => x.id === editingId);
+        const existingCount = (existing?.roles || []).length;
+        if ((payload.roles || []).length === 0 && existingCount > 0) {
+          setConfirmTitle('Lock account?');
+          setConfirmMessage(`Removing all roles from ${existing.username} will lock this account. This will invalidate active sessions and prevent login. Continue?`);
+          setConfirmAction(() => async () => {
+            try {
+              await api.put(`/staff/${editingId}`, payload);
+              setFormOpen(false);
+              await load();
+              toast.push('Staff updated — account locked', 'warning');
+            } catch (err) {
+              console.error(err);
+              setError(err.message || String(err));
+            }
+          });
+          setConfirmOpen(true);
+          return;
+        }
         await api.put(`/staff/${editingId}`, payload);
       } else {
         if (!form.username || !form.password) return setError('Username and password required');
@@ -229,7 +277,10 @@ export default function Staff() {
                       <button className="inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs text-slate-600 hover:bg-slate-50" onClick={() => openEdit(s)}>Edit</button>
                       <button className="inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs text-slate-600 hover:bg-slate-50" onClick={() => openActivity(s)}>Activity</button>
                       <button className="inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs text-slate-600 hover:bg-slate-50" onClick={() => switchTo(s)}>Switch</button>
-                      <button className="inline-flex items-center gap-2 rounded-full border border-rose-200 px-3 py-1 text-xs text-rose-600 hover:bg-rose-50" onClick={() => remove(s.id)}>Delete</button>
+                      <StaffLockControl staffId={s.id} initialLocked={s.locked} onChange={() => { load(); if (activityOpen) loadActivity(s.id); }} />
+                      {!s.locked && (
+                        <button className="inline-flex items-center gap-2 rounded-full border border-rose-200 px-3 py-1 text-xs text-rose-600 hover:bg-rose-50" onClick={() => remove(s.id)}>Delete</button>
+                      )}
                     </div>
                   </td>
                 </tr>
@@ -245,6 +296,24 @@ export default function Staff() {
           </table>
         </div>
       </section>
+
+      <Modal
+        open={confirmOpen}
+        onClose={() => setConfirmOpen(false)}
+        title={confirmTitle}
+        message={confirmMessage}
+        primaryText="Yes, lock account"
+        variant="warning"
+        onPrimary={async () => {
+          try {
+            if (typeof confirmAction === 'function') {
+              await confirmAction();
+            }
+          } finally {
+            setConfirmOpen(false);
+          }
+        }}
+      />
 
       {activityOpen && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-6">

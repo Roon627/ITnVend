@@ -3,6 +3,7 @@ import api from '../lib/api';
 import resolveMediaUrl from '../lib/media';
 import { useToast } from '../components/ToastContext';
 import { FaCheck, FaTimes, FaSearch, FaFileAlt } from 'react-icons/fa';
+import Modal from '../components/Modal';
 
 const DOCUMENT_KEYS = [
   'documents',
@@ -348,217 +349,215 @@ export default function Submissions() {
       </section>
 
       {/* Detail modal */}
-      {selected && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 sm:p-6">
-          <div className="w-full max-w-4xl max-h-[90vh] overflow-y-auto rounded-3xl border border-slate-200/70 bg-white shadow-2xl shadow-slate-900/20">
-            <header className="flex flex-col gap-2 border-b border-slate-200 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
-              <div className="space-y-1">
-                <span className="inline-flex items-center gap-2 rounded-full bg-blue-50 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-blue-600">
-                  {selected.type === 'vendor' ? 'Vendor application' : 'One-time submission'}
-                </span>
-                <h2 className="text-lg font-semibold text-slate-800">Review details</h2>
-                <p className="text-xs text-slate-500">Confirm everything looks correct before approving.</p>
-              </div>
-              <button onClick={() => setSelected(null)} className="inline-flex items-center rounded-full border border-slate-200 px-3 py-1 text-xs font-semibold text-slate-600 transition hover:border-blue-400 hover:text-blue-600">Close</button>
-            </header>
-            <div className="grid gap-6 p-6 md:grid-cols-2">
-              {selected.type === 'vendor' ? (
-                <>
-                  <div className="space-y-3">
-                    <div>
-                      <div className="text-xs font-semibold uppercase text-slate-500">Legal name</div>
-                      <div className="text-gray-800">{selected.row.legal_name}</div>
+      <Modal open={!!selected} onClose={() => setSelected(null)}>
+        <div className="w-full max-w-4xl max-h-[90vh] overflow-y-auto rounded-3xl border border-slate-200/70 bg-white shadow-2xl shadow-slate-900/20">
+          <header className="flex flex-col gap-2 border-b border-slate-200 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="space-y-1">
+              <span className="inline-flex items-center gap-2 rounded-full bg-blue-50 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-blue-600">
+                {selected?.type === 'vendor' ? 'Vendor application' : 'One-time submission'}
+              </span>
+              <h2 className="text-lg font-semibold text-slate-800">Review details</h2>
+              <p className="text-xs text-slate-500">Confirm everything looks correct before approving.</p>
+            </div>
+            <button onClick={() => setSelected(null)} className="inline-flex items-center rounded-full border border-slate-200 px-3 py-1 text-xs font-semibold text-slate-600 transition hover:border-blue-400 hover:text-blue-600">Close</button>
+          </header>
+          <div className="grid gap-6 p-6 md:grid-cols-2">
+            {selected?.type === 'vendor' ? (
+              <>
+                <div className="space-y-3">
+                  <div>
+                    <div className="text-xs font-semibold uppercase text-slate-500">Legal name</div>
+                    <div className="text-gray-800">{selected?.row?.legal_name}</div>
+                  </div>
+                  <div>
+                    <div className="text-xs font-semibold uppercase text-slate-500">Contact person / Email</div>
+                    <div className="text-gray-700">
+                      {selected?.row?.contact_person || '—'}
+                      {selected?.row?.email ? ` • ${selected.row.email}` : ''}
                     </div>
+                  </div>
+                  <div>
+                    <div className="text-xs font-semibold uppercase text-slate-500">Phone</div>
+                    <div className="text-gray-700">{selected?.row?.phone || '—'}</div>
+                  </div>
+                  <div>
+                    <div className="text-xs font-semibold uppercase text-slate-500">Address</div>
+                    <div className="text-gray-700 whitespace-pre-wrap">{selected?.row?.address || '—'}</div>
+                  </div>
+                  <div>
+                    <div className="text-xs font-semibold uppercase text-slate-500">Capabilities / Notes</div>
+                    <div className="text-gray-700 whitespace-pre-wrap">
+                      {selected?.row?.capabilities || selected?.row?.notes || 'Not provided'}
+                    </div>
+                  </div>
+                  {selected?.row?.bank_details && (
                     <div>
-                      <div className="text-xs font-semibold uppercase text-slate-500">Contact person / Email</div>
-                      <div className="text-gray-700">
-                        {selected.row.contact_person || '—'}
-                        {selected.row.email ? ` • ${selected.row.email}` : ''}
+                      <div className="text-xs font-semibold uppercase text-slate-500">Bank / payout details</div>
+                      <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-3 text-sm text-slate-700 whitespace-pre-wrap">
+                        {selected.row.bank_details}
                       </div>
                     </div>
-                    <div>
-                      <div className="text-xs font-semibold uppercase text-slate-500">Phone</div>
-                      <div className="text-gray-700">{selected.row.phone || '—'}</div>
+                  )}
+                </div>
+                <div className="space-y-4">
+                  {(() => {
+                    const vendorLogo = resolveMediaUrl(selected?.row?.logo_url);
+                    if (!vendorLogo) return null;
+                    return (
+                      <img
+                        src={vendorLogo}
+                        alt={`${selected?.row?.legal_name} logo`}
+                        className="h-44 w-full rounded-2xl border border-slate-100 bg-slate-50 object-contain p-4"
+                        loading="lazy"
+                      />
+                    );
+                  })()}
+                  <div>
+                    <div className="text-xs font-semibold uppercase text-slate-500">Commission rate</div>
+                    <div className="text-gray-700">
+                      {selected?.row?.commission_rate != null
+                        ? `${(selected.row.commission_rate * 100).toFixed(1)}%`
+                        : '—'}
                     </div>
-                    <div>
-                      <div className="text-xs font-semibold uppercase text-slate-500">Address</div>
-                      <div className="text-gray-700 whitespace-pre-wrap">{selected.row.address || '—'}</div>
-                    </div>
-                    <div>
-                      <div className="text-xs font-semibold uppercase text-slate-500">Capabilities / Notes</div>
-                      <div className="text-gray-700 whitespace-pre-wrap">
-                        {selected.row.capabilities || selected.row.notes || 'Not provided'}
-                      </div>
-                    </div>
-                    {selected.row.bank_details && (
-                      <div>
-                        <div className="text-xs font-semibold uppercase text-slate-500">Bank / payout details</div>
-                        <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-3 text-sm text-slate-700 whitespace-pre-wrap">
-                          {selected.row.bank_details}
-                        </div>
-                      </div>
+                  </div>
+                  <div className="flex flex-wrap gap-2 pt-2">
+                    <button
+                      onClick={() => approveVendor(selected.row.id)}
+                      className="inline-flex flex-1 items-center justify-center gap-2 rounded-full bg-emerald-500 px-4 py-2 text-sm font-semibold text-white shadow shadow-emerald-200/70 transition hover:-translate-y-0.5 sm:flex-none"
+                    >
+                      Approve
+                    </button>
+                    <button
+                      onClick={() => rejectVendor(selected.row.id)}
+                      className="inline-flex flex-1 items-center justify-center gap-2 rounded-full border border-rose-200 bg-rose-50 px-4 py-2 text-sm font-semibold text-rose-600 transition hover:bg-rose-100 sm:flex-none"
+                    >
+                      Reject
+                    </button>
+                  </div>
+                </div>
+                <div className="md:col-span-2 rounded-2xl border border-slate-100 bg-slate-50/60 p-4">
+                  <div className="flex items-center justify-between gap-4">
+                    <h3 className="text-sm font-semibold text-slate-700">Submitted documents</h3>
+                    <span className="text-xs text-slate-500">
+                      {vendorDocuments.length} file(s)
+                    </span>
+                  </div>
+                  <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                    {vendorDocuments.length > 0 ? (
+                      vendorDocuments.map((doc, idx) => (
+                        <DocumentCard key={`${doc}-${idx}`} url={doc} index={idx} />
+                      ))
+                    ) : (
+                      <p className="text-sm text-slate-500">No supporting files were attached to this submission.</p>
                     )}
                   </div>
-                  <div className="space-y-4">
-                    {(() => {
-                      const vendorLogo = resolveMediaUrl(selected.row.logo_url);
-                      if (!vendorLogo) return null;
-                      return (
-                        <img
-                          src={vendorLogo}
-                          alt={`${selected.row.legal_name} logo`}
-                          className="h-44 w-full rounded-2xl border border-slate-100 bg-slate-50 object-contain p-4"
-                          loading="lazy"
-                        />
-                      );
-                    })()}
-                    <div>
-                      <div className="text-xs font-semibold uppercase text-slate-500">Commission rate</div>
-                      <div className="text-gray-700">
-                        {selected.row.commission_rate != null
-                          ? `${(selected.row.commission_rate * 100).toFixed(1)}%`
-                          : '—'}
+                </div>
+              </>
+            ) : (
+              <>
+                <div>
+                  <div className="text-sm font-semibold">Title</div>
+                  <div className="text-gray-800">{selected?.row?.title}</div>
+                  <div className="text-sm font-semibold mt-3">Description</div>
+                  <div className="text-gray-700 whitespace-pre-wrap">{selected?.row?.description}</div>
+                  <div className="text-sm font-semibold mt-3">Condition</div>
+                  <div className="text-gray-700">{selected?.row?.condition}</div>
+                  <div className="text-sm font-semibold mt-3">User category</div>
+                  <div className="text-gray-700">{selected?.row?.user_category || '—'}{selected?.row?.user_subcategory ? ` › ${selected.row.user_subcategory}` : ''}</div>
+                  <div className="text-sm font-semibold mt-3">User tag</div>
+                  <div className="text-gray-700">{selected?.row?.user_tag || '—'}</div>
+                  <div className="text-sm font-semibold mt-3">Asking price</div>
+                  <div className="text-gray-700">{selected?.row?.asking_price}</div>
+                  <div className="text-sm font-semibold mt-3">Seller</div>
+                  <div className="text-gray-700">{selected?.row?.seller_name || selected?.row?.seller_email}</div>
+                  {selected?.row?.invoice_id && (
+                    <div className="mt-3 text-sm"><a href={`/invoices/${selected.row.invoice_id}`} className="text-blue-600">View invoice #{selected.row.invoice_id}</a></div>
+                  )}
+                  {casualDetails && (
+                    <div className="mt-4 rounded-xl border border-slate-100 bg-white/70 p-4 space-y-3">
+                      <div className="text-xs font-semibold uppercase text-slate-500 tracking-wide">Submitted product details</div>
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        {casualMeta.map((entry) => (
+                          <div key={entry.label}>
+                            <div className="text-xs uppercase text-slate-400">{entry.label}</div>
+                            <div className="text-sm text-slate-700 break-words">{entry.value ?? '—'}</div>
+                          </div>
+                        ))}
+                        <div>
+                          <div className="text-xs uppercase text-slate-400">Category path</div>
+                          <div className="text-sm text-slate-700 break-words">
+                            {[casualDetails.category, casualDetails.subcategory, casualDetails.subsubcategory].filter(Boolean).join(' › ') || '—'}
+                          </div>
+                        </div>
+                        <div>
+                          <div className="text-xs uppercase text-slate-400">Preorder</div>
+                          <div className="text-sm text-slate-700">
+                            {casualDetails.availableForPreorder ? 'Enabled' : 'No'}
+                          </div>
+                        </div>
                       </div>
-                    </div>
-                    <div className="flex flex-wrap gap-2 pt-2">
-                      <button
-                        onClick={() => approveVendor(selected.row.id)}
-                        className="inline-flex flex-1 items-center justify-center gap-2 rounded-full bg-emerald-500 px-4 py-2 text-sm font-semibold text-white shadow shadow-emerald-200/70 transition hover:-translate-y-0.5 sm:flex-none"
-                      >
-                        Approve
-                      </button>
-                      <button
-                        onClick={() => rejectVendor(selected.row.id)}
-                        className="inline-flex flex-1 items-center justify-center gap-2 rounded-full border border-rose-200 bg-rose-50 px-4 py-2 text-sm font-semibold text-rose-600 transition hover:bg-rose-100 sm:flex-none"
-                      >
-                        Reject
-                      </button>
-                    </div>
-                  </div>
-                  <div className="md:col-span-2 rounded-2xl border border-slate-100 bg-slate-50/60 p-4">
-                    <div className="flex items-center justify-between gap-4">
-                      <h3 className="text-sm font-semibold text-slate-700">Submitted documents</h3>
-                      <span className="text-xs text-slate-500">
-                        {vendorDocuments.length} file(s)
-                      </span>
-                    </div>
-                    <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                      {vendorDocuments.length > 0 ? (
-                        vendorDocuments.map((doc, idx) => (
-                          <DocumentCard key={`${doc}-${idx}`} url={doc} index={idx} />
-                        ))
-                      ) : (
-                        <p className="text-sm text-slate-500">No supporting files were attached to this submission.</p>
+                      {casualDetails.shortDescription && (
+                        <div>
+                          <div className="text-xs uppercase text-slate-400">Short description</div>
+                          <div className="text-sm text-slate-700">{casualDetails.shortDescription}</div>
+                        </div>
+                      )}
+                      {casualDetails.technicalDetails && (
+                        <div>
+                          <div className="text-xs uppercase text-slate-400">Technical details</div>
+                          <div className="text-sm text-slate-700 whitespace-pre-wrap">{casualDetails.technicalDetails}</div>
+                        </div>
+                      )}
+                      {casualDetails.vendorNotes && (
+                        <div className="rounded-lg border border-blue-100 bg-blue-50/60 p-3 text-sm text-blue-700">
+                          <div className="text-xs uppercase tracking-wide text-blue-500">Seller notes</div>
+                          <div className="mt-1 whitespace-pre-wrap">{casualDetails.vendorNotes}</div>
+                        </div>
+                      )}
+                      {casualTags.length > 0 && (
+                        <div>
+                          <div className="text-xs uppercase text-slate-400">Tags</div>
+                          <div className="mt-1 flex flex-wrap gap-1">
+                            {casualTags.map((tag) => (
+                              <span key={tag} className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-700">
+                                #{tag}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      {casualDetails.availableForPreorder && (
+                        <div className="rounded-lg border border-amber-200 bg-amber-50/70 p-3 text-xs text-amber-800">
+                          <div><strong>Release date:</strong> {casualDetails.preorderReleaseDate || '—'}</div>
+                          <div><strong>ETA:</strong> {casualDetails.preorderEta || '—'}</div>
+                          {casualDetails.preorderNotes && <div className="mt-1 whitespace-pre-wrap">{casualDetails.preorderNotes}</div>}
+                        </div>
                       )}
                     </div>
+                  )}
+                </div>
+                <div>
+                  <div className="grid gap-3">
+                    {(selected?.row?.photos || '').split(',').filter(Boolean).map((p, idx) => (
+                      <img
+                        key={idx}
+                        src={resolveMediaUrl(p)}
+                        alt={`photo-${idx}`}
+                        className="h-44 w-full rounded-xl object-cover shadow-sm shadow-slate-200/60"
+                        loading="lazy"
+                      />
+                    ))}
                   </div>
-                </>
-              ) : (
-                <>
-                  <div>
-                    <div className="text-sm font-semibold">Title</div>
-                    <div className="text-gray-800">{selected.row.title}</div>
-                    <div className="text-sm font-semibold mt-3">Description</div>
-                    <div className="text-gray-700 whitespace-pre-wrap">{selected.row.description}</div>
-                    <div className="text-sm font-semibold mt-3">Condition</div>
-                    <div className="text-gray-700">{selected.row.condition}</div>
-                    <div className="text-sm font-semibold mt-3">User category</div>
-                    <div className="text-gray-700">{selected.row.user_category || '—'}{selected.row.user_subcategory ? ` › ${selected.row.user_subcategory}` : ''}</div>
-                    <div className="text-sm font-semibold mt-3">User tag</div>
-                    <div className="text-gray-700">{selected.row.user_tag || '—'}</div>
-                    <div className="text-sm font-semibold mt-3">Asking price</div>
-                    <div className="text-gray-700">{selected.row.asking_price}</div>
-                    <div className="text-sm font-semibold mt-3">Seller</div>
-                    <div className="text-gray-700">{selected.row.seller_name || selected.row.seller_email}</div>
-                    {selected.row.invoice_id && (
-                      <div className="mt-3 text-sm"><a href={`/invoices/${selected.row.invoice_id}`} className="text-blue-600">View invoice #{selected.row.invoice_id}</a></div>
-                    )}
-                    {casualDetails && (
-                      <div className="mt-4 rounded-xl border border-slate-100 bg-white/70 p-4 space-y-3">
-                        <div className="text-xs font-semibold uppercase text-slate-500 tracking-wide">Submitted product details</div>
-                        <div className="grid gap-3 sm:grid-cols-2">
-                          {casualMeta.map((entry) => (
-                            <div key={entry.label}>
-                              <div className="text-xs uppercase text-slate-400">{entry.label}</div>
-                              <div className="text-sm text-slate-700 break-words">{entry.value ?? '—'}</div>
-                            </div>
-                          ))}
-                          <div>
-                            <div className="text-xs uppercase text-slate-400">Category path</div>
-                            <div className="text-sm text-slate-700 break-words">
-                              {[casualDetails.category, casualDetails.subcategory, casualDetails.subsubcategory].filter(Boolean).join(' › ') || '—'}
-                            </div>
-                          </div>
-                          <div>
-                            <div className="text-xs uppercase text-slate-400">Preorder</div>
-                            <div className="text-sm text-slate-700">
-                              {casualDetails.availableForPreorder ? 'Enabled' : 'No'}
-                            </div>
-                          </div>
-                        </div>
-                        {casualDetails.shortDescription && (
-                          <div>
-                            <div className="text-xs uppercase text-slate-400">Short description</div>
-                            <div className="text-sm text-slate-700">{casualDetails.shortDescription}</div>
-                          </div>
-                        )}
-                        {casualDetails.technicalDetails && (
-                          <div>
-                            <div className="text-xs uppercase text-slate-400">Technical details</div>
-                            <div className="text-sm text-slate-700 whitespace-pre-wrap">{casualDetails.technicalDetails}</div>
-                          </div>
-                        )}
-                        {casualDetails.vendorNotes && (
-                          <div className="rounded-lg border border-blue-100 bg-blue-50/60 p-3 text-sm text-blue-700">
-                            <div className="text-xs uppercase tracking-wide text-blue-500">Seller notes</div>
-                            <div className="mt-1 whitespace-pre-wrap">{casualDetails.vendorNotes}</div>
-                          </div>
-                        )}
-                        {casualTags.length > 0 && (
-                          <div>
-                            <div className="text-xs uppercase text-slate-400">Tags</div>
-                            <div className="mt-1 flex flex-wrap gap-1">
-                              {casualTags.map((tag) => (
-                                <span key={tag} className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-700">
-                                  #{tag}
-                                </span>
-                              ))}
-                            </div>
-                          </div>
-                        )}
-                        {casualDetails.availableForPreorder && (
-                          <div className="rounded-lg border border-amber-200 bg-amber-50/70 p-3 text-xs text-amber-800">
-                            <div><strong>Release date:</strong> {casualDetails.preorderReleaseDate || '—'}</div>
-                            <div><strong>ETA:</strong> {casualDetails.preorderEta || '—'}</div>
-                            {casualDetails.preorderNotes && <div className="mt-1 whitespace-pre-wrap">{casualDetails.preorderNotes}</div>}
-                          </div>
-                        )}
-                      </div>
-                    )}
+                  <div className="mt-4">
+                    <button onClick={() => approveCasual(selected.row.id)} className="inline-flex items-center gap-2 rounded-full bg-emerald-500 px-4 py-2 text-sm font-semibold text-white shadow shadow-emerald-200/70 transition hover:-translate-y-0.5 mr-2">Approve</button>
+                    <button onClick={() => rejectCasual(selected.row.id)} className="inline-flex items-center gap-2 rounded-full border border-rose-200 bg-rose-50 px-4 py-2 text-sm font-semibold text-rose-600 transition hover:bg-rose-100">Reject</button>
                   </div>
-                  <div>
-                    <div className="grid gap-3">
-                      {(selected.row.photos || '').split(',').filter(Boolean).map((p, idx) => (
-                        <img
-                          key={idx}
-                          src={resolveMediaUrl(p)}
-                          alt={`photo-${idx}`}
-                          className="h-44 w-full rounded-xl object-cover shadow-sm shadow-slate-200/60"
-                          loading="lazy"
-                        />
-                      ))}
-                    </div>
-                    <div className="mt-4">
-                      <button onClick={() => approveCasual(selected.row.id)} className="inline-flex items-center gap-2 rounded-full bg-emerald-500 px-4 py-2 text-sm font-semibold text-white shadow shadow-emerald-200/70 transition hover:-translate-y-0.5 mr-2">Approve</button>
-                      <button onClick={() => rejectCasual(selected.row.id)} className="inline-flex items-center gap-2 rounded-full border border-rose-200 bg-rose-50 px-4 py-2 text-sm font-semibold text-rose-600 transition hover:bg-rose-100">Reject</button>
-                    </div>
-                  </div>
-                </>
-              )}
-            </div>
+                </div>
+              </>
+            )}
           </div>
         </div>
-      )}
+      </Modal>
     </div>
   );
 }

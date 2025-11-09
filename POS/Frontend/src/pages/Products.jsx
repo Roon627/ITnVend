@@ -1102,6 +1102,7 @@ export default function Products() {
   const canDelete = user && ['manager', 'admin'].includes(user.role);
 
   const [products, setProducts] = useState([]);
+  const [showArchived, setShowArchived] = useState(false);
   const [categories, setCategories] = useState({});
   const [filters, setFilters] = useState({ category: '', subcategory: '', search: '', tag: '' });
   const [searchValue, setSearchValue] = useState('');
@@ -1118,6 +1119,10 @@ export default function Products() {
   const [modalGalleryUploading, setModalGalleryUploading] = useState(false);
   const [modalOriginalDraft, setModalOriginalDraft] = useState(null);
   const [modalStockReason, setModalStockReason] = useState('');
+  // Permanent delete modal state (admin-only)
+  const [permDeleteOpen, setPermDeleteOpen] = useState(false);
+  const [permDeleteTarget, setPermDeleteTarget] = useState(null);
+  const [permDeleteConfirm, setPermDeleteConfirm] = useState('');
   const [lookups, setLookups] = useState(null);
   const [categoryTree, setCategoryTree] = useState([]);
 
@@ -1170,6 +1175,7 @@ export default function Products() {
         subcategory: filters.subcategory || undefined,
         search: filters.search || undefined,
         tag: filters.tag || undefined,
+        includeArchived: showArchived ? 'true' : undefined,
       };
       const list = await api.get('/products', { params });
       setProducts(Array.isArray(list) ? list : []);
@@ -1183,7 +1189,7 @@ export default function Products() {
     } finally {
       setLoading(false);
     }
-  }, [filters, toast]);
+  }, [filters, toast, showArchived]);
 
   useEffect(() => {
     fetchCategories();
@@ -1353,6 +1359,40 @@ export default function Products() {
     } catch (err) {
       toast.push(err?.message || 'Failed to delete product', 'error');
       console.debug('Failed to delete product', err?.message || err);
+    }
+  };
+
+  const openPermanentDelete = (product) => {
+    setPermDeleteTarget(product || null);
+    setPermDeleteConfirm('');
+    setPermDeleteOpen(true);
+  };
+
+  const handleConfirmPermanentDelete = async () => {
+    if (!permDeleteTarget) return;
+    if (!user || user.role !== 'admin') {
+      toast.push('Only administrators may permanently delete products', 'warning');
+      setPermDeleteOpen(false);
+      return;
+    }
+    // Require exact product name confirmation to avoid accidents
+    if ((permDeleteConfirm || '').trim() !== (permDeleteTarget.name || '').trim()) {
+      toast.push('Please type the exact product name to confirm permanent deletion', 'warning');
+      return;
+    }
+
+    try {
+      await api.del(`/products/${permDeleteTarget.id}?force=true`);
+      toast.push('Product permanently deleted', 'success');
+      setPermDeleteOpen(false);
+      setPermDeleteTarget(null);
+      setPermDeleteConfirm('');
+      // refresh list
+      await fetchProducts();
+      setSelectedProduct((prev) => (prev && prev.id === permDeleteTarget.id ? null : prev));
+    } catch (err) {
+      toast.push(err?.message || 'Failed to permanently delete product', 'error');
+      console.debug('Permanent delete failed', err?.message || err);
     }
   };
 
@@ -1888,305 +1928,73 @@ export default function Products() {
       {/* Add product moved to modal: click the button above to open the product editor */}
 
       <section className="space-y-6 rounded-lg bg-white p-6 shadow-sm">
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+        <div className="flex items-center justify-between">
           <div>
             <h2 className="text-lg font-semibold text-slate-800">Catalog overview</h2>
-            <p className="text-sm text-slate-500">
-              Filter products, edit details, and monitor stock levels.
-            </p>
+            <p className="text-sm text-slate-500">Filter products, edit details, and monitor stock levels.</p>
+            <p className="text-xs text-slate-400 mt-1">Archived products are hidden by default; archiving preserves history. Use "Show archived" to view them.</p>
           </div>
-          <div className="flex flex-col sm:flex-row flex-wrap items-stretch sm:items-center gap-2 w-full lg:w-auto">
-            <input
-              type="search"
-              value={searchValue}
-              onChange={(event) => setSearchValue(event.target.value)}
-              placeholder="Search by name or SKU"
-              className="w-full sm:w-48 rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-            <select
-              value={filters.category}
-              onChange={(event) => handleFilterChange('category', event.target.value)}
-              className="w-full sm:w-auto rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-            >
+          <div className="flex items-center gap-2">
+            <input type="search" value={searchValue} onChange={(e) => setSearchValue(e.target.value)} placeholder="Search by name or SKU" className="rounded-md border px-3 py-2 text-sm w-48" />
+            <select value={filters.category} onChange={(e) => handleFilterChange('category', e.target.value)} className="rounded-md border px-3 py-2 text-sm">
               <option value="">All categories</option>
-              {categoryOptions.map((option) => (
-                <option key={option} value={option}>
-                  {option}
-                </option>
-              ))}
+              {categoryOptions.map((option) => <option key={option} value={option}>{option}</option>)}
             </select>
-            <select
-              value={filters.subcategory}
-              onChange={(event) => handleFilterChange('subcategory', event.target.value)}
-              className="w-full sm:w-auto rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-              disabled={!availableSubcategories.length}
-            >
-              <option value="">All subcategories</option>
-              {availableSubcategories.map((option) => (
-                <option key={option} value={option}>
-                  {option}
-                </option>
-              ))}
-            </select>
-            <button
-              type="button"
-              onClick={fetchProducts}
-              className="w-full sm:w-auto rounded-md border px-3 py-2 text-sm hover:bg-slate-100"
-              disabled={loading}
-            >
-              Refresh
-            </button>
+            <button type="button" onClick={fetchProducts} className="rounded-md border px-3 py-2 text-sm" disabled={loading}>Refresh</button>
+            <label className="inline-flex items-center gap-2 text-sm">
+              <input type="checkbox" checked={showArchived} onChange={(e) => setShowArchived(!!e.target.checked)} className="rounded" />
+              <span className="text-sm text-slate-600">Show archived</span>
+            </label>
           </div>
         </div>
 
         <div className="grid gap-6 lg:grid-cols-[2fr_1fr]">
-          <div className="space-y-6">
+          <div>
             <div className="overflow-hidden rounded-lg border">
               {loading ? (
-                <div className="px-4 py-10 text-center text-sm text-slate-500">
-                  Loading products...
-                </div>
-              ) : noProducts ? (
-                <div className="px-4 py-10 text-center text-sm text-slate-500">
-                  No products found. Adjust filters or add a new product.
-                </div>
+                <div className="px-4 py-10 text-center text-sm text-slate-500">Loading products...</div>
+              ) : (products.length === 0) ? (
+                <div className="px-4 py-10 text-center text-sm text-slate-500">No products found. Adjust filters or add a new product.</div>
               ) : (
                 <div className="overflow-x-auto">
-                <table className="min-w-full divide-y divide-slate-200 text-sm">
-                  <thead className="bg-slate-50 text-xs uppercase text-slate-500">
-                    <tr>
-                      <th className="px-4 py-3 text-left font-medium">Product</th>
-                      <th className="px-4 py-3 text-left font-medium">Price</th>
-                      <th className="px-4 py-3 text-left font-medium">Stock</th>
-                      <th className="px-4 py-3 text-left font-medium">Category</th>
-                      <th className="px-4 py-3 text-right font-medium">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {products.map((product) => (
-                      <tr
-                        key={product.id}
-                        className={`cursor-pointer transition hover:bg-slate-50 ${selectedProduct?.id === product.id ? 'bg-blue-50/60' : ''}`}
-                        onClick={() => setSelectedProduct(product)}
-                      >
-                        <td className="px-4 py-3">
-                          <div className="font-medium text-slate-800">{product.name}</div>
-                          <div className="space-x-2 text-xs text-slate-500">
-                            {product.sku && <span>SKU: {product.sku}</span>}
-                            {product.barcode && <span>Barcode: {product.barcode}</span>}
-                            {(product.preorder_enabled === 1 || product.preorder_enabled === true || product.preorder_enabled === '1') && (
-                              <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 font-semibold text-emerald-700">
-                                Preorder
-                              </span>
-                            )}
-                          </div>
-                        </td>
-                        <td className="px-4 py-3 text-slate-700">
-                          {formatCurrency(product.price || 0)}
-                        </td>
-                        <td className="px-4 py-3 text-slate-700">
-                          {product.track_inventory === 0 ? '--' : product.stock ?? 0}
-                        </td>
-                        <td className="px-4 py-3 text-slate-700">
-                          {product.category || '--'}
-                          {product.subcategory ? ` / ${product.subcategory}` : ''}
-                        </td>
-                        <td className="px-4 py-3">
-                          <div className="flex justify-end gap-2">
-                            <button
-                              type="button"
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                handleBeginEdit(product);
-                              }}
-                              className="inline-flex items-center gap-1 rounded-md border px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-100"
-                            >
-                              <FaEdit /> Edit
-                            </button>
-                            {(user && ['manager','admin'].includes(user.role)) && (
-                              <button
-                                type="button"
-                                onClick={(event) => {
-                                  event.stopPropagation();
-                                  const newStock = prompt(`Update stock for "${product.name}" (current: ${product.stock || 0}):`, product.stock || 0);
-                                  if (newStock !== null) {
-                                    const stockValue = parseInt(newStock, 10) || 0;
-                                    const reason = prompt('Reason for stock adjustment (required):');
-                                    if (reason && reason.trim()) {
-                                      handleQuickStockUpdate(product.id, stockValue, reason.trim());
-                                    }
-                                  }
-                                }}
-                                className="inline-flex items-center gap-1 rounded-md border px-3 py-1.5 text-xs text-blue-600 hover:bg-blue-50"
-                                title="Quick stock adjustment"
-                              >
-                                📦 Stock
-                              </button>
-                            )}
-                            {canDelete && (
-                              <button
-                                type="button"
-                                onClick={(event) => {
-                                  event.stopPropagation();
-                                  handleDeleteProduct(product.id);
-                                }}
-                                className="inline-flex items-center gap-1 rounded-md border border-red-200 px-3 py-1.5 text-xs text-red-600 hover:bg-red-50"
-                              >
-                                <FaTrash /> Remove
-                              </button>
-                            )}
-                          </div>
-                        </td>
+                  <table className="min-w-full divide-y divide-slate-200 text-sm">
+                    <thead className="bg-slate-50 text-xs uppercase text-slate-500">
+                      <tr>
+                        <th className="px-4 py-3 text-left font-medium">Product</th>
+                        <th className="px-4 py-3 text-left font-medium">Price</th>
+                        <th className="px-4 py-3 text-left font-medium">Stock</th>
+                        <th className="px-4 py-3 text-left font-medium">Category</th>
+                        <th className="px-4 py-3 text-right font-medium">Actions</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-                </div>
-              )}
-            </div>
-
-            <div className="space-y-4 rounded-lg border bg-slate-50 p-4">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div>
-                  <h3 className="text-sm font-semibold text-slate-700">Bulk import</h3>
-                  <p className="text-xs text-slate-500">
-                    Upload a CSV with columns like name, price, stock, category, sku, barcode.
-                  </p>
-                </div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <input
-                    ref={bulkFileInputRef}
-                    type="file"
-                    accept=".csv,text/csv"
-                    className="hidden"
-                    onChange={handleBulkFileInput}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => bulkFileInputRef.current?.click()}
-                    className="inline-flex items-center gap-2 rounded-md border bg-white px-3 py-2 text-sm hover:bg-slate-100"
-                    disabled={bulkBusy}
-                  >
-                    <FaFileImport /> Select CSV
-                  </button>
-                  {bulkRows.length > 0 && (
-                    <button
-                      type="button"
-                      onClick={clearBulkPreview}
-                      className="rounded-md border px-3 py-2 text-sm hover:bg-slate-100"
-                      disabled={bulkBusy}
-                    >
-                      Clear
-                    </button>
-                  )}
-                </div>
-              </div>
-              {bulkFileName && (
-                <div className="text-xs text-slate-500">
-                  Loaded file: <span className="font-medium text-slate-700">{bulkFileName}</span>
-                </div>
-              )}
-              {bulkError && (
-                <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-600">
-                  {bulkError}
-                </div>
-              )}
-              {bulkRows.length > 0 && (
-                <div className="space-y-3">
-                  <div className="flex flex-wrap gap-4 text-xs text-slate-600">
-                    <span>
-                      Total rows: <strong>{bulkStats.total}</strong>
-                    </span>
-                    <span className="text-emerald-600">
-                      Valid: <strong>{bulkStats.valid}</strong>
-                    </span>
-                    <span className="text-amber-600">
-                      Needs review: <strong>{bulkStats.invalid}</strong>
-                    </span>
-                  </div>
-                  <div className="max-h-48 overflow-auto rounded-md border bg-white">
-                    <table className="min-w-full divide-y divide-slate-100 text-xs">
-                      <thead className="bg-slate-50 text-slate-500">
-                        <tr>
-                          <th className="px-3 py-2 text-left font-medium">#</th>
-                          <th className="px-3 py-2 text-left font-medium">Name</th>
-                          <th className="px-3 py-2 text-left font-medium">Price</th>
-                          <th className="px-3 py-2 text-left font-medium">Status</th>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {products.map((product) => (
+                        <tr key={product.id} className={`cursor-pointer transition hover:bg-slate-50 ${selectedProduct?.id === product.id ? 'bg-blue-50/60' : ''}`} onClick={() => setSelectedProduct(product)}>
+                          <td className="px-4 py-3">
+                            <div className="font-medium text-slate-800">{product.name}</div>
+                            {product.availability_status === 'archived' && <div className="text-xs text-rose-600 mt-1">Archived</div>}
+                          </td>
+                          <td className="px-4 py-3 text-slate-700">{formatCurrency(product.price || 0)}</td>
+                          <td className="px-4 py-3 text-slate-700">{product.track_inventory === 0 ? '--' : product.stock ?? 0}</td>
+                          <td className="px-4 py-3 text-slate-700">{product.category || '--'}{product.subcategory ? ` / ${product.subcategory}` : ''}</td>
+                          <td className="px-4 py-3">
+                            <div className="flex justify-end gap-2">
+                              <button type="button" onClick={(e) => { e.stopPropagation(); handleBeginEdit(product); }} className="inline-flex items-center gap-1 rounded-md border px-3 py-1.5 text-xs"> <FaEdit /> Edit</button>
+                              {canDelete && <button type="button" onClick={(e) => { e.stopPropagation(); handleDeleteProduct(product.id); }} className="inline-flex items-center gap-1 rounded-md border px-3 py-1.5 text-xs text-red-600"><FaTrash /> Remove</button>}
+                              {user && user.role === 'admin' && <button type="button" onClick={(e) => { e.stopPropagation(); openPermanentDelete(product); }} className="inline-flex items-center gap-1 rounded-md border px-3 py-1.5 text-xs text-rose-700">🗑️ Permanently delete</button>}
+                            </div>
+                          </td>
                         </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-100">
-                        {bulkPreviewRows.map((row, index) => (
-                          <tr key={index} className={row.valid ? '' : 'bg-amber-50'}>
-                            <td className="px-3 py-2">{index + 1}</td>
-                            <td className="px-3 py-2">
-                              {row.product.name || (
-                                <span className="text-slate-400">Unnamed</span>
-                              )}
-                            </td>
-                            <td className="px-3 py-2">
-                              {Number.isFinite(row.product.price)
-                                ? formatCurrency(row.product.price)
-                                : '--'}
-                            </td>
-                            <td className="px-3 py-2">
-                              {row.valid ? (
-                                <span className="font-medium text-emerald-600">Ready</span>
-                              ) : (
-                                <span className="font-medium text-amber-600">
-                                  {row.issues[0] || 'Missing data'}
-                                </span>
-                              )}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                  {bulkRows.length > bulkPreviewRows.length && (
-                    <p className="text-xs text-slate-500">
-                      Showing first {bulkPreviewRows.length} rows of {bulkRows.length}. Fix highlighted issues before importing.
-                    </p>
-                  )}
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
               )}
-              {bulkResult && (
-                <div
-                  className={`rounded-md border px-3 py-2 text-xs ${
-                    (bulkResult.failed?.length || 0) > 0
-                      ? 'border-amber-200 bg-amber-50 text-amber-700'
-                      : 'border-emerald-200 bg-emerald-50 text-emerald-700'
-                  }`}
-                >
-                  <p className="font-medium">
-                    {bulkResult.inserted || 0} created / {bulkResult.updated || 0} updated / {bulkResult.failed?.length || 0} failed
-                  </p>
-                  {bulkResult.failed?.length > 0 && (
-                    <p className="mt-1">
-                      Rows {bulkResult.failed.slice(0, 5).map((item) => item.index + 1).join(', ')}
-                      {bulkResult.failed.length > 5 ? '...' : ''} need attention.
-                    </p>
-                  )}
-                </div>
-              )}
-              <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 pt-3">
-                <div className="text-xs text-slate-500">
-                  Only valid rows are imported. Invalid rows stay highlighted for review.
-                </div>
-                <button
-                  type="button"
-                  onClick={handleBulkImport}
-                  className="inline-flex items-center gap-2 rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:bg-blue-400"
-                  disabled={bulkBusy || bulkStats.valid === 0}
-                >
-                  <FaUpload />
-                  {bulkBusy ? 'Importing...' : 'Import valid rows'}
-                </button>
-              </div>
             </div>
           </div>
 
           <aside className="space-y-4">
-            <div className="space-y-4 rounded-lg border bg-white p-4 shadow-sm">
+            <div className="rounded-lg border bg-white p-4 shadow-sm">
               <div className="flex items-center justify-between">
                 <div>
                   <h3 className="text-sm font-semibold text-slate-700">Product insight</h3>
@@ -2194,22 +2002,8 @@ export default function Products() {
                 </div>
                 {selectedProduct && (
                   <div className="flex gap-2">
-                    <button
-                      type="button"
-                      className="inline-flex items-center gap-1 rounded-md border px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-100"
-                      onClick={() => handleBeginEdit(selectedProduct)}
-                    >
-                      <FaEdit /> Edit
-                    </button>
-                    {canDelete && (
-                      <button
-                        type="button"
-                        className="inline-flex items-center gap-1 rounded-md border border-red-200 px-3 py-1.5 text-xs text-red-600 hover:bg-red-50"
-                        onClick={() => handleDeleteProduct(selectedProduct.id)}
-                      >
-                        <FaTrash /> Remove
-                      </button>
-                    )}
+                    <button type="button" className="inline-flex items-center gap-1 rounded-md border px-3 py-1.5 text-xs" onClick={() => handleBeginEdit(selectedProduct)}><FaEdit /> Edit</button>
+                    {canDelete && <button type="button" className="inline-flex items-center gap-1 rounded-md border px-3 py-1.5 text-xs text-red-600" onClick={() => handleDeleteProduct(selectedProduct.id)}><FaTrash /> Remove</button>}
                   </div>
                 )}
               </div>
@@ -2242,6 +2036,21 @@ export default function Products() {
         createBrand={createBrand}
         createMaterial={createMaterial}
       />
+      <Modal
+        open={permDeleteOpen}
+        onClose={() => setPermDeleteOpen(false)}
+        title={permDeleteTarget ? `Permanently delete "${permDeleteTarget.name}"?` : 'Permanently delete product'}
+        message="This will permanently remove the product from the database. This action is irreversible and may affect historical records."
+        primaryText="Permanently delete"
+        variant="danger"
+        onPrimary={handleConfirmPermanentDelete}
+      >
+        <div className="space-y-3">
+          <p className="text-sm text-muted-foreground">To confirm, type the exact product name below:</p>
+          <input value={permDeleteConfirm} onChange={(e) => setPermDeleteConfirm(e.target.value)} placeholder={permDeleteTarget?.name || ''} className="w-full rounded border px-3 py-2" />
+          <p className="text-xs text-rose-600">Warning: this will remove the product and nullify some references. Audit records may remain if not nullable.</p>
+        </div>
+      </Modal>
     </div>
   );
 }

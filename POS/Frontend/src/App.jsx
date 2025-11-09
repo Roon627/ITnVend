@@ -22,6 +22,7 @@ import Operations from './pages/Operations/Operations';
 import Preorders from './pages/Preorders';
 import Profile from './pages/Profile';
 import Help from './pages/Help';
+import ContactOnly from './pages/ContactOnly';
 import ManageLookups from './pages/ManageLookups';
 import ValidateSlip from './pages/ValidateSlip';
 import Slips from './pages/Slips';
@@ -102,7 +103,8 @@ function App() {
           <UIProvider>
             <BrowserRouter>
               <Routes>
-                <Route path="/login" element={<Login />} />
+          <Route path="/login" element={<Login />} />
+          <Route path="/contact" element={<ContactOnly />} />
                 <Route path="/forgot-password" element={<ForgotPassword />} />
                 <Route path="/reset-password" element={<ResetPassword />} />
                 <Route

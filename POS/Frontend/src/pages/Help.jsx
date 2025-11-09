@@ -1,6 +1,8 @@
 import { useMemo, useState } from 'react';
 import { FiSearch } from 'react-icons/fi';
 import HelpContent from '../components/HelpContent';
+import Modal from '../components/Modal';
+import { useSettings } from '../components/SettingsContext';
 
 const ARTICLES = [
   {
@@ -43,6 +45,10 @@ const QUICK_CHECKLIST = [
 export default function Help() {
   const [query, setQuery] = useState('');
   const [showSupportModal, setShowSupportModal] = useState(false);
+  const { settings } = useSettings();
+  const supportEmail = settings?.support_email || settings?.contact_email || settings?.email?.email_from || 'support@itnvend.test';
+  const supportPhone = settings?.support_phone || settings?.contact_phone || settings?.support_phone || '+960 300 0000';
+  const supportHours = settings?.support_hours || settings?.contact_hours || 'Sun – Thu · 9:00 – 18:00';
 
   const filtered = useMemo(() => {
     if (!query.trim()) return ARTICLES;
@@ -95,7 +101,7 @@ export default function Help() {
           </div>
         </div>
 
-        <section className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+  <section className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
           {filtered.map((article) => (
             <article
               key={article.id}
@@ -153,21 +159,21 @@ export default function Help() {
                 <span className="text-base">✉️</span>
                 <div>
                   <p className="text-xs uppercase tracking-wide text-muted-foreground">Email</p>
-                  <p className="text-sm font-semibold text-foreground">support@itnvend.test</p>
+                  <p className="text-sm font-semibold text-foreground">{supportEmail}</p>
                 </div>
               </div>
               <div className="flex items-center gap-3 rounded-lg border border-border bg-surface-muted px-4 py-3">
                 <span className="text-base">📱</span>
                 <div>
                   <p className="text-xs uppercase tracking-wide text-muted-foreground">Phone</p>
-                  <p className="text-sm font-semibold text-foreground">+960 300 0000</p>
+                  <p className="text-sm font-semibold text-foreground">{supportPhone}</p>
                 </div>
               </div>
               <div className="flex items-center gap-3 rounded-lg border border-border bg-surface-muted px-4 py-3">
                 <span className="text-base">💼</span>
                 <div>
                   <p className="text-xs uppercase tracking-wide text-muted-foreground">Hours</p>
-                  <p className="text-sm font-semibold text-foreground">Sun – Thu · 9:00 – 18:00</p>
+                  <p className="text-sm font-semibold text-foreground">{supportHours}</p>
                 </div>
               </div>
             </div>
@@ -188,40 +194,54 @@ export default function Help() {
         Need Help?
       </button>
 
-      {showSupportModal && (
-        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/60 p-4">
-          <div className="w-full max-w-md rounded-2xl border border-border bg-surface p-6 shadow-xl">
-            <div className="flex items-start justify-between">
-              <div>
-                <h4 className="text-lg font-semibold text-foreground">Chat with support</h4>
-                <p className="mt-1 text-sm text-muted-foreground">We will open up a live chat window in a future update. For now, use the contact options below.</p>
+      <Modal
+        open={showSupportModal}
+        onClose={() => setShowSupportModal(false)}
+        title="Contact support"
+        message="We will open up a live chat window in a future update. For now, use the contact options below."
+        primaryText="Close"
+        variant="notice"
+        onPrimary={() => setShowSupportModal(false)}
+      >
+        <div className="max-w-md mx-auto bg-white rounded-lg p-6 shadow-lg">
+          <div className="flex items-start gap-4">
+            <div className="flex-shrink-0">
+              <div className="relative">
+                <div className="h-14 w-14 rounded-full bg-primary flex items-center justify-center text-white shadow-lg animate-pulse">
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h2.18a2 2 0 011.788 1.106l.72 1.44a2 2 0 01-.45 2.284l-1.2 1.2a11 11 0 005.516 5.516l1.2-1.2a2 2 0 012.284-.45l1.44.72A2 2 0 0121 18.82V21a2 2 0 01-2 2h-0" />
+                  </svg>
+                </div>
+                <span className="absolute -bottom-1 -right-1 inline-block h-3 w-3 rounded-full bg-emerald-400 animate-bounce shadow" />
               </div>
-              <button
-                type="button"
-                onClick={() => setShowSupportModal(false)}
-                className="rounded-full bg-surface-muted p-1 text-muted-foreground transition hover:bg-muted/20"
-              >
-                <span className="sr-only">Close</span>
-                ×
-              </button>
             </div>
-            <div className="mt-4 space-y-3 text-sm text-muted-foreground">
-              <p><strong>Email:</strong> support@itnvend.test</p>
-              <p><strong>Phone:</strong> +960 300 0000</p>
-              <p><strong>Docs:</strong> Visit the onboarding guide under Resources.</p>
-            </div>
-            <div className="mt-6 text-right">
-              <button
-                type="button"
-                onClick={() => setShowSupportModal(false)}
-                className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground shadow-sm transition hover:bg-primary/90 focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 focus:ring-offset-background"
-              >
-                Close
-              </button>
+
+            <div className="flex-1">
+              <h4 className="text-lg font-semibold text-foreground">Contact Support</h4>
+              <p className="mt-1 text-sm text-muted-foreground">We usually respond within minutes during business hours. Use any of the channels below to reach us.</p>
+
+              <div className="mt-4 space-y-2 text-sm text-muted-foreground">
+                <div className="flex items-center gap-3">
+                  <span className="w-6 text-primary">✉️</span>
+                  <div><div className="text-xs uppercase tracking-wide text-muted-foreground">Email</div><div className="font-semibold text-foreground">{supportEmail}</div></div>
+                </div>
+                <div className="flex items-center gap-3">
+                  <span className="w-6 text-primary">📱</span>
+                  <div><div className="text-xs uppercase tracking-wide text-muted-foreground">Phone</div><div className="font-semibold text-foreground"><a href={`tel:${supportPhone.replace(/\s+/g, '')}`} className="text-primary hover:underline">{supportPhone}</a></div></div>
+                </div>
+                <div className="flex items-center gap-3">
+                  <span className="w-6 text-primary">💼</span>
+                  <div><div className="text-xs uppercase tracking-wide text-muted-foreground">Hours</div><div className="font-semibold text-foreground">{supportHours}</div></div>
+                </div>
+              </div>
             </div>
           </div>
+
+          <div className="mt-6 text-right">
+            <button type="button" onClick={() => setShowSupportModal(false)} className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground shadow-sm hover:bg-primary/90">Close</button>
+          </div>
         </div>
-      )}
+      </Modal>
     </div>
   );
 }

@@ -7,7 +7,7 @@ import https from 'https';
 import http from 'http';
 import { fileURLToPath } from 'url';
 import { Server } from 'socket.io';
-import { setupDatabase } from './database.js';
+import { setupDatabase, ensureColumn } from './database.js';
 import { generateInvoicePdf } from './invoice-service.js';
 import PDFDocument from 'pdfkit';
 import { getWebSocketService } from './websocket-service.js';
@@ -883,42 +883,48 @@ async function createInvoiceAndJournal({ customerId, customerName, items, gstRat
     stage = 'journal-insert';
     let journalId = null;
     try {
-        const jr = await db.run(
-            'INSERT INTO journal_entries (entry_date, description, reference, total_debit, total_credit, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
-            [new Date().toISOString().split('T')[0], `Order #${orderId} invoice`, `ORDER-${orderId}`, total, total, 'posted', new Date().toISOString()]
-        );
-        journalId = jr.lastID;
+        // Use a single multi-statement exec call so all inserts run on the same DB client/session.
+        // This avoids cross-connection visibility/foreign-key issues when using a connection pool.
+        const entryDate = new Date().toISOString().split('T')[0];
+        const createdAt = new Date().toISOString();
+        const desc = `Order #${orderId} invoice`;
+        const ref = `ORDER-${orderId}`;
 
-        // Ensure new columns exist in settings table to avoid SQL errors on older DBs
-        try {
-            const cols = await db.all(`PRAGMA table_info(settings)`);
-            const colNames = cols.map(c => c.name);
-            if (!colNames.includes('email_template_new_order_staff')) {
-                await db.run(`ALTER TABLE settings ADD COLUMN email_template_new_order_staff TEXT`);
-            }
-            if (!colNames.includes('logo_url')) {
-                await db.run(`ALTER TABLE settings ADD COLUMN logo_url TEXT`);
-            }
-        } catch (err) {
-            console.warn('Failed to ensure settings columns exist', err?.message || err);
-        }
+        const esc = (s) => (s || '').toString().replace(/'/g, "''");
 
-        await db.run(
-            'INSERT INTO journal_entry_lines (journal_entry_id, account_id, description, debit, credit) VALUES (?, ?, ?, ?, ?)',
-            [journalId, accountsReceivable.id, `Order #${orderId}${customerName ? ` - ${customerName}` : ''}`, total, 0]
-        );
-
-        await db.run(
-            'INSERT INTO journal_entry_lines (journal_entry_id, account_id, description, debit, credit) VALUES (?, ?, ?, ?, ?)',
-            [journalId, salesRevenue.id, `Sales from order #${orderId}`, 0, subtotal]
-        );
-
+        // Build a single CTE-based statement that inserts the journal entry and all lines in one statement.
+        // This guarantees the inserted journal id is available to the lines and avoids FK timing issues.
+        const values = [];
+        values.push(`(${Number(accountsReceivable.id)}, '${esc(`Order #${orderId}${customerName ? ` - ${customerName}` : ''}`)}', ${Number(total)}, 0)`);
+        values.push(`(${Number(salesRevenue.id)}, '${esc(`Sales from order #${orderId}`)}', 0, ${Number(subtotal)})`);
         if (tax > 0 && taxesPayable) {
-            await db.run(
-                'INSERT INTO journal_entry_lines (journal_entry_id, account_id, description, debit, credit) VALUES (?, ?, ?, ?, ?)',
-                [journalId, taxesPayable.id, `Tax for order #${orderId}`, 0, tax]
-            );
+            values.push(`(${Number(taxesPayable.id)}, '${esc(`Tax for order #${orderId}`)}', 0, ${Number(tax)})`);
         }
+
+        const sql = `
+            WITH je AS (
+                INSERT INTO journal_entries (entry_date, description, reference, total_debit, total_credit, status, created_at)
+                VALUES ('${esc(entryDate)}', '${esc(desc)}', '${esc(ref)}', ${Number(total)}, ${Number(total)}, 'posted', '${esc(createdAt)}')
+                RETURNING id
+            )
+            INSERT INTO journal_entry_lines (journal_entry_id, account_id, description, debit, credit)
+            SELECT
+                je.id,
+                d.account_id,
+                d.description,
+                d.debit,
+                d.credit
+            FROM
+                je,
+                (VALUES ${values.join(', ')}) AS d(account_id, description, debit, credit)
+        `;
+
+    console.log('[createInvoiceAndJournal] executing SQL:', sql);
+    await db.exec(sql);
+
+        // Fetch the inserted journal id by reference
+        const inserted = await db.get('SELECT id FROM journal_entries WHERE reference = ? ORDER BY id DESC LIMIT 1', [ref]);
+        journalId = inserted ? inserted.id : null;
     } catch (err) {
         throw new OrderFinalizationError(stage, err?.message || 'Failed to create journal entry', { invoiceId, journalId, cause: err?.message });
     }
@@ -1287,11 +1293,7 @@ app.post('/api/settings/upload-logo', authMiddleware, requireRole(['admin']), as
 
         // Ensure settings table has logo_url column (safe to run repeatedly)
         try {
-            const cols = await db.all(`PRAGMA table_info(settings)`);
-            const has = cols.some(c => c.name === 'logo_url');
-            if (!has) {
-                await db.run(`ALTER TABLE settings ADD COLUMN logo_url TEXT`);
-            }
+            await ensureColumn(db, 'settings', 'logo_url', 'TEXT');
         } catch (err) {
             console.warn('Failed to ensure logo_url column exists', err?.message || err);
         }
@@ -1630,6 +1632,10 @@ app.post('/api/login', async (req, res) => {
                     }
                 }
             }
+            // prevent login for locked accounts
+            if (staff.locked) {
+                return res.status(403).json({ error: 'Account locked. Contact your administrator.' });
+            }
             if (!ok) return res.status(401).json({ error: 'Invalid credentials' });
             // fetch roles
             const roles = await db.all('SELECT r.name FROM roles r JOIN staff_roles sr ON sr.role_id = r.id WHERE sr.staff_id = ?', [staff.id]);
@@ -1662,7 +1668,9 @@ app.post('/api/login', async (req, res) => {
         if (!staff) return res.status(401).json({ error: 'Invalid credentials' });
 
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        // Log full error and stack to help diagnose 500s seen by the frontend
+        console.error('GET /api/products error', err && err.stack ? err.stack : err);
+        res.status(500).json({ error: err?.message || 'Internal server error' });
     }
 });
 
@@ -1726,6 +1734,7 @@ app.get('/api/products', async (req, res) => {
         subcategory,
         search,
         preorderOnly,
+        includeArchived,
         categoryId,
         subcategoryId,
         subsubcategoryId,
@@ -1799,6 +1808,10 @@ app.get('/api/products', async (req, res) => {
         }
         if (preorderOnly === 'true') {
             query += ' AND p.preorder_enabled = 1';
+        }
+        // By default exclude archived products unless explicitly requested
+        if (!(includeArchived === 'true' || includeArchived === '1')) {
+            query += " AND (p.availability_status IS NULL OR p.availability_status != 'archived')";
         }
         if (tagId) {
             query += ' AND EXISTS (SELECT 1 FROM product_tags pt WHERE pt.product_id = p.id AND pt.tag_id = ?)';
@@ -2823,17 +2836,67 @@ app.post('/api/products/bulk-import', authMiddleware, requireRole('manager'), as
 
 app.delete('/api/products/:id', authMiddleware, requireRole('manager'), async (req, res) => {
     try {
-        const product = await db.get('SELECT * FROM products WHERE id = ?', [req.params.id]);
+        const id = Number(req.params.id);
+        const product = await db.get('SELECT * FROM products WHERE id = ?', [id]);
         if (!product) return res.status(404).json({ error: 'Product not found' });
-        await db.run('DELETE FROM products WHERE id = ?', [req.params.id]);
-        await logActivity('product', req.params.id, 'delete', req.user?.username, JSON.stringify(product));
+
+        const isAdmin = req.user && req.user.role === 'admin';
+        const force = String(req.query.force || req.body?.force || '').toLowerCase() === 'true' || String(req.query.force || '').trim() === '1';
+
+        // Non-force delete: perform a soft-delete by marking availability_status = 'archived'
+        if (!force) {
+            await db.run('UPDATE products SET availability_status = COALESCE(?, availability_status), stock = 0 WHERE id = ?', ['archived', id]);
+            await logActivity('product', id, 'archive', req.user?.username, JSON.stringify(product));
+            await queueNotification({
+                staffId: null,
+                username: null,
+                title: 'Product archived',
+                message: `${product.name} has been archived`,
+                type: 'info',
+                metadata: { productId: id }
+            });
+            await cacheService.invalidateProducts();
+            await cacheService.invalidateCategories();
+            return res.status(204).end();
+        }
+
+        // Force delete requested — only admins may perform a force delete
+        if (!isAdmin) return res.status(403).json({ error: 'Only administrators may perform a force delete' });
+
+        // Check for blocking references that cannot be nullified safely (non-null FK)
+        const blockers = [];
+        const sa = await db.get('SELECT COUNT(*) AS c FROM stock_adjustments WHERE product_id = ?', [id]);
+        if (sa?.c > 0) blockers.push('stock_adjustments');
+
+        if (blockers.length) {
+            return res.status(409).json({ error: 'Cannot force-delete product while dependent records exist', blockers });
+        }
+
+        // Proceed with force-delete: nullify nullable references, let ON DELETE CASCADE handle others
+        try {
+            await db.exec('BEGIN');
+            // Nullify invoice/order/casual item links where possible
+            await db.run('UPDATE invoice_items SET product_id = NULL WHERE product_id = ?', [id]);
+            await db.run('UPDATE order_items SET product_id = NULL WHERE product_id = ?', [id]);
+            await db.run('UPDATE casual_items SET product_id = NULL WHERE product_id = ?', [id]);
+
+            // Delete the product (product_tags has ON DELETE CASCADE and will be removed)
+            await db.run('DELETE FROM products WHERE id = ?', [id]);
+
+            await db.exec('COMMIT');
+        } catch (innerErr) {
+            try { await db.exec('ROLLBACK'); } catch (e) { /* ignore */ }
+            throw innerErr;
+        }
+
+        await logActivity('product', id, 'delete', req.user?.username, JSON.stringify(product));
         await queueNotification({
             staffId: null,
             username: null,
             title: 'Product removed',
-            message: `${product.name} has been archived`,
+            message: `${product.name} has been removed`,
             type: 'info',
-            metadata: { productId: Number(req.params.id) }
+            metadata: { productId: id }
         });
 
         // Invalidate product caches
@@ -2912,9 +2975,10 @@ app.get('/api/me', authMiddleware, async (req, res) => {
     try {
         if (!req.user) return res.status(401).json({ error: 'Unauthenticated' });
         if (req.user.staffId) {
-            const staff = await db.get('SELECT id, username, display_name, email, phone, created_at FROM staff WHERE id = ?', [req.user.staffId]);
+            const staff = await db.get('SELECT id, username, display_name, email, phone, created_at, avatar, locked FROM staff WHERE id = ?', [req.user.staffId]);
             if (!staff) return res.status(404).json({ error: 'Profile not found' });
             const roles = await db.all('SELECT r.name FROM roles r JOIN staff_roles sr ON sr.role_id = r.id WHERE sr.staff_id = ?', [staff.id]);
+            const locked = !!staff.locked;
             return res.json({
                 id: staff.id,
                 username: staff.username,
@@ -2924,7 +2988,9 @@ app.get('/api/me', authMiddleware, async (req, res) => {
                 avatar: staff.avatar || null,
                 createdAt: staff.created_at,
                 roles: roles.map((r) => r.name),
-                editable: true
+                locked,
+                editable: !locked,
+                message: locked ? 'Account locked. Contact your administrator.' : undefined
             });
         }
         return res.json({
@@ -2966,7 +3032,8 @@ app.put('/api/me', authMiddleware, async (req, res) => {
             [nextDisplayName || null, nextEmail || null, nextPhone || null, nextPasswordHash || null, nextAvatar, staff.id]
         );
         const roles = await db.all('SELECT r.name FROM roles r JOIN staff_roles sr ON sr.role_id = r.id WHERE sr.staff_id = ?', [staff.id]);
-
+    const locked = !!staff.locked;
+    if (locked) return res.status(403).json({ error: 'Account is locked' });
         await logActivity('staff', staff.id, 'profile_update', req.user.username, JSON.stringify({ displayName: nextDisplayName, email: nextEmail, phone: nextPhone }));
         await queueNotification({
             staffId: staff.id,
@@ -4908,7 +4975,8 @@ app.put('/api/settings', authMiddleware, requireRole(['admin', 'manager']), asyn
             smtp_host, smtp_port, smtp_user, smtp_pass, smtp_secure, smtp_require_tls, smtp_from_name, smtp_reply_to,
             email_template_invoice, email_template_quote, email_template_quote_request, email_template_new_order_staff,
             email_template_password_reset_subject, email_template_password_reset,
-            social_facebook, social_instagram, social_whatsapp, social_telegram } = req.body;
+            social_facebook, social_instagram, social_whatsapp, social_telegram,
+            support_email, support_phone, support_hours } = req.body;
 
     // Define fields managers are allowed to update
     const managerAllowed = ['currency', 'gst_rate', 'store_address', 'invoice_template', 'current_outlet_id', 'outlet_name', 'payment_instructions', 'footer_note'];
@@ -4922,8 +4990,17 @@ app.put('/api/settings', authMiddleware, requireRole(['admin', 'manager']), asyn
             }
         }
 
+        // Ensure settings table has support columns (safe to run repeatedly)
+        try {
+            await ensureColumn(db, 'settings', 'support_email', 'TEXT');
+            await ensureColumn(db, 'settings', 'support_phone', 'TEXT');
+            await ensureColumn(db, 'settings', 'support_hours', 'TEXT');
+        } catch (err) {
+            console.warn('Failed to ensure support columns exist on settings', err?.message || err);
+        }
+
         await db.run(
-            `UPDATE settings SET outlet_name = COALESCE(?, outlet_name), currency = COALESCE(?, currency), gst_rate = COALESCE(?, gst_rate), store_address = COALESCE(?, store_address), invoice_template = COALESCE(?, invoice_template), footer_note = COALESCE(?, footer_note), email_template_invoice = COALESCE(?, email_template_invoice), email_template_quote = COALESCE(?, email_template_quote), email_template_quote_request = COALESCE(?, email_template_quote_request), email_template_new_order_staff = COALESCE(?, email_template_new_order_staff), email_template_password_reset_subject = COALESCE(?, email_template_password_reset_subject), email_template_password_reset = COALESCE(?, email_template_password_reset), logo_url = COALESCE(?, logo_url), current_outlet_id = COALESCE(?, current_outlet_id) WHERE id = 1`,
+            `UPDATE settings SET outlet_name = COALESCE(?, outlet_name), currency = COALESCE(?, currency), gst_rate = COALESCE(?, gst_rate), store_address = COALESCE(?, store_address), invoice_template = COALESCE(?, invoice_template), footer_note = COALESCE(?, footer_note), email_template_invoice = COALESCE(?, email_template_invoice), email_template_quote = COALESCE(?, email_template_quote), email_template_quote_request = COALESCE(?, email_template_quote_request), email_template_new_order_staff = COALESCE(?, email_template_new_order_staff), email_template_password_reset_subject = COALESCE(?, email_template_password_reset_subject), email_template_password_reset = COALESCE(?, email_template_password_reset), support_email = COALESCE(?, support_email), support_phone = COALESCE(?, support_phone), support_hours = COALESCE(?, support_hours), logo_url = COALESCE(?, logo_url), current_outlet_id = COALESCE(?, current_outlet_id) WHERE id = 1`,
             [
                 outlet_name || null,
                 currency || null,
@@ -4937,6 +5014,9 @@ app.put('/api/settings', authMiddleware, requireRole(['admin', 'manager']), asyn
                 email_template_new_order_staff || null,
                 email_template_password_reset_subject || null,
                 email_template_password_reset || null,
+                support_email || null,
+                support_phone || null,
+                support_hours || null,
                 logo_url || null,
                 current_outlet_id || null,
             ]
@@ -6536,10 +6616,11 @@ app.delete('/api/roles/:id', authMiddleware, requireRole('admin'), async (req, r
 // Staff endpoints
 app.get('/api/staff', authMiddleware, requireRole('admin'), async (req, res) => {
     try {
-        const staff = await db.all('SELECT id, username, display_name, email, phone, created_at FROM staff ORDER BY id');
+        const staff = await db.all('SELECT id, username, display_name, email, phone, created_at, locked FROM staff ORDER BY id');
         for (const s of staff) {
             const roles = await db.all('SELECT r.id, r.name FROM roles r JOIN staff_roles sr ON sr.role_id = r.id WHERE sr.staff_id = ?', [s.id]);
             s.roles = roles;
+            s.locked = !!s.locked;
         }
         res.json(staff);
     } catch (err) {
@@ -6561,7 +6642,7 @@ app.post('/api/staff', authMiddleware, requireRole('admin'), async (req, res) =>
                 try { await db.run('INSERT INTO staff_roles (staff_id, role_id) VALUES (?, ?)', [staffId, rid]); } catch (e) { }
             }
         }
-        const staff = await db.get('SELECT id, username, display_name, email, phone, created_at FROM staff WHERE id = ?', [staffId]);
+    const staff = await db.get('SELECT id, username, display_name, email, phone, created_at, locked FROM staff WHERE id = ?', [staffId]);
         const assigned = await db.all('SELECT r.id, r.name FROM roles r JOIN staff_roles sr ON sr.role_id = r.id WHERE sr.staff_id = ?', [staffId]);
         staff.roles = assigned;
         await logActivity('staff', staffId, 'created', req.user?.username, `created staff ${username}`);
@@ -6573,10 +6654,11 @@ app.post('/api/staff', authMiddleware, requireRole('admin'), async (req, res) =>
 
 app.get('/api/staff/:id', authMiddleware, requireRole('admin'), async (req, res) => {
     try {
-        const s = await db.get('SELECT id, username, display_name, email, phone, created_at FROM staff WHERE id = ?', [req.params.id]);
+        const s = await db.get('SELECT id, username, display_name, email, phone, created_at, locked FROM staff WHERE id = ?', [req.params.id]);
         if (!s) return res.status(404).json({ error: 'Staff not found' });
         const roles = await db.all('SELECT r.id, r.name FROM roles r JOIN staff_roles sr ON sr.role_id = r.id WHERE sr.staff_id = ?', [s.id]);
         s.roles = roles;
+        s.locked = !!s.locked;
         res.json(s);
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -6596,16 +6678,29 @@ app.put('/api/staff/:id', authMiddleware, requireRole('admin'), async (req, res)
             await db.run('UPDATE staff SET display_name = ?, email = ?, phone = ? WHERE id = ?', [display_name || existing.display_name, email || existing.email, phone || existing.phone, id]);
         }
         if (Array.isArray(roles)) {
-            await db.run('DELETE FROM staff_roles WHERE staff_id = ?', [id]);
-            for (const rid of roles) {
-                try { await db.run('INSERT INTO staff_roles (staff_id, role_id) VALUES (?, ?)', [id, rid]); } catch (e) { }
-            }
+                await db.run('DELETE FROM staff_roles WHERE staff_id = ?', [id]);
+                for (const rid of roles) {
+                    try { await db.run('INSERT INTO staff_roles (staff_id, role_id) VALUES (?, ?)', [id, rid]); } catch (e) { }
+                }
         }
-        const s = await db.get('SELECT id, username, display_name, email, phone, created_at FROM staff WHERE id = ?', [id]);
-        const assigned = await db.all('SELECT r.id, r.name FROM roles r JOIN staff_roles sr ON sr.role_id = r.id WHERE sr.staff_id = ?', [id]);
-        s.roles = assigned;
-        await logActivity('staff', id, 'updated', req.user?.username, 'staff updated');
-        res.json(s);
+            const s = await db.get('SELECT id, username, display_name, email, phone, created_at, locked FROM staff WHERE id = ?', [id]);
+            const assigned = await db.all('SELECT r.id, r.name FROM roles r JOIN staff_roles sr ON sr.role_id = r.id WHERE sr.staff_id = ?', [id]);
+            s.roles = assigned;
+            // if no roles assigned, lock the account and notify
+            if (!assigned || assigned.length === 0) {
+                try {
+                    await db.run('UPDATE staff SET locked = ? WHERE id = ?', [1, id]);
+                    await queueNotification({ staffId: s.id, username: s.username, title: 'Account locked', message: 'Your account has been locked because no roles are assigned. Contact your administrator.', type: 'warning' });
+                    await logActivity('staff', id, 'locked', req.user?.username, 'Locked account due to no roles');
+                } catch (e) { /* ignore */ }
+                s.locked = 1;
+            } else {
+                try { await db.run('UPDATE staff SET locked = ? WHERE id = ?', [0, id]); } catch (e) { /* ignore */ }
+                s.locked = 0;
+            }
+            s.locked = !!s.locked;
+            await logActivity('staff', id, 'updated', req.user?.username, 'staff updated');
+            res.json(s);
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
@@ -6638,6 +6733,17 @@ app.post('/api/staff/:id/roles', authMiddleware, requireRole('admin'), async (re
             }
         }
         const assigned = await db.all('SELECT r.id, r.name FROM roles r JOIN staff_roles sr ON sr.role_id = r.id WHERE sr.staff_id = ?', [id]);
+        // lock account if no roles assigned
+        if (!assigned || assigned.length === 0) {
+            try {
+                await db.run('UPDATE staff SET locked = ? WHERE id = ?', [1, id]);
+                const s = await db.get('SELECT username FROM staff WHERE id = ?', [id]);
+                await queueNotification({ staffId: id, username: s?.username, title: 'Account locked', message: 'Your account has been locked because no roles are assigned. Contact your administrator.', type: 'warning' });
+                await logActivity('staff', id, 'locked', req.user?.username, 'Locked account due to no roles');
+            } catch (e) { /* ignore */ }
+        } else {
+            try { await db.run('UPDATE staff SET locked = ? WHERE id = ?', [0, id]); } catch (e) { /* ignore */ }
+        }
         await logActivity('staff', id, 'roles_updated', req.user?.username, JSON.stringify(assigned));
         res.json({ success: true, roles: assigned });
     } catch (err) {
@@ -6737,6 +6843,37 @@ app.post('/api/staff/:id/switch', authMiddleware, requireRole('admin'), async (r
     // set refresh cookie(s) using helper
     setRefreshCookie(res, refreshToken);
         res.json({ token, role: roleName, username: staff.username, refreshToken });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Lock a staff account (admin only)
+app.post('/api/staff/:id/lock', authMiddleware, requireRole('admin'), async (req, res) => {
+    const { id } = req.params;
+    try {
+        const s = await db.get('SELECT id, username FROM staff WHERE id = ?', [id]);
+        if (!s) return res.status(404).json({ error: 'Staff not found' });
+        await db.run('UPDATE staff SET locked = ? WHERE id = ?', [1, id]);
+        try { await db.run('DELETE FROM refresh_tokens WHERE staff_id = ?', [id]); } catch (e) { /* ignore */ }
+        await queueNotification({ staffId: s.id, username: s.username, title: 'Account locked', message: 'Your account has been locked by an administrator.', type: 'warning' });
+        await logActivity('staff', id, 'locked', req.user?.username, `Locked account ${s.username}`);
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Unlock a staff account (admin only)
+app.post('/api/staff/:id/unlock', authMiddleware, requireRole('admin'), async (req, res) => {
+    const { id } = req.params;
+    try {
+        const s = await db.get('SELECT id, username FROM staff WHERE id = ?', [id]);
+        if (!s) return res.status(404).json({ error: 'Staff not found' });
+        await db.run('UPDATE staff SET locked = ? WHERE id = ?', [0, id]);
+        await queueNotification({ staffId: s.id, username: s.username, title: 'Account unlocked', message: 'Your account has been unlocked by an administrator.', type: 'success' });
+        await logActivity('staff', id, 'unlocked', req.user?.username, `Unlocked account ${s.username}`);
+        res.json({ success: true });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }

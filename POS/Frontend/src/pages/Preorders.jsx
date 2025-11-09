@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { FaEnvelopeOpenText, FaExternalLinkAlt, FaHistory, FaSync, FaTimes } from 'react-icons/fa';
 import { api } from '../lib/api';
+import Modal from '../components/Modal';
 import { useToast } from '../components/ToastContext';
 
 const STATUS_OPTIONS = [
@@ -480,10 +481,10 @@ async function loadPreorders(status) {
         </div>
       </section>
       {previewSlip && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm">
-          <div className="max-h-[90vh] w-[90vw] max-w-3xl overflow-hidden rounded-2xl border border-slate-200/70 bg-white/95 shadow-2xl shadow-slate-900/25">
+        <Modal open={Boolean(previewSlip)} onClose={() => setPreviewSlip(null)} labelledBy="slip-preview-title" showFooter={false}>
+          <div className="max-h-[90vh] w-[90vw] max-w-3xl overflow-hidden rounded-2xl bg-white">
             <div className="flex items-center justify-between border-b border-slate-200/70 px-4 py-3">
-              <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Payment slip preview</h3>
+              <h3 id="slip-preview-title" className="text-sm font-semibold uppercase tracking-wide text-slate-500">Payment slip preview</h3>
               <button
                 type="button"
                 onClick={() => setPreviewSlip(null)}
@@ -505,7 +506,7 @@ async function loadPreorders(status) {
               )}
             </div>
           </div>
-        </div>
+        </Modal>
       )}
     </div>
   );

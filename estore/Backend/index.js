@@ -5,6 +5,7 @@ import morgan from "morgan";
 import cors from "cors";
 import fetch from "node-fetch";
 import https from "https";
+import crypto from "crypto";
 import fs from "fs";
 import path from "path";
 import dotenv from "dotenv";
@@ -14,6 +15,7 @@ dotenv.config();
 const PORT = process.env.PORT || 4100;
 const POS_API_BASE = process.env.POS_API_BASE || "https://pos.itnvend.com:4000";
 const POS_API_TOKEN = process.env.POS_API_TOKEN || null;
+const POS_API_SECRET = process.env.POS_API_SECRET || null;
 const ALLOWED_ORIGINS = (process.env.CORS_ORIGIN || "*")
   .split(",")
   .map((origin) => origin.trim())
@@ -74,7 +76,7 @@ app.get('/uploads/*', async (req, res) => {
   const target = `${POS_API_BASE}${req.originalUrl}`;
   try {
     const headers = {};
-    if (POS_API_TOKEN) headers['x-api-key'] = POS_API_TOKEN;
+    if (POS_API_TOKEN) headers['x-storefront-key'] = POS_API_TOKEN;
     const upstream = await fetch(target, { method: 'GET', headers, agent: posAgent });
     res.status(upstream.status);
     // copy headers (content-type mainly)
@@ -96,16 +98,33 @@ function buildTargetUrl(req) {
 
 async function forwardJson(req, res, options = {}) {
   const targetUrl = options.url || buildTargetUrl(req);
-  try {
+    try {
     const headers = {
       Accept: "application/json",
       "Content-Type": "application/json",
     };
+    // Forward storefront key using POS expected header name
     if (POS_API_TOKEN) {
-      headers["x-api-key"] = POS_API_TOKEN;
+      headers["x-storefront-key"] = POS_API_TOKEN;
     }
     if (options.extraHeaders) {
       Object.assign(headers, options.extraHeaders);
+    }
+
+    // If a secret is configured, compute a signature for the outbound request so POS can validate it
+    try {
+      const method = (options.method || req.method || 'GET').toUpperCase();
+      if (POS_API_SECRET && method !== 'GET' && method !== 'HEAD') {
+        const rawBody = typeof (options.body ?? req.body) === 'string'
+          ? (options.body ?? req.body)
+          : JSON.stringify(options.body ?? req.body ?? {});
+        const timestamp = String(Date.now());
+        const signature = crypto.createHmac('sha256', POS_API_SECRET).update(`${timestamp}.${rawBody}`).digest('hex');
+        headers['x-storefront-timestamp'] = timestamp;
+        headers['x-storefront-signature'] = signature;
+      }
+    } catch (sigErr) {
+      console.warn('Failed to compute storefront signature for proxied request', sigErr?.message || sigErr);
     }
 
     const fetchOptions = {

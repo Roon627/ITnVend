@@ -4,10 +4,12 @@ import api from '../../lib/api';
 import { useToast } from '../../components/ToastContext';
 import { useAuth } from '../../components/AuthContext';
 import { useTheme } from '../../components/ThemeContext';
+import { useSettings } from '../../components/SettingsContext';
 import ThemePanel from './ThemePanel';
 import OutletsPanel from './OutletsPanel';
 import EmailSettings from './EmailSettings';
 import SocialLinksPanel from './SocialLinksPanel';
+import ContactPanel from './ContactPanel';
 import {
   FRIENDLY_INVOICE_NOTE,
   FRIENDLY_INVOICE_TEMPLATE,
@@ -72,6 +74,9 @@ const DEFAULT_FORM = {
   social_telegram: '',
   payment_instructions: '',
   footer_note: '',
+  support_email: '',
+  support_phone: '',
+  support_hours: '',
 };
 
 const DEFAULT_NEW_OUTLET = {
@@ -95,6 +100,7 @@ export default function Settings() {
   const isManager = user?.role === 'manager';
   const isAdmin = user?.role === 'admin';
   const { theme: activeTheme, setTheme, themes: themeOptions } = useTheme();
+  const { refreshSettings: refreshGlobalSettings } = useSettings();
 
   const [globalSettings, setGlobalSettings] = useState(null);
   const [settingsLoading, setSettingsLoading] = useState(true);
@@ -108,6 +114,7 @@ export default function Settings() {
 
   const tabs = useMemo(
     () => [
+      { id: 'contact', label: 'Contact', description: 'Support contact info shown across the site.' , adminOnly: true},
       { id: 'outlet', label: 'Outlet Management', description: 'Currency, addresses, and outlet selection.' },
       { id: 'smtp', label: 'SMTP Settings', description: 'Email provider credentials and dispatch behaviour.' },
       { id: 'socials', label: 'Social Links', description: 'Storefront social links and customer touchpoints.', adminOnly: true },
@@ -206,6 +213,9 @@ export default function Settings() {
       social_instagram: globalSettings.social_links?.instagram ?? globalSettings.social_instagram ?? '',
       social_whatsapp: globalSettings.social_links?.whatsapp ?? globalSettings.social_whatsapp ?? '',
       social_telegram: globalSettings.social_links?.telegram ?? globalSettings.social_telegram ?? '',
+      support_email: globalSettings.support_email ?? globalSettings.contact_email ?? '',
+      support_phone: globalSettings.support_phone ?? globalSettings.contact_phone ?? '',
+      support_hours: globalSettings.support_hours ?? globalSettings.contact_hours ?? '',
     });
   }, [globalSettings, defaultSettings]);
 
@@ -293,12 +303,16 @@ export default function Settings() {
           social_instagram: formState.social_instagram,
           social_whatsapp: formState.social_whatsapp,
           social_telegram: formState.social_telegram,
+          support_email: formState.support_email,
+          support_phone: formState.support_phone,
+          support_hours: formState.support_hours,
         });
       }
 
       await api.put('/settings', basePayload);
 
-      await Promise.all([refreshSettings(), fetchOutlets()]);
+      // Refresh the shared settings context so Login/Help and other consumers see the update
+      await Promise.all([refreshGlobalSettings(), fetchOutlets()]);
       setStatus('saved');
       push('Settings saved', 'info');
       setTimeout(() => setStatus('idle'), 2000);
@@ -404,6 +418,14 @@ export default function Settings() {
             status={status}
             showSmtp={false}
             heading="Email Template Library"
+          />
+        );
+      case 'contact':
+        return (
+          <ContactPanel
+            formState={formState}
+            updateField={updateField}
+            canEdit={isAdmin}
           />
         );
       case 'themes':

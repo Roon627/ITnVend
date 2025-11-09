@@ -8,6 +8,9 @@
 
 const API_BASE = import.meta.env.VITE_API_BASE || '';
 const API_DIRECT_FALLBACK = (import.meta.env.VITE_API_DIRECT_FALLBACK || '').trim().replace(/\/$/, '');
+// Optional storefront credentials (if provided, attach to outgoing requests to the POS API)
+const STOREFRONT_API_KEY = import.meta.env.VITE_STOREFRONT_API_KEY || '';
+const STOREFRONT_API_SECRET = import.meta.env.VITE_STOREFRONT_API_SECRET || '';
 let authToken = null;
 
 export function setAuthToken(token) {
@@ -49,8 +52,11 @@ async function fetchWithRetry(path, options = {}, retries = 2, backoff = 200) {
   let url = null;
   while (attempt <= retries) {
     try {
-      if (!options.headers) options.headers = {};
-      if (authToken) options.headers['Authorization'] = `Bearer ${authToken}`;
+  if (!options.headers) options.headers = {};
+  if (authToken) options.headers['Authorization'] = `Bearer ${authToken}`;
+  // Attach storefront credentials when calling the configured API base (POS)
+  // POS expects the key in `x-storefront-key` (and the secret is used to sign requests server-side).
+  if (STOREFRONT_API_KEY) options.headers['x-storefront-key'] = STOREFRONT_API_KEY;
       // include credentials so HttpOnly refresh cookie is sent
       options.credentials = 'include';
     // normalize path to backend API route

@@ -1,7 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 
-export default function Modal({ open, onClose, labelledBy, children, className = '', title, message, primaryText = 'OK', onPrimary, variant = 'notice' }) {
+export default function Modal({ open, onClose, labelledBy, children, className = '', title, message, primaryText = 'OK', onPrimary, variant = 'notice', showFooter = true }) {
   // Create a stable container element for the portal. Creating it here ensures the
   // same element is used across renders which prevents the modal DOM from being
   // recreated and losing focus on inner inputs during re-renders.
@@ -157,14 +157,28 @@ export default function Modal({ open, onClose, labelledBy, children, className =
 
   const modal = (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3">
-  <div className="absolute inset-0 bg-black/30 backdrop-blur-sm" onClick={() => onCloseRef.current && onCloseRef.current()} />
+      <div className="absolute inset-0 bg-black/30 backdrop-blur-sm" onClick={() => onCloseRef.current && onCloseRef.current()} />
       <div
         role="dialog"
         aria-modal="true"
         aria-labelledby={labelledBy}
         className="relative z-10 w-full flex items-center justify-center"
       >
-        {React.Children.count(children) > 0 ? children : defaultContent}
+        {React.Children.count(children) > 0 ? (
+          // When children are provided allow rendering them but optionally render
+          // a consistent footer with primary action so callers don't need to
+          // re-implement buttons for simple confirmation dialogs.
+          <div className="w-full max-w-md"> 
+            <div className="">{children}</div>
+            {showFooter && (typeof onPrimary === 'function') && (
+              <div className="mt-4 flex justify-end w-full">
+                <button onClick={handlePrimary} className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg text-white shadow focus:outline-none focus:ring-2 ${variant === 'error' || variant === 'danger' ? 'bg-red-500 hover:bg-red-400 focus:ring-red-200' : variant === 'warning' ? 'bg-amber-500 hover:bg-amber-400 focus:ring-amber-200' : variant === 'success' ? 'bg-emerald-500 hover:bg-emerald-400 focus:ring-emerald-200' : 'bg-rose-500 hover:bg-rose-400 focus:ring-rose-200'}`}>
+                  {primaryText}
+                </button>
+              </div>
+            )}
+          </div>
+        ) : defaultContent}
       </div>
     </div>
   );

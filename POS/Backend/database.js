@@ -205,7 +205,7 @@ async function ensureVendorSlugs(db) {
     await db.run("UPDATE vendors SET public_description = notes WHERE (public_description IS NULL OR public_description = '') AND notes IS NOT NULL AND notes != ''");
 }
 
-async function ensureColumn(db, table, column, definition) {
+export async function ensureColumn(db, table, column, definition) {
     const safeTable = sanitizeIdentifier(table);
     const safeColumn = sanitizeIdentifier(column);
     let columnDefinition = definition;
@@ -1142,6 +1142,8 @@ export async function setupDatabase() {
 
     // staff avatar column for profile images
     await ensureColumn(db, 'staff', 'avatar', 'TEXT');
+    // lock flag to disable staff accounts without removing them
+    await ensureColumn(db, 'staff', 'locked', 'INTEGER DEFAULT 0');
 
     await ensureColumn(db, 'quotes', 'submission_type', 'TEXT');
     await ensureColumn(db, 'quotes', 'existing_customer_ref', 'TEXT');
@@ -1356,12 +1358,17 @@ export async function setupDatabase() {
             }
         };
 
-        // Accounts Payable (current liabilities) - used for vendor payable GL lines (code 2000 seeded normally)
-        await ensureCoa('2000', 'Accounts Payable', 'Liability', 'Current Liabilities');
-
-        // Commission revenue (company's share) - if the seeded 4200 doesn't exist create a commission revenue account
-        // Note: the seed normally includes 4200 as Other Income; here we ensure an appropriate revenue account exists
-        await ensureCoa('4200', 'Commission Revenue', 'Revenue', 'Revenue');
+    // Ensure essential accounts exist that the application expects in various flows.
+    // Accounts Receivable (1200) is required when creating invoices/orders.
+    await ensureCoa('1200', 'Accounts Receivable', 'Asset', 'Current Assets');
+    // Sales Revenue (4000) and Taxes Payable (2200) are used by invoice posting logic.
+    await ensureCoa('4000', 'Sales Revenue', 'Revenue', 'Revenue');
+    await ensureCoa('2200', 'Taxes Payable', 'Liability', 'Current Liabilities');
+    // Accounts Payable (2000) - used for vendor payable GL lines
+    await ensureCoa('2000', 'Accounts Payable', 'Liability', 'Current Liabilities');
+    // Commission revenue (company's share) - if the seeded 4200 doesn't exist create a commission revenue account
+    // Note: the seed normally includes 4200 as Other Income; here we ensure an appropriate revenue account exists
+    await ensureCoa('4200', 'Commission Revenue', 'Revenue', 'Revenue');
     } catch (err) {
         // Do not throw - logging only so DB initialization continues in case of transient issues
         console.warn('Failed to ensure minimal chart_of_accounts entries:', err?.message || err);

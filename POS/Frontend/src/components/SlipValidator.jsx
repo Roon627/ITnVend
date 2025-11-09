@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import api from '../lib/api';
+import Modal from './Modal';
 import { useToast } from './ToastContext';
 import InlineValidationCard from './InlineValidationCard';
 
@@ -376,15 +377,13 @@ export default function SlipValidator({ onFileSelected, showInlinePreview = true
         </div>
       )}
 
-      {/* analyzing overlay */}
-      {processing && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="rounded-xl bg-white/90 p-6 flex flex-col items-center gap-4">
-            <div className="h-12 w-12 rounded-full border-4 border-rose-300 border-t-rose-500 animate-spin" />
-            <div className="text-sm font-medium">Analyzing slip, please wait…</div>
-          </div>
+      {/* analyzing overlay (use shared Modal for consistent spacing) */}
+      <Modal open={processing} onClose={() => {}} showFooter={false}>
+        <div className="rounded-xl bg-white/90 p-6 flex flex-col items-center gap-4">
+          <div className="h-12 w-12 rounded-full border-4 border-rose-300 border-t-rose-500 animate-spin" />
+          <div className="text-sm font-medium">Analyzing slip, please wait…</div>
         </div>
-      )}
+      </Modal>
     </div>
   );
 }
