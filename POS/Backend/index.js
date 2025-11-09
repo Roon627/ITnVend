@@ -18,6 +18,7 @@ import crypto from 'crypto';
 import validateSlipRouter from './routes/validateSlip.js';
 import validateSlipPublicRouter from './routes/validateSlipPublic.js';
 import slipsRouter from './routes/slips.js';
+import cookieParser from 'cookie-parser';
 import { createSlipProcessingQueue } from './lib/slipProcessingQueue.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -260,6 +261,9 @@ server.on('error', (err) => {
 });
 
 app.use(cors({ origin: true, credentials: true }));
+
+// parse cookies so refresh token cookie can be read reliably
+app.use(cookieParser());
 
 // Cookie helpers: use secure, SameSite=None in production so cookies work cross-site over HTTPS
 const IN_PROD = process.env.NODE_ENV === 'production';
@@ -6396,12 +6400,20 @@ app.post('/api/staff/:id/roles', authMiddleware, requireRole('admin'), async (re
 // Refresh token exchange - rotate refresh token for a new JWT
 app.post('/api/token/refresh', async (req, res) => {
     try {
-        // read refresh token from HttpOnly cookie OR accept a fallback refresh token in request body (useful for dev)
-        const cookieHeader = req.headers.cookie || '';
-        const match = cookieHeader.split(';').map(c => c.trim()).find(c => c.startsWith('ITnvend_refresh=') || c.startsWith('irnvend_refresh='));
+        // read refresh token from parsed HttpOnly cookie first (preferred)
         let refreshToken = null;
-        if (match) {
-            refreshToken = decodeURIComponent(match.split('=')[1] || '');
+        try {
+            refreshToken = req.cookies?.ITnvend_refresh || req.cookies?.irnvend_refresh || null;
+        } catch (e) {
+            refreshToken = null;
+        }
+        // fallback: read raw cookie header if cookie-parser not available or cookie missing
+        if (!refreshToken) {
+            const cookieHeader = req.headers.cookie || '';
+            const match = cookieHeader.split(';').map(c => c.trim()).find(c => c.startsWith('ITnvend_refresh=') || c.startsWith('irnvend_refresh='));
+            if (match) {
+                refreshToken = decodeURIComponent(match.split('=')[1] || '');
+            }
         }
         // fallback: allow refresh token in request body (note: less secure; intended for local/dev compatibility)
         if (!refreshToken && req.body && req.body.refreshToken) {
