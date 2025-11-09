@@ -546,6 +546,9 @@ export default function Customers() {
           gst_number: normalized.gst_number || normalized.tax_number || '',
           registration_number: normalized.registration_number || normalized.reg_number || '',
           is_business: Boolean(normalized.is_business || normalized.isBusiness || normalized.company),
+          // include logo and attachments if present so view modal can show them
+          logo_url: normalized.logo_url || null,
+          attachments: normalized.attachments || (normalized.attachments ? (typeof normalized.attachments === 'string' ? JSON.parse(normalized.attachments || '[]') : normalized.attachments) : []),
         });
       }
     } catch (err) {
@@ -614,6 +617,54 @@ export default function Customers() {
     }
     setDetailSaving(true);
     try {
+      // If this is a synthetic vendor row (id like 'vendor-<id>'), call vendor-specific endpoints
+      if (typeof detailForm.id === 'string' && detailForm.id.startsWith('vendor-')) {
+        const vid = Number(detailForm.id.split('-')[1]);
+        // If we have a logo change, use the admin vendor logo endpoint which accepts a logo_url
+        if (detailForm.logo_url) {
+          await api.patch(`/vendors/${vid}/logo`, { logo_url: detailForm.logo_url });
+          toast.push('Vendor logo updated', 'success');
+        } else {
+          // No vendor-specific update endpoint for other fields in this UI; fall back to a best-effort customers update
+          // Attempt to find the linked customer_id (if present) and update that customer instead
+          try {
+            // If the vendor object was loaded into detailForm.attachments/raw, try to extract customer_id
+            const maybeVendor = detailForm.raw || {};
+            const linkedCustomerId = maybeVendor.customer_id || maybeVendor.customerId || null;
+            if (linkedCustomerId) {
+              const payload = {
+                name: detailForm.name,
+                email: detailForm.email,
+                phone: detailForm.phone || null,
+                address: detailForm.address || null,
+                gst_number: detailForm.gst_number || null,
+                registration_number: detailForm.registration_number || null,
+                is_business: detailForm.is_business ? 1 : 0,
+              };
+              if (detailForm.logo_data) payload.logo_data = detailForm.logo_data;
+              if (detailForm.documents) payload.documents = detailForm.documents;
+              if (detailForm.attachments) payload.attachments = detailForm.attachments;
+              if (detailForm.remove_attachments) payload.remove_attachments = detailForm.remove_attachments;
+              await api.put(`/customers/${linkedCustomerId}`, payload);
+              toast.push('Vendor customer record updated', 'success');
+            } else {
+              // As a last resort, surface a helpful error instead of sending an invalid id to customers endpoint
+              throw new Error('Vendor updates (other than logo) must be performed via the vendor admin flow');
+            }
+          } catch (innerErr) {
+            console.error('Failed to update vendor-linked customer', innerErr);
+            throw innerErr;
+          }
+        }
+
+        setDetailModalOpen(false);
+        // refresh list and summary
+        await fetchCustomers();
+        await fetchSummary();
+        return;
+      }
+
+      // Regular customer update
       const payload = {
         name: detailForm.name,
         email: detailForm.email,
@@ -637,7 +688,7 @@ export default function Customers() {
       await fetchSummary();
     } catch (err) {
       console.error('Failed to save customer', err);
-      toast.push(err?.response?.data?.error || 'Failed to update customer', 'error');
+      toast.push(err?.response?.data?.error || err?.message || 'Failed to update customer', 'error');
     } finally {
       setDetailSaving(false);
     }

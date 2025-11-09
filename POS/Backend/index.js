@@ -4,6 +4,7 @@ import os from 'os';
 import fs from 'fs';
 import path from 'path';
 import https from 'https';
+import http from 'http';
 import { fileURLToPath } from 'url';
 import { Server } from 'socket.io';
 import { setupDatabase } from './database.js';
@@ -45,7 +46,19 @@ function loadHttpsOptions() {
 }
 
 const app = express();
-const server = https.createServer(loadHttpsOptions(), app);
+let server;
+let serverIsHttps = false;
+try {
+        // Allow forcing HTTP in development via DEV_HTTP=true
+        if (process.env.DEV_HTTP === 'true') throw new Error('DEV_HTTP');
+        server = https.createServer(loadHttpsOptions(), app);
+        serverIsHttps = true;
+} catch (err) {
+        console.warn('HTTPS certificates not available or DEV_HTTP set - falling back to HTTP for development.');
+        server = http.createServer(app);
+        serverIsHttps = false;
+}
+
 const io = new Server(server, {
   cors: {
     origin: true,
@@ -1370,7 +1383,9 @@ function normalizeUploadPath(raw) {
                 // build public URL path relative to /uploads
                 const rel = path.relative(imagesDir, req.file.path).replace(/\\/g, '/');
                 const urlPath = `/uploads/${rel}`;
-                const absoluteUrl = `${req.protocol}://${req.get('host')}${urlPath}`;
+                // Prefer configured PUBLIC_API_BASE in production; fall back to request host for dev
+                const publicBase = (process.env.PUBLIC_API_BASE || '').trim().replace(/\/$/, '');
+                const absoluteUrl = publicBase ? `${publicBase}${urlPath}` : `${req.protocol}://${req.get('host')}${urlPath}`;
                 return res.json({ url: absoluteUrl, path: urlPath });
             } catch (err) {
                 return res.status(500).json({ error: err.message });
@@ -1400,7 +1415,8 @@ function normalizeUploadPath(raw) {
                 fs.writeFileSync(filePath, buffer);
                 const rel = path.relative(imagesDir, filePath).replace(/\\/g, '/');
                 const urlPath = `/uploads/${rel}`;
-                const absoluteUrl = `${req.protocol}://${req.get('host')}${urlPath}`;
+                const publicBase = (process.env.PUBLIC_API_BASE || '').trim().replace(/\/$/, '');
+                const absoluteUrl = publicBase ? `${publicBase}${urlPath}` : `${req.protocol}://${req.get('host')}${urlPath}`;
                 return res.json({ url: absoluteUrl, path: urlPath });
             } catch (err2) {
                 return res.status(500).json({ error: err2.message });
@@ -3917,6 +3933,28 @@ app.put('/api/vendors/:id/status', authMiddleware, requireRole(['manager','admin
     }
 });
 
+// Admin: set vendor logo (safe, requires manager/admin)
+app.patch('/api/vendors/:id/logo', authMiddleware, requireRole(['manager','admin']), async (req, res) => {
+    const { id } = req.params;
+    const { logo_url } = req.body || {};
+    if (!logo_url || typeof logo_url !== 'string') return res.status(400).json({ error: 'logo_url is required' });
+    try {
+        // Normalize value: if it contains /uploads/ prefer storing the path starting at /uploads/
+        let store = logo_url;
+        const uploadsIndex = logo_url.indexOf('/uploads/');
+        if (uploadsIndex !== -1) {
+            store = logo_url.slice(uploadsIndex);
+        }
+        await db.run('UPDATE vendors SET logo_url = ? WHERE id = ?', [store, id]);
+        const updated = await db.get('SELECT id, slug, legal_name, logo_url, attachments FROM vendors WHERE id = ?', [id]);
+        // parse attachments if present
+        try { updated.attachments = updated.attachments ? (typeof updated.attachments === 'string' ? JSON.parse(updated.attachments || '[]') : updated.attachments) : []; } catch (e) { updated.attachments = []; }
+        res.json(updated);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
 // Public vendor listings for eStore / marketing surfaces
 app.get('/api/public/vendors', async (req, res) => {
     try {
@@ -3942,7 +3980,18 @@ app.get('/api/public/vendors', async (req, res) => {
              LIMIT ?`,
             [...params, limit]
         );
-        res.json(rows || []);
+        // Normalize logo_url to absolute URLs when necessary so external sites (estore) can load images
+        const base = (process.env.PUBLIC_API_BASE || `${req.protocol}://${req.get('host')}`).replace(/\/$/, '');
+        const normalized = (rows || []).map(r => {
+            const copy = { ...r };
+            try {
+                if (copy.logo_url && typeof copy.logo_url === 'string' && copy.logo_url.startsWith('/uploads/')) {
+                    copy.logo_url = `${base}${copy.logo_url}`;
+                }
+            } catch (e) { /* ignore */ }
+            return copy;
+        });
+        res.json(normalized);
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
@@ -3957,12 +4006,27 @@ app.get('/api/public/vendors/:slug', async (req, res) => {
         if (!vendor) return res.status(404).json({ error: 'Vendor not found' });
         const productCount = await db.get('SELECT COUNT(*) as c FROM products WHERE vendor_id = ?', [vendor.id]);
         vendor.product_count = productCount?.c || 0;
-        // parse attachments JSON if present
+        // parse attachments JSON if present and normalize any /uploads/ paths to absolute URLs
         try {
             vendor.attachments = vendor.attachments ? (typeof vendor.attachments === 'string' ? JSON.parse(vendor.attachments || '[]') : vendor.attachments) : [];
         } catch (e) {
             vendor.attachments = [];
         }
+        try {
+            const base = (process.env.PUBLIC_API_BASE || `${req.protocol}://${req.get('host')}`).replace(/\/$/, '');
+            if (vendor.logo_url && typeof vendor.logo_url === 'string' && vendor.logo_url.startsWith('/uploads/')) {
+                vendor.logo_url = `${base}${vendor.logo_url}`;
+            }
+            if (Array.isArray(vendor.attachments)) {
+                vendor.attachments = vendor.attachments.map(a => {
+                    if (a && a.path && typeof a.path === 'string' && a.path.startsWith('/uploads/')) {
+                        return { ...a, path: `${base}${a.path}` };
+                    }
+                    return a;
+                });
+            }
+        } catch (e) { /* ignore normalization errors */ }
+
         res.json(vendor);
     } catch (err) {
         res.status(500).json({ error: err.message });

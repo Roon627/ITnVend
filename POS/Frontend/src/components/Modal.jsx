@@ -2,18 +2,25 @@ import React, { useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 
 export default function Modal({ open, onClose, labelledBy, children, className = '', title, message, primaryText = 'OK', onPrimary, variant = 'notice' }) {
-  const rootRef = useRef(null);
+  // Create a stable container element for the portal. Creating it here ensures the
+  // same element is used across renders which prevents the modal DOM from being
+  // recreated and losing focus on inner inputs during re-renders.
+  const rootRef = useRef(typeof document !== 'undefined' ? document.createElement('div') : null);
   const previouslyFocused = useRef(null);
+  // Keep a ref to the latest onClose so the effect below doesn't need to re-run when
+  // the parent provides a new inline callback on every render (which would cause
+  // the portal to be torn down and recreated and inputs to lose focus).
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
 
   useEffect(() => {
     if (!open) return undefined;
     previouslyFocused.current = document.activeElement;
-    if (!rootRef.current) rootRef.current = document.createElement('div');
     const el = rootRef.current;
-    document.body.appendChild(el);
+    if (el && !document.body.contains(el)) document.body.appendChild(el);
 
     const handleKey = (e) => {
-      if (e.key === 'Escape') onClose && onClose();
+      if (e.key === 'Escape') onCloseRef.current && onCloseRef.current();
       if (e.key === 'Tab') {
         const focusable = el.querySelectorAll('a[href], button, textarea, input, select, [tabindex]:not([tabindex="-1"])');
         if (!focusable.length) return;
@@ -37,10 +44,10 @@ export default function Modal({ open, onClose, labelledBy, children, className =
 
     return () => {
       document.removeEventListener('keydown', handleKey);
-      try { document.body.removeChild(el); } catch { /* ignore */ }
+      try { if (el && document.body.contains(el)) document.body.removeChild(el); } catch { /* ignore */ }
       if (previouslyFocused.current && previouslyFocused.current.focus) previouslyFocused.current.focus();
     };
-  }, [open, onClose]);
+  }, [open]);
 
   if (!open) return null;
 
@@ -48,7 +55,7 @@ export default function Modal({ open, onClose, labelledBy, children, className =
     try {
       if (typeof onPrimary === 'function') onPrimary();
     } finally {
-      if (typeof onClose === 'function') onClose();
+      if (typeof onCloseRef.current === 'function') onCloseRef.current();
     }
   };
 
@@ -150,7 +157,7 @@ export default function Modal({ open, onClose, labelledBy, children, className =
 
   const modal = (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3">
-      <div className="absolute inset-0 bg-black/30 backdrop-blur-sm" onClick={() => onClose && onClose()} />
+  <div className="absolute inset-0 bg-black/30 backdrop-blur-sm" onClick={() => onCloseRef.current && onCloseRef.current()} />
       <div
         role="dialog"
         aria-modal="true"
@@ -162,5 +169,7 @@ export default function Modal({ open, onClose, labelledBy, children, className =
     </div>
   );
 
-  return createPortal(modal, document.body);
+  // Use our stable container element as the portal target so the DOM for the
+  // modal doesn't get recreated across renders which can cause inputs to lose focus.
+  return createPortal(modal, rootRef.current || document.body);
 }

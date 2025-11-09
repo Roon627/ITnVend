@@ -217,6 +217,18 @@ async function ensureColumn(db, table, column, definition) {
     }
 
     if (db.dialect === DIALECTS.POSTGRES) {
+        // When running on Postgres, first ensure the table actually exists in public schema.
+        // Some bootstrap flows call ensureColumn before the CREATE TABLE statements run, which
+        // would cause ALTER TABLE to fail with "relation does not exist". If the table is
+        // not present yet, skip adding the column — the CREATE TABLE will include it.
+        const exists = await db.get(
+            "SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = ?",
+            [safeTable]
+        );
+        if (!exists) {
+            return;
+        }
+
         await db.run(`ALTER TABLE ${safeTable} ADD COLUMN IF NOT EXISTS ${safeColumn} ${columnDefinition}`);
         return;
     }

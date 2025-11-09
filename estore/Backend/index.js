@@ -69,6 +69,26 @@ app.use(
 app.use(express.json({ limit: "10mb" }));
 app.use(morgan("dev"));
 
+// Proxy uploads from POS so the frontend can load media from same origin without TLS issues
+app.get('/uploads/*', async (req, res) => {
+  const target = `${POS_API_BASE}${req.originalUrl}`;
+  try {
+    const headers = {};
+    if (POS_API_TOKEN) headers['x-api-key'] = POS_API_TOKEN;
+    const upstream = await fetch(target, { method: 'GET', headers, agent: posAgent });
+    res.status(upstream.status);
+    // copy headers (content-type mainly)
+    upstream.headers.forEach((v, k) => {
+      res.set(k, v);
+    });
+    const buffer = await upstream.arrayBuffer();
+    res.send(Buffer.from(buffer));
+  } catch (err) {
+    console.error('Failed to proxy upload', target, err?.message || err);
+    res.status(502).send('Upstream unavailable');
+  }
+});
+
 function buildTargetUrl(req) {
   const base = POS_API_BASE.endsWith("/") ? POS_API_BASE.slice(0, -1) : POS_API_BASE;
   return `${base}${req.originalUrl}`;
@@ -104,8 +124,44 @@ async function forwardJson(req, res, options = {}) {
 
     res.status(response.status);
     if (contentType.includes("application/json")) {
+      // Parse JSON so we can optionally rewrite any POS absolute URLs to origin-relative paths
+      let parsed = text ? JSON.parse(text) : {};
+      try {
+        const rewritePosUrl = (val) => {
+          if (!val || typeof val !== 'string') return val;
+          const posBase = POS_API_BASE.endsWith('/') ? POS_API_BASE.slice(0, -1) : POS_API_BASE;
+          if (val.startsWith(posBase)) {
+            return val.slice(posBase.length);
+          }
+          return val;
+        };
+
+        const walk = (obj) => {
+          if (!obj || typeof obj !== 'object') return obj;
+          if (Array.isArray(obj)) return obj.map(walk);
+          const out = {};
+          for (const k of Object.keys(obj)) {
+            const v = obj[k];
+            if (typeof v === 'string') {
+              out[k] = rewritePosUrl(v);
+            } else if (Array.isArray(v)) {
+              out[k] = v.map((entry) => (typeof entry === 'string' ? rewritePosUrl(entry) : walk(entry)));
+            } else if (v && typeof v === 'object') {
+              out[k] = walk(v);
+            } else {
+              out[k] = v;
+            }
+          }
+          return out;
+        };
+
+        parsed = walk(parsed);
+      } catch (e) {
+        // ignore rewrite errors and send original parsed
+      }
+
       res.type("application/json");
-      res.send(text ? JSON.parse(text) : {});
+      res.send(parsed);
     } else {
       res.send(text);
     }
