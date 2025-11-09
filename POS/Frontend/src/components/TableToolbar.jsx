@@ -25,7 +25,7 @@ const TableToolbar = ({ onSearch, onAddCustomer, searchTerm, loading = false }) 
           </button>
           <button 
             onClick={onAddCustomer}
-            className="flex items-center px-4 py-2 bg-indigo-600 border border-transparent rounded-md text-sm font-medium text-white hover:bg-indigo-700"
+            className="btn-primary flex items-center px-4 py-2 rounded-md text-sm font-medium"
           >
             <FaPlus className="mr-2" />
             Add Customer

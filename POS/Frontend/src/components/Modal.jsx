@@ -67,8 +67,8 @@ export default function Modal({ open, onClose, labelledBy, children, className =
     const iconClasses = "mt-1 flex h-9 w-9 items-center justify-center rounded-full";
     const svgClasses = "h-5 w-5";
 
-    const content = (
-      <div className={`relative z-10 w-full max-w-md transform overflow-hidden rounded-lg p-4 ${className}`} role="document">
+  const content = (
+  <div className={`relative z-10 w-full max-w-lg transform overflow-hidden rounded-lg p-4 ${className}`} role="document">
         {variant === 'success' ? (
           <div className={`${commonClasses} bg-gradient-to-br from-emerald-50/80 to-white border border-emerald-100`}>
             <div className="flex items-start gap-3">
@@ -168,15 +168,17 @@ export default function Modal({ open, onClose, labelledBy, children, className =
           // When children are provided allow rendering them but optionally render
           // a consistent footer with primary action so callers don't need to
           // re-implement buttons for simple confirmation dialogs.
-          <div className="w-full max-w-md"> 
-            <div className="">{children}</div>
-            {showFooter && (typeof onPrimary === 'function') && (
-              <div className="mt-4 flex justify-end w-full">
-                <button onClick={handlePrimary} className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg text-white shadow focus:outline-none focus:ring-2 ${variant === 'error' || variant === 'danger' ? 'bg-red-500 hover:bg-red-400 focus:ring-red-200' : variant === 'warning' ? 'bg-amber-500 hover:bg-amber-400 focus:ring-amber-200' : variant === 'success' ? 'bg-emerald-500 hover:bg-emerald-400 focus:ring-emerald-200' : 'bg-rose-500 hover:bg-rose-400 focus:ring-rose-200'}`}>
-                  {primaryText}
-                </button>
-              </div>
-            )}
+          <div className="w-full flex items-center justify-center">
+            <div className={`${className || ''}`}>
+              <div className="">{children}</div>
+              {showFooter && (typeof onPrimary === 'function') && (
+                <div className="mt-4 flex justify-end w-full">
+                  <button onClick={handlePrimary} className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg text-white shadow focus:outline-none focus:ring-2 ${variant === 'error' || variant === 'danger' ? 'bg-red-500 hover:bg-red-400 focus:ring-red-200' : variant === 'warning' ? 'bg-amber-500 hover:bg-amber-400 focus:ring-amber-200' : variant === 'success' ? 'bg-emerald-500 hover:bg-emerald-400 focus:ring-emerald-200' : 'bg-rose-500 hover:bg-rose-400 focus:ring-rose-200'}`}>
+                    {primaryText}
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
         ) : defaultContent}
       </div>

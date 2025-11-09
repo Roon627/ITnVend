@@ -726,7 +726,7 @@ export default function Customers() {
           <div className="flex items-center gap-3">
             <button
               onClick={() => setCustomerModalOpen(true)}
-              className="inline-flex items-center gap-2 rounded-full bg-gradient-to-r from-blue-600 via-blue-500 to-indigo-500 px-5 py-2 text-sm font-semibold text-white shadow-lg shadow-blue-200/60 transition hover:-translate-y-0.5 hover:shadow-blue-300/70"
+              className="btn-primary inline-flex items-center gap-2 rounded-full px-5 py-2 text-sm font-semibold"
             >
               <FaUsers /> New customer
             </button>

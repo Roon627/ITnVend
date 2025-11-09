@@ -84,6 +84,67 @@
   --color-shadow: rgba(4, 120, 87, 0.08);
 }
 
+/* Dark / eye-friendly themes: map semantic variables so they take effect */
+[data-theme='charcoal'] {
+  /* Use emerald/fog structural settings (light surfaces) but with a
+     charcoal primary so theme changes remain minimal and accent-focused. */
+  --color-primary: #1f2a37; /* charcoal accent */
+  --color-primary-strong: #3a4b5c;
+  --color-primary-soft: #7b8794;
+  --color-primary-softer: #cbd5e1;
+  --color-primary-border: #7b8794;
+  --color-on-primary: #ffffff;
+  /* copy emerald/fog base values so surfaces stay light */
+  --color-bg: #f4f7f5;
+  --color-surface: #ffffff;
+  --color-surface-muted: #f0f9f5;
+  --color-border: #d8f5e8;
+  --color-muted: #4b5563;
+  --color-heading: #064e3b;
+  --color-text: #1f2937;
+  --color-shadow: rgba(4, 120, 87, 0.06);
+}
+
+[data-theme='midnight'] {
+  /* Use emerald/fog structural settings but with a midnight blue accent */
+  --color-primary: #002a3a; /* midnight accent */
+  --color-primary-strong: #034f4f;
+  --color-primary-soft: #bde6dc;
+  --color-primary-softer: #e7f9f7;
+  --color-primary-border: #145c5b;
+  --color-on-primary: #ffffff;
+  --color-bg: #f4f7f5;
+  --color-surface: #ffffff;
+  --color-surface-muted: #f0f9f5;
+  --color-border: #d8f5e8;
+  --color-muted: #4b5563;
+  --color-heading: #064e3b;
+  --color-text: #1f2937;
+  --color-shadow: rgba(3, 79, 79, 0.06);
+}
+
+[data-theme='forest'] {
+  /* Use emerald/fog structural settings but with a deeper forest accent */
+  --color-primary: #0b3a33; /* forest accent */
+  --color-primary-strong: #134e44;
+  --color-primary-soft: #bfeee2;
+  --color-primary-softer: #eef9f5;
+  --color-primary-border: #1f6b58;
+  --color-on-primary: #ffffff;
+  --color-bg: #f4f7f5;
+  --color-surface: #ffffff;
+  --color-surface-muted: #f0f9f5;
+  --color-border: #d8f5e8;
+  --color-muted: #4b5563;
+  --color-heading: #064e3b;
+  --color-text: #1f2937;
+  --color-shadow: rgba(4, 120, 87, 0.06);
+}
+/* Keep dark themes minimal: only semantic variables above are used for
+   accents/buttons. Avoid remapping `bg-white`/`text-gray-*` globally so
+   the dark themes behave like the original light palettes (minimal
+   visual changes, buttons/accents only). */
+
 html,
 body,
 #root {

@@ -20,6 +20,25 @@ const THEME_CATALOG = {
     description: 'Fresh green with misty neutrals.',
     preview: ['#059669', '#d1fae5', '#f4f6f5'],
   },
+  // Dark, eye-friendly themes
+  charcoal: {
+    id: 'charcoal',
+    name: 'Charcoal Night',
+    description: 'Deep charcoal with soft slate accents — low contrast and easy on the eyes.',
+    preview: ['#0f1724', '#1f2a37', '#3a4b5c', '#7b8794', '#cbd5e1'],
+  },
+  midnight: {
+    id: 'midnight',
+    name: 'Midnight Blue',
+    description: 'Warm navy with muted cyan highlights for comfortable long sessions.',
+    preview: ['#001219', '#002a3a', '#034f4f', '#2a9d8f', '#bde6dc'],
+  },
+  forest: {
+    id: 'forest',
+    name: 'Forest Night',
+    description: 'Deep green/teal palette with gentle accents for reduced eye strain.',
+    preview: ['#08211b', '#0b3a33', '#134e44', '#2e8b76', '#bfeee2'],
+  },
 };
 
 const STORAGE_KEY = 'itnvend_theme';
