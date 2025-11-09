@@ -6,7 +6,9 @@ import { useSettings } from '../components/SettingsContext';
 import { FaShoppingCart, FaSearch, FaUndoAlt, FaHeart } from 'react-icons/fa';
 import ProductCard from '../components/ProductCard';
 import HighlightsCarousel from '../components/HighlightsCarousel';
+import NewArrivalsStrip from '../components/NewArrivalsStrip';
 import { mapPreorderFlags } from '../lib/preorder';
+import { resolveMediaUrl } from '../lib/media';
 
 const initialFilters = { category: '', subcategory: '', search: '' };
 
@@ -28,6 +30,7 @@ export default function PublicProducts() {
   const [searchInput, setSearchInput] = useState(initialFromParams.search);
   const [loading, setLoading] = useState(false);
   const [highlights, setHighlights] = useState(null);
+  const [carouselActiveKeyOverride, setCarouselActiveKeyOverride] = useState(null);
   const { addToCart, cartCount } = useCart();
   const { formatCurrency, settings } = useSettings();
 
@@ -152,6 +155,11 @@ export default function PublicProducts() {
     return highlightSections;
   }, [highlightSections, headerSource]);
 
+  const newArrivalsList = highlights?.newArrivals || [];
+  const carouselRef = (node) => {
+    // placeholder ref setter for scrolling via id
+  };
+
   const handleFilterChange = (event) => {
     const { name, value } = event.target;
     setFilters((prev) => {
@@ -173,22 +181,22 @@ export default function PublicProducts() {
     <div className="min-h-screen bg-gradient-to-br from-rose-50 via-white to-sky-50 text-slate-800">
       <header className="relative overflow-hidden bg-gradient-to-br from-rose-400 via-sky-400 to-indigo-400 text-white">
         <div className="absolute inset-0 opacity-40 bg-[radial-gradient(circle_at_top,_rgba(255,255,255,0.35),transparent_60%)]" />
-        <div className="container relative z-10 mx-auto px-6 py-16 lg:py-24">
+        <div className="container relative z-10 mx-auto px-4 sm:px-6 py-12 sm:py-16 lg:py-24">
           <div className="max-w-3xl space-y-6">
             <div className="inline-flex items-center gap-2 rounded-full bg-white/20 px-4 py-1 text-sm font-semibold uppercase tracking-wide backdrop-blur">
               <FaHeart className="text-rose-200" /> ITnVend Market Hub
             </div>
-            <h1 className="text-4xl font-extrabold leading-tight sm:text-5xl">
+            <h1 className="text-3xl font-extrabold leading-tight sm:text-4xl md:text-5xl">
               Discover cute, POS-ready picks your team will love.
             </h1>
-            <p className="text-lg text-white/90">
+            <p className="text-base sm:text-lg text-white/90">
               Every item you add to cart syncs straight to the ITnVend POS for fulfilment, inventory, and finance workflows. Mix
               and match to create bundles that feel just right.
             </p>
-            <div className="flex flex-wrap gap-4">
+            <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center">
               <Link
                 to="/cart"
-                className="inline-flex items-center gap-3 rounded-full bg-white px-6 py-3 text-rose-600 font-semibold shadow-lg shadow-rose-200/70 transition hover:-translate-y-0.5"
+                className="inline-flex items-center gap-3 rounded-full bg-white px-6 py-3 text-rose-600 font-semibold shadow-lg shadow-rose-200/70 transition transform-gpu hover:-translate-y-0.5 w-full sm:w-auto justify-center"
               >
                 View cart
                 <span className="inline-flex h-7 min-w-[1.75rem] items-center justify-center rounded-full bg-rose-500 px-2 text-white">
@@ -196,14 +204,15 @@ export default function PublicProducts() {
                 </span>
               </Link>
               <Link
-                to="/checkout"
-                className="inline-flex items-center gap-2 rounded-full border border-white/60 px-6 py-3 text-sm font-semibold text-white transition hover:bg-white/10"
+                to="/contact?topic=partnership"
+                className="inline-flex items-center gap-3 rounded-full border border-white/60 px-6 py-3 text-sm font-semibold text-white transition hover:bg-white/10 w-full sm:w-auto justify-center"
+                aria-label="Request a proposal"
               >
-                Request proposal
+                Request a proposal
               </Link>
               <Link
                 to="/"
-                className="inline-flex items-center gap-2 rounded-full border border-white/60 px-6 py-3 text-sm font-semibold text-white transition hover:bg-white/10"
+                className="inline-flex items-center gap-2 rounded-full border border-white/60 px-6 py-3 text-sm font-semibold text-white transition hover:bg-white/10 w-full sm:w-auto justify-center"
               >
                 Back to overview
               </Link>
@@ -241,12 +250,42 @@ export default function PublicProducts() {
 
       <main className="relative -mt-16 pb-16">
         <div className="container mx-auto px-6">
+          {newArrivalsList.length > 0 && (
+            <NewArrivalsStrip
+              items={newArrivalsList}
+              onView={() => {
+                const el = document.getElementById('highlights-carousel');
+                if (el) {
+                  el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                  setTimeout(() => {
+                    setCarouselActiveKeyOverride('newArrivals');
+                    setTimeout(() => setCarouselActiveKeyOverride(null), 3000);
+                  }, 250);
+                } else {
+                  setCarouselActiveKeyOverride('newArrivals');
+                  setTimeout(() => setCarouselActiveKeyOverride(null), 3000);
+                }
+              }}
+              onBrowse={() => {
+                const listEl = document.getElementById('product-list');
+                if (listEl) {
+                  listEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                } else {
+                  // fallback: scroll to products container in page
+                  const fallback = document.querySelector('.grid');
+                  if (fallback) fallback.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                }
+              }}
+            />
+          )}
+
           {filteredHighlightSections.length > 0 && (
-            <div className="mb-8">
+            <div id="highlights-carousel" className="mb-8">
               <HighlightsCarousel
                 sections={filteredHighlightSections}
                 formatCurrency={formatCurrency}
                 onAdd={(product) => addToCart(product)}
+                activeKeyOverride={carouselActiveKeyOverride}
               />
             </div>
           )}
@@ -335,7 +374,7 @@ export default function PublicProducts() {
                   </div>
                 </div>
 
-                <div className="grid gap-6 sm:grid-cols-2 xl:grid-cols-2">
+                <div id="product-list" className="grid gap-6 sm:grid-cols-2 xl:grid-cols-2">
                   {products.map((product, index) => {
                     if (loading) {
                       return (

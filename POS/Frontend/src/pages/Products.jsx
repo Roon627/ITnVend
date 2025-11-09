@@ -51,6 +51,7 @@ const EMPTY_FORM = {
   highlightActive: false,
   highlightLabel: '',
   highlightPriority: '',
+  newArrival: false,
   gallery: [],
 };
 
@@ -464,6 +465,16 @@ function ProductInsight({ product, formatCurrency, onTagClick }) {
                 {product.highlight_priority ? <span className="text-xs text-slate-500">Priority #{product.highlight_priority}</span> : null}
               </div>
               <p className="mt-2 text-xs text-slate-500">Products marked "Feature on storefront hero" appear in the public storefront highlights carousel.</p>
+            </div>
+          )}
+
+          {product.new_arrival && (
+            <div className="mt-4">
+              <h4 className="text-sm font-semibold text-slate-700 mb-1">New arrival</h4>
+              <div className="flex items-center gap-3 text-sm">
+                <span className="inline-flex items-center rounded-md bg-emerald-100 text-emerald-700 px-2 py-1 text-sm font-semibold">New arrival</span>
+              </div>
+              <p className="mt-2 text-xs text-slate-500">This product is flagged as a new arrival and will be shown in the storefront New arrivals section.</p>
             </div>
           )}
 
@@ -882,6 +893,19 @@ function ProductModal({
                   </label>
                 </div>
               )}
+            </div>
+
+            <div className="mt-3 border rounded-lg p-4 bg-white">
+              <label className="inline-flex items-center gap-2 text-sm font-semibold text-slate-700">
+                <input
+                  type="checkbox"
+                  checked={!!draft.newArrival}
+                  onChange={handleFieldChange('newArrival')}
+                  className="rounded border-slate-300 text-blue-600"
+                />
+                Mark as new arrival
+              </label>
+              <p className="mt-1 text-xs text-slate-500">Products marked as new arrivals appear in the storefront "New arrivals" section of the header carousel.</p>
             </div>
 
             <div className="mt-2 grid gap-4 md:grid-cols-3">
@@ -1463,6 +1487,7 @@ export default function Products() {
       highlightActive: product.highlight_active ? true : false,
       highlightLabel: product.highlight_label || '',
       highlightPriority: product.highlight_priority != null ? String(product.highlight_priority) : '',
+      newArrival: product.new_arrival ? true : false,
       gallery: formatGalleryEntries(product.gallery),
     });
     setModalOpen(true);
@@ -1599,6 +1624,8 @@ export default function Products() {
         highlightActive: modalDraft.highlightActive ? 1 : 0,
         highlightLabel: modalDraft.highlightLabel && modalDraft.highlightLabel.trim() ? modalDraft.highlightLabel.trim() : null,
         highlightPriority: modalDraft.highlightPriority ? parseInt(modalDraft.highlightPriority, 10) || 0 : 0,
+        newArrival: modalDraft.newArrival ? 1 : 0,
+        newArrival: modalDraft.newArrival ? 1 : 0,
       };
 
       // Detect if only stock changed compared to original draft

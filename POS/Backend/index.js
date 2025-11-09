@@ -239,6 +239,7 @@ async function transformProductRows(rows = []) {
             highlight_active: row.highlight_active ? 1 : 0,
             highlight_label: row.highlight_label || null,
             highlight_priority: row.highlight_priority || 0,
+            new_arrival: row.new_arrival ? 1 : 0,
             gallery,
         };
     });
@@ -1841,6 +1842,20 @@ app.get('/api/products', async (req, res) => {
     }
 });
 
+// Single product fetch for storefront
+app.get('/api/products/:id', async (req, res) => {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id)) return res.status(400).json({ error: 'Invalid product id' });
+    try {
+        const row = await db.get(PRODUCT_BASE_SELECT + ' AND p.id = ? LIMIT 1', [id]);
+        if (!row) return res.status(404).json({ error: 'Product not found' });
+        const transformed = await transformProductRows([row]);
+        res.json(transformed[0] || null);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
 app.get('/api/products/categories', async (req, res) => {
     try {
         const cachedCategories = await cacheService.getCategories();
@@ -2161,7 +2176,7 @@ app.get('/api/storefront/highlights', async (req, res) => {
                 orderBy: 'ci.created_at DESC',
                 limit: 10,
             }),
-            fetchProductsForHighlight('', [], {
+            fetchProductsForHighlight('p.new_arrival = 1', [], {
                 orderBy: 'p.created_at DESC',
                 limit: 10,
             }),
@@ -2208,6 +2223,7 @@ app.post('/api/products', authMiddleware, requireRole('cashier'), async (req, re
         availabilityStatus,
         vendorId,
         highlightActive,
+        newArrival,
         highlightLabel,
         highlightPriority,
     } = req.body;
@@ -2244,6 +2260,7 @@ app.post('/api/products', authMiddleware, requireRole('cashier'), async (req, re
         typeof highlightLabel === 'string' && highlightLabel.trim() ? highlightLabel.trim().slice(0, 60) : null;
     const highlightPriorityInt = parseInt(highlightPriority, 10);
     const normalizedHighlightPriority = Number.isFinite(highlightPriorityInt) ? highlightPriorityInt : 0;
+    const normalizedNewArrival = newArrival === true || newArrival === 1 ? 1 : 0;
     let vendorIdInt = null;
     if (rawVendorId !== undefined && rawVendorId !== null && rawVendorId !== '') {
         const parsedVendorId = parseInt(rawVendorId, 10);
@@ -2313,7 +2330,7 @@ app.post('/api/products', authMiddleware, requireRole('cashier'), async (req, re
                 brand_id, category_id, subcategory_id, subsubcategory_id,
                 material_id, color_id, audience, delivery_type, warranty_term,
                 preorder_eta, year, auto_sku, availability_status, vendor_id,
-                highlight_active, highlight_label, highlight_priority, gallery
+                highlight_active, highlight_label, highlight_priority, new_arrival, gallery
             )
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ? )`,
             [
@@ -2352,6 +2369,7 @@ app.post('/api/products', authMiddleware, requireRole('cashier'), async (req, re
                 normalizedHighlightActive,
                 normalizedHighlightLabel,
                 normalizedHighlightPriority,
+                normalizedNewArrival,
                 galleryValue,
             ]
         );
@@ -2411,6 +2429,7 @@ app.post('/api/products', authMiddleware, requireRole('cashier'), async (req, re
             highlight_active: normalizedHighlightActive,
             highlight_label: normalizedHighlightLabel,
             highlight_priority: normalizedHighlightPriority,
+            new_arrival: normalizedNewArrival,
             gallery: galleryInput,
         });
     } catch (err) {
@@ -2455,6 +2474,7 @@ app.put('/api/products/:id', authMiddleware, requireRole('cashier'), async (req,
         subcategory,
         availabilityStatus,
         highlightActive,
+        newArrival,
         highlightLabel,
         highlightPriority,
     } = req.body;
@@ -2513,6 +2533,10 @@ app.put('/api/products/:id', authMiddleware, requireRole('cashier'), async (req,
         let normalizedHighlightActive = existing.highlight_active ?? 0;
         if (highlightActive !== undefined) {
             normalizedHighlightActive = highlightActive === true || highlightActive === 1 ? 1 : 0;
+        }
+        let normalizedNewArrival = existing.new_arrival ?? 0;
+        if (newArrival !== undefined) {
+            normalizedNewArrival = newArrival === true || newArrival === 1 ? 1 : 0;
         }
         let normalizedHighlightLabel = existing.highlight_label || null;
         if (highlightLabel !== undefined) {
@@ -2623,6 +2647,7 @@ app.put('/api/products/:id', authMiddleware, requireRole('cashier'), async (req,
                 highlight_active = ?,
                 highlight_label = ?,
                 highlight_priority = ?,
+                new_arrival = ?,
                 gallery = ?
              WHERE id = ?`,
             [
@@ -2661,6 +2686,7 @@ app.put('/api/products/:id', authMiddleware, requireRole('cashier'), async (req,
                 normalizedHighlightActive,
                 normalizedHighlightLabel,
                 normalizedHighlightPriority,
+                normalizedNewArrival,
                 galleryValue,
                 id,
             ]
@@ -2733,6 +2759,7 @@ app.put('/api/products/:id', authMiddleware, requireRole('cashier'), async (req,
             highlight_active: normalizedHighlightActive,
             highlight_label: normalizedHighlightLabel,
             highlight_priority: normalizedHighlightPriority,
+            new_arrival: normalizedNewArrival,
             gallery: normalizedGallery,
         });
     } catch (err) {

@@ -26,7 +26,7 @@ export default function ProductCard({ product, onAdd = () => {}, formatCurrency 
   return (
     <>
       <article className="group flex flex-col overflow-hidden rounded-2xl border border-slate-200/40 bg-gradient-to-br from-white via-rose-50 to-sky-50 text-slate-900 shadow-lg shadow-rose-200/40 transition hover:-translate-y-1 hover:shadow-rose-300/70">
-        <div className="relative h-44 overflow-hidden">
+        <div className="relative h-36 sm:h-44 overflow-hidden">
           <AvailabilityTag availabilityStatus={availabilityStatus} />
           {image ? (
             <img
@@ -58,19 +58,20 @@ export default function ProductCard({ product, onAdd = () => {}, formatCurrency 
                 Marketplace partner
               </span>
             )}
+            {/* New arrival badge hidden in favor of dedicated New arrivals strip and carousel navigation */}
             {detailBlurb && (
               <p className="mt-3 text-sm text-slate-600 line-clamp-3">{detailBlurb}</p>
             )}
           </div>
 
-          <div className="mt-auto pt-4">
+            <div className="mt-auto pt-4">
             <div className="mb-3 text-left">
               <span className="text-2xl font-bold text-rose-500">{formatCurrency(product.price)}</span>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
               <button
                 onClick={() => setPreviewOpen(true)}
-                className="flex-1 inline-flex items-center justify-center gap-2 rounded-full border border-rose-200 bg-white/80 px-4 py-2 text-sm text-rose-600 shadow-sm transition hover:bg-rose-100"
+                className="w-full sm:flex-1 inline-flex items-center justify-center gap-2 rounded-full border border-rose-200 bg-white/80 px-4 py-2 text-sm text-rose-600 shadow-sm transition hover:bg-rose-100"
                 aria-label={`View details for ${product.name}`}
               >
                 View details
@@ -82,7 +83,7 @@ export default function ProductCard({ product, onAdd = () => {}, formatCurrency 
                     onClick={(e) => {
                       if (!contactLink) e.preventDefault();
                     }}
-                    className="inline-flex items-center justify-center gap-1 rounded-full border border-amber-200 bg-amber-500 px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-white shadow-sm transition hover:bg-amber-600"
+                    className="w-full sm:inline-flex sm:w-auto items-center justify-center gap-1 rounded-full border border-amber-200 bg-amber-500 px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-white shadow-sm transition hover:bg-amber-600"
                     aria-label="Contact seller"
                   >
                     <FaPhone className="text-[12px]" />
@@ -96,7 +97,7 @@ export default function ProductCard({ product, onAdd = () => {}, formatCurrency 
               ) : (
                 <button
                   onClick={() => onAdd(product)}
-                  className="flex-1 inline-flex items-center justify-center gap-2 rounded-full border border-rose-200 bg-rose-500 px-4 py-2 text-sm text-white shadow-sm transition hover:bg-rose-600"
+                  className="w-full sm:flex-1 inline-flex items-center justify-center gap-2 rounded-full border border-rose-200 bg-rose-500 px-4 py-2 text-sm text-white shadow-sm transition hover:bg-rose-600"
                   aria-label={`${isPreorder ? 'Preorder' : 'Add'} ${product.name}`}
                 >
                   <FaShoppingCart />

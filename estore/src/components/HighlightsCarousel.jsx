@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useState, useEffect } from 'react';
 import AvailabilityTag from './AvailabilityTag';
 import ProductPreviewModal from './ProductPreviewModal';
 import { resolveMediaUrl } from '../lib/media';
@@ -10,14 +10,35 @@ import {
   productDescriptionCopy,
 } from '../lib/listings';
 
-export default function HighlightsCarousel({ sections = [], formatCurrency, onAdd }) {
+export default function HighlightsCarousel({ sections = [], formatCurrency, onAdd, activeKeyOverride = null }) {
   const tabs = useMemo(
     () => (sections || []).filter((section) => Array.isArray(section.items) && section.items.length > 0),
     [sections]
   );
 
+  // track which section tab is active. Initialize to first available tab when sections load.
   const [activeKey, setActiveKey] = useState(tabs[0]?.key || null);
   const [modalProduct, setModalProduct] = useState(null);
+
+  // Keep activeKey in sync when the available tabs change (e.g. after async highlights load).
+  useEffect(() => {
+    if (!tabs || tabs.length === 0) {
+      setActiveKey(null);
+      return;
+    }
+    // If current activeKey is not present in tabs, pick the first tab.
+    const found = tabs.find((t) => t.key === activeKey);
+    if (!found) setActiveKey(tabs[0].key);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tabs]);
+
+  // Allow parent to override which tab is active (e.g. jump to "newArrivals")
+  useEffect(() => {
+    if (!activeKeyOverride) return;
+    const hit = tabs.find((t) => t.key === activeKeyOverride);
+    if (hit) setActiveKey(activeKeyOverride);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeKeyOverride, tabs]);
 
   if (!tabs.length) return null;
 

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useParams, Link, useNavigate } from 'react-router-dom';
+import { useParams, Link, useNavigate, useLocation } from 'react-router-dom';
 import { FaPhone, FaEnvelope } from 'react-icons/fa';
 import api from '../lib/api';
 import { useCart } from '../components/CartContext';
@@ -19,29 +19,80 @@ import {
 export default function ProductDetail() {
   const { id } = useParams();
   const [product, setProduct] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
   const { addToCart } = useCart();
   const { formatCurrency } = useSettings();
   const navigate = useNavigate();
+  const location = useLocation();
+
+  // If navigation provided a preloaded product (from NewArrivalsStrip), use it immediately
+  useEffect(() => {
+    if (location && location.state && location.state.preloadedProduct) {
+      const pre = withPreorderFlags(location.state.preloadedProduct);
+      setProduct(pre);
+      // show immediately but still fetch in background
+      setLoading(false);
+    }
+  }, [location]);
 
   useEffect(() => {
     let mounted = true;
+    // Only show global loading state if we don't already have a preloaded product
+    const hasPreloaded = Boolean(location && location.state && location.state.preloadedProduct);
+    if (!hasPreloaded) {
+      setLoading(true);
+    }
+    setError(null);
     api
       .get(`/products/${id}`)
       .then((p) => {
-        if (mounted) setProduct(withPreorderFlags(p));
+        if (!mounted) return;
+        setProduct(withPreorderFlags(p));
+        setLoading(false);
       })
-      .catch(() => setProduct(null));
+      .catch((err) => {
+        if (!mounted) return;
+        // If we had a preloaded product, keep showing it instead of showing not-found
+        if (hasPreloaded) {
+          // don't set error so UI stays on preloaded product
+          setLoading(false);
+          return;
+        }
+        setProduct(null);
+        setError(err && err.status === 404 ? 'not-found' : 'error');
+        setLoading(false);
+      });
     return () => {
       mounted = false;
     };
   }, [id]);
 
-  if (!product) {
+  if (loading) {
     return (
       <div className="flex min-h-[50vh] items-center justify-center bg-gradient-to-br from-rose-50 via-white to-sky-50">
         <p className="rounded-full border border-rose-200 bg-white px-6 py-3 text-sm font-semibold text-rose-500 shadow-sm">
           Loading your item...
         </p>
+      </div>
+    );
+  }
+
+  if (!loading && !product) {
+    return (
+      <div className="flex min-h-[50vh] items-center justify-center bg-gradient-to-br from-rose-50 via-white to-sky-50">
+        <div className="rounded-2xl border border-rose-100 bg-white p-6 text-center">
+          <p className="mb-4 text-lg font-semibold text-rose-600">Item not found</p>
+          <p className="mb-4 text-sm text-rose-500">We couldn't locate that product. It may have been removed or is unavailable.</p>
+          <div className="flex justify-center gap-3">
+            <Link to="/market" className="inline-flex items-center gap-2 rounded-full border border-rose-200 px-5 py-3 text-sm font-semibold text-rose-600 hover:bg-rose-50">
+              Back to Market Hub
+            </Link>
+            <Link to="/" className="inline-flex items-center gap-2 rounded-full border border-rose-200 px-5 py-3 text-sm font-semibold text-rose-600 hover:bg-rose-50">
+              Home
+            </Link>
+          </div>
+        </div>
       </div>
     );
   }
