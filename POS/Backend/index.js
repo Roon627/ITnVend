@@ -3645,7 +3645,78 @@ app.post('/api/vendors', async (req, res) => {
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)` ,
             [legal_name, contact_person, email, phone, address, website, capabilities, notes, slug, tagline || null, descriptionValue]
         );
-        res.status(201).json({ id: result.lastID, slug, message: 'Vendor application submitted successfully.' });
+        const vendorId = result.lastID;
+    // Optional: accept logo_url (already-uploaded) or logo_data (base64) and save as vendor logo for onboarding flow
+        try {
+            const providedLogoUrl = req.body.logo_url;
+            if (providedLogoUrl && typeof providedLogoUrl === 'string' && providedLogoUrl.length > 0) {
+                await db.run('UPDATE vendors SET logo_url = ? WHERE id = ?', [providedLogoUrl, vendorId]);
+            } else {
+                const logo_data = req.body.logo_data;
+                if (logo_data && typeof logo_data === 'string' && logo_data.startsWith('data:')) {
+                    const match = logo_data.match(/^data:(image\/[^;]+);base64,(.*)$/);
+                    if (match) {
+                        const mime = match[1];
+                        const ext = mime.split('/')[1] || 'png';
+                        const b64 = match[2];
+                        const logosDir = path.join(uploadsRoot, 'vendors', 'logos');
+                        fs.mkdirSync(logosDir, { recursive: true });
+                        const nameOnDisk = `vendor-${vendorId}-logo-${Date.now()}.${ext}`;
+                        const outPath = path.join(logosDir, nameOnDisk);
+                        fs.writeFileSync(outPath, Buffer.from(b64, 'base64'));
+                        const publicPath = `/uploads/vendors/logos/${nameOnDisk}`;
+                        await db.run('UPDATE vendors SET logo_url = ? WHERE id = ?', [publicPath, vendorId]);
+                    }
+                }
+            }
+        } catch (logoErr) {
+            console.warn('Failed to save vendor onboarding logo', logoErr?.message || logoErr);
+        }
+
+        // Persist attachments/docs if provided (either as {name,path} entries or base64 data)
+        try {
+            const docs = req.body.documents || req.body.attachments || [];
+            const attachmentsMeta = [];
+            if (Array.isArray(docs) && docs.length > 0) {
+                const docsDir = path.join(uploadsRoot, 'vendors', String(vendorId), 'docs');
+                fs.mkdirSync(docsDir, { recursive: true });
+                for (let i = 0; i < docs.length; i++) {
+                    const d = docs[i];
+                    if (!d) continue;
+                    if (d.path) {
+                        attachmentsMeta.push({ name: d.name || d.filename || `doc-${i}`, path: d.path });
+                        continue;
+                    }
+                    let b64 = null;
+                    let filename = d.name || `doc-${i}`;
+                    if (d.data && typeof d.data === 'string') {
+                        const m = d.data.match(/^data:([^;]+);base64,(.*)$/);
+                        if (m) {
+                            b64 = m[2];
+                            const ext = (m[1].split('/')[1] || '').split('+')[0];
+                            if (!filename.includes('.')) filename = `${filename}.${ext || 'bin'}`;
+                        } else {
+                            b64 = d.data;
+                        }
+                    }
+                    if (!b64) continue;
+                    const buf = Buffer.from(b64, 'base64');
+                    const safeName = filename.replace(/[^a-z0-9\-_.]/gi, '_');
+                    const outName = `${Date.now()}_${i}_${safeName}`;
+                    const outPath = path.join(docsDir, outName);
+                    fs.writeFileSync(outPath, buf);
+                    const publicPath = `/uploads/vendors/${vendorId}/docs/${outName}`;
+                    attachmentsMeta.push({ name: filename, path: publicPath });
+                }
+            }
+            if (attachmentsMeta.length > 0) {
+                await db.run('UPDATE vendors SET attachments = ? WHERE id = ?', [JSON.stringify(attachmentsMeta), vendorId]);
+            }
+        } catch (attachErr) {
+            console.warn('Failed to persist vendor attachments', attachErr?.message || attachErr);
+        }
+
+        res.status(201).json({ id: vendorId, slug, message: 'Vendor application submitted successfully.' });
     } catch (err) {
         if (err.message.includes('UNIQUE constraint failed')) {
             return res.status(409).json({ error: 'A vendor with this email already exists.' });
@@ -3709,6 +3780,49 @@ app.post('/api/vendors/register', async (req, res) => {
             ]
         );
         const vendorId = result.lastID;
+        // persist attachments if provided
+        try {
+            const docs = req.body.documents || req.body.attachments || [];
+            const attachmentsMeta = [];
+            if (Array.isArray(docs) && docs.length > 0) {
+                const docsDir = path.join(uploadsRoot, 'vendors', String(vendorId), 'docs');
+                fs.mkdirSync(docsDir, { recursive: true });
+                for (let i = 0; i < docs.length; i++) {
+                    const d = docs[i];
+                    if (!d) continue;
+                    if (d.path) {
+                        attachmentsMeta.push({ name: d.name || d.filename || `doc-${i}`, path: d.path });
+                        continue;
+                    }
+                    let b64 = null;
+                    let filename = d.name || `doc-${i}`;
+                    if (d.data && typeof d.data === 'string') {
+                        const m = d.data.match(/^data:([^;]+);base64,(.*)$/);
+                        if (m) {
+                            b64 = m[2];
+                            const ext = (m[1].split('/')[1] || '').split('+')[0];
+                            if (!filename.includes('.')) filename = `${filename}.${ext || 'bin'}`;
+                        } else {
+                            b64 = d.data;
+                        }
+                    }
+                    if (!b64) continue;
+                    const buf = Buffer.from(b64, 'base64');
+                    const safeName = filename.replace(/[^a-z0-9\-_.]/gi, '_');
+                    const outName = `${Date.now()}_${i}_${safeName}`;
+                    const outPath = path.join(docsDir, outName);
+                    fs.writeFileSync(outPath, buf);
+                    const publicPath = `/uploads/vendors/${vendorId}/docs/${outName}`;
+                    attachmentsMeta.push({ name: filename, path: publicPath });
+                }
+            }
+            if (attachmentsMeta.length > 0) {
+                await db.run('UPDATE vendors SET attachments = ? WHERE id = ?', [JSON.stringify(attachmentsMeta), vendorId]);
+            }
+        } catch (attachErr) {
+            console.warn('Failed to persist vendor register attachments', attachErr?.message || attachErr);
+        }
+
         await db.run('COMMIT');
         await logActivity('vendors', vendorId, 'register', req.user?.username || null, JSON.stringify({ email }));
         res.status(201).json({ id: vendorId, slug, message: 'Vendor registered', commission_rate: comm });
@@ -3745,6 +3859,11 @@ app.get('/api/vendors/:id', authMiddleware, requireRole('cashier'), async (req, 
         if (!vendor) return res.status(404).json({ error: 'Vendor not found' });
         const productCount = await db.get('SELECT COUNT(*) as c FROM products WHERE vendor_id = ?', [vendor.id]);
         vendor.product_count = productCount?.c || 0;
+        try {
+            vendor.attachments = vendor.attachments ? (typeof vendor.attachments === 'string' ? JSON.parse(vendor.attachments || '[]') : vendor.attachments) : [];
+        } catch (e) {
+            vendor.attachments = [];
+        }
         res.json(vendor);
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -3832,12 +3951,18 @@ app.get('/api/public/vendors', async (req, res) => {
 app.get('/api/public/vendors/:slug', async (req, res) => {
     try {
         const vendor = await db.get(
-            'SELECT id, slug, legal_name, contact_person, email, phone, address, website, tagline, public_description, logo_url, hero_image FROM vendors WHERE slug = ? AND status = ?',
+            'SELECT id, slug, legal_name, contact_person, email, phone, address, website, tagline, public_description, logo_url, hero_image, attachments FROM vendors WHERE slug = ? AND status = ?',
             [req.params.slug, 'active']
         );
         if (!vendor) return res.status(404).json({ error: 'Vendor not found' });
         const productCount = await db.get('SELECT COUNT(*) as c FROM products WHERE vendor_id = ?', [vendor.id]);
         vendor.product_count = productCount?.c || 0;
+        // parse attachments JSON if present
+        try {
+            vendor.attachments = vendor.attachments ? (typeof vendor.attachments === 'string' ? JSON.parse(vendor.attachments || '[]') : vendor.attachments) : [];
+        } catch (e) {
+            vendor.attachments = [];
+        }
         res.json(vendor);
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -4246,17 +4371,19 @@ app.post('/api/sellers/submit-item', casualSubmissionLimiter, async (req, res) =
 // Customer update
 app.put('/api/customers/:id', async (req, res) => {
     const { id } = req.params;
-    const { name, email, phone, address, gst_number, registration_number, is_business, logo_data, documents } = req.body;
+    // Accept either base64 payloads (logo_data/documents) or already-uploaded references
+    const { name, email, phone, address, gst_number, registration_number, is_business, logo_data, documents, logo_url, attachments, remove_attachments } = req.body;
     try {
         await db.run(
             'UPDATE customers SET name = ?, email = ?, phone = ?, address = ?, gst_number = ?, registration_number = ?, is_business = COALESCE(?, is_business) WHERE id = ?',
             [name, email, phone || null, address || null, gst_number || null, registration_number || null, is_business ? 1 : 0, id]
         );
-        const customer = await db.get('SELECT * FROM customers WHERE id = ?', [id]);
+        // Load current customer state
+        let customer = await db.get('SELECT * FROM customers WHERE id = ?', [id]);
 
-        // handle optional uploads for updates (logo_data and documents)
+        // handle optional uploads for updates (logo_data and documents) and also accept already-uploaded references
         try {
-            const attachmentsMeta = [];
+            // handle logo_data (base64) or logo_url (already uploaded)
             if (logo_data && typeof logo_data === 'string' && logo_data.startsWith('data:')) {
                 const match = logo_data.match(/^data:(image\/[^;]+);base64,(.*)$/);
                 if (match) {
@@ -4269,9 +4396,15 @@ app.put('/api/customers/:id', async (req, res) => {
                     const outPath = path.join(logosDir, nameOnDisk);
                     fs.writeFileSync(outPath, Buffer.from(b64, 'base64'));
                     const publicPath = `/uploads/customers/logos/${nameOnDisk}`;
-                    await db.run('UPDATE customers SET logo_url = COALESCE(?, logo_url) WHERE id = ?', [publicPath, id]);
+                    await db.run('UPDATE customers SET logo_url = ? WHERE id = ?', [publicPath, id]);
                 }
+            } else if (logo_url && typeof logo_url === 'string' && logo_url.length > 0) {
+                // use provided already-uploaded logo path
+                await db.run('UPDATE customers SET logo_url = ? WHERE id = ?', [logo_url, id]);
             }
+
+            // handle base64 documents array or provided attachments array
+            const attachmentsMeta = [];
             if (Array.isArray(documents) && documents.length > 0) {
                 const docsDir = path.join(uploadsRoot, 'customers', String(id), 'docs');
                 fs.mkdirSync(docsDir, { recursive: true });
@@ -4299,19 +4432,58 @@ app.put('/api/customers/:id', async (req, res) => {
                     const publicPath = `/uploads/customers/${id}/docs/${outName}`;
                     attachmentsMeta.push({ name: filename, path: publicPath });
                 }
-                if (attachmentsMeta.length > 0) {
-                    // merge with existing attachments if any
-                    const existing = customer.attachments ? (typeof customer.attachments === 'string' ? JSON.parse(customer.attachments || '[]') : customer.attachments) : [];
-                    const merged = [...existing, ...attachmentsMeta];
-                    await db.run('UPDATE customers SET attachments = ? WHERE id = ?', [JSON.stringify(merged), id]);
+            }
+
+            // If attachments array provided (already uploaded via /api/uploads), accept them
+            if (Array.isArray(attachments) && attachments.length > 0) {
+                for (const a of attachments) {
+                    if (a && a.path) attachmentsMeta.push({ name: a.name || a.filename || '', path: a.path });
                 }
+            }
+
+            // Merge new attachments with existing attachments in DB
+            if (attachmentsMeta.length > 0) {
+                const existing = customer.attachments ? (typeof customer.attachments === 'string' ? JSON.parse(customer.attachments || '[]') : customer.attachments) : [];
+                const merged = [...existing, ...attachmentsMeta];
+                await db.run('UPDATE customers SET attachments = ? WHERE id = ?', [JSON.stringify(merged), id]);
+            }
+
+            // Handle removal of attachments if requested
+            if (Array.isArray(remove_attachments) && remove_attachments.length > 0) {
+                // Normalize existing attachments
+                const existing = customer.attachments ? (typeof customer.attachments === 'string' ? JSON.parse(customer.attachments || '[]') : customer.attachments) : [];
+                const toRemoveSet = new Set(remove_attachments);
+                const remaining = [];
+                for (const a of existing) {
+                    if (!a || !a.path) continue;
+                    if (toRemoveSet.has(a.path)) {
+                        try {
+                            // Only allow deletion of files under /uploads/customers
+                            if (a.path && a.path.startsWith('/uploads/')) {
+                                const rel = a.path.replace(/^\/uploads\//, '');
+                                const diskPath = path.join(uploadsRoot, rel.replace(/\//g, path.sep));
+                                if (fs.existsSync(diskPath)) {
+                                    fs.unlinkSync(diskPath);
+                                }
+                            }
+                        } catch (delErr) {
+                            console.warn('Failed to delete attachment file', a.path, delErr?.message || delErr);
+                        }
+                        continue; // skip adding to remaining
+                    }
+                    remaining.push(a);
+                }
+                await db.run('UPDATE customers SET attachments = ? WHERE id = ?', [JSON.stringify(remaining), id]);
             }
         } catch (uploadErr) {
             console.warn('Customer update file handling failed', uploadErr?.message || uploadErr);
         }
+
         // Invalidate customer cache
         await cacheService.invalidateCustomers();
 
+        // Return refreshed customer
+        customer = await db.get('SELECT * FROM customers WHERE id = ?', [id]);
         res.json(customer);
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -4478,7 +4650,7 @@ app.get('/api/customers/summary', async (req, res) => {
 });
 
 app.post('/api/customers', async (req, res) => {
-    const { name, email, phone, address, gst_number, registration_number, is_business, logo_data, documents } = req.body;
+    const { name, email, phone, address, gst_number, registration_number, is_business, logo_data, documents, logo_url, attachments } = req.body;
     if (!name) return res.status(400).json({ error: 'Missing name' });
     try {
         const result = await db.run(
@@ -4487,10 +4659,22 @@ app.post('/api/customers', async (req, res) => {
         );
         const customer = await db.get('SELECT * FROM customers WHERE id = ?', [result.lastID]);
 
-        // handle optional logo (base64 data URL) and supporting documents for business customers
+        // If caller provided an already-uploaded logo_url or attachments, persist them directly
+        if (logo_url) {
+            try {
+                await db.run('UPDATE customers SET logo_url = COALESCE(?, logo_url) WHERE id = ?', [logo_url, customer.id]);
+            } catch (e) { console.warn('Failed to persist provided logo_url', e?.message || e); }
+        }
+        if (attachments && Array.isArray(attachments) && attachments.length > 0) {
+            try {
+                await db.run('UPDATE customers SET attachments = COALESCE(?, attachments) WHERE id = ?', [JSON.stringify(attachments), customer.id]);
+            } catch (e) { console.warn('Failed to persist provided attachments', e?.message || e); }
+        }
+
+        // handle optional logo (base64 data URL) and supporting documents for business customers (backward compatible)
         try {
             const attachmentsMeta = [];
-            if (logo_data && typeof logo_data === 'string' && logo_data.startsWith('data:')) {
+            if (!logo_url && logo_data && typeof logo_data === 'string' && logo_data.startsWith('data:')) {
                 // parse base64 data URL
                 const match = logo_data.match(/^data:(image\/[^;]+);base64,(.*)$/);
                 if (match) {
@@ -4508,7 +4692,7 @@ app.post('/api/customers', async (req, res) => {
                 }
             }
 
-            if (Array.isArray(documents) && documents.length > 0) {
+            if ((!attachments || !Array.isArray(attachments) || attachments.length === 0) && Array.isArray(documents) && documents.length > 0) {
                 const docsDir = path.join(uploadsRoot, 'customers', String(customer.id), 'docs');
                 fs.mkdirSync(docsDir, { recursive: true });
                 for (let i = 0; i < documents.length; i++) {

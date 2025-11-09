@@ -3,6 +3,7 @@ import { FaSearch, FaUndo, FaExclamationTriangle, FaCheckCircle, FaTimes } from 
 import api from '../../lib/api';
 import { useToast } from '../../components/ToastContext';
 import { useSettings } from '../../components/SettingsContext';
+import Modal from '../../components/Modal';
 
 const ReversePurchases = () => {
   const { formatCurrency } = useSettings();
@@ -199,62 +200,52 @@ const ReversePurchases = () => {
 
       {/* Reverse Purchase Modal */}
       {showReverseModal && selectedPurchase && (
-        <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
-          <div className="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white">
-            <div className="mt-3">
-              <div className="flex items-center mb-4">
-                <FaExclamationTriangle className="w-6 h-6 text-yellow-600 mr-3" />
-                <h3 className="text-lg font-medium text-gray-900">Reverse Purchase</h3>
-              </div>
+        <Modal open={showReverseModal} onClose={() => { setShowReverseModal(false); setSelectedPurchase(null); setReverseReason(''); }} labelledBy="reverse-purchase-title" className="max-w-md">
+          <div className="relative w-full bg-white rounded-md p-4">
+            <div className="flex items-center mb-4">
+              <FaExclamationTriangle className="w-6 h-6 text-yellow-600 mr-3" />
+              <h3 id="reverse-purchase-title" className="text-lg font-medium text-gray-900">Reverse Purchase</h3>
+            </div>
 
-              <div className="mb-4">
-                <p className="text-sm text-gray-600 mb-2">
-                  You are about to reverse purchase #{selectedPurchase.id}
-                </p>
-                <div className="bg-gray-50 p-3 rounded text-sm">
-                  <p><strong>Date:</strong> {new Date(selectedPurchase.purchaseDate).toLocaleDateString()}</p>
-                  <p><strong>Supplier:</strong> {selectedPurchase.supplierName || 'N/A'}</p>
-                  <p><strong>Amount:</strong> {formatCurrency(selectedPurchase.totalAmount || 0)}</p>
-                  <p><strong>Items:</strong> {selectedPurchase.items?.length || 0}</p>
-                </div>
-              </div>
-
-              <div className="mb-4">
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Reason for reversal *
-                </label>
-                <textarea
-                  value={reverseReason}
-                  onChange={(e) => setReverseReason(e.target.value)}
-                  placeholder="Please provide a detailed reason for reversing this purchase..."
-                  rows={3}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
-                  required
-                />
-              </div>
-
-              <div className="flex justify-end gap-3">
-                <button
-                  onClick={() => {
-                    setShowReverseModal(false);
-                    setSelectedPurchase(null);
-                    setReverseReason('');
-                  }}
-                  className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 border border-gray-300 rounded-md hover:bg-gray-200"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={handleReversePurchase}
-                  disabled={processing || !reverseReason.trim()}
-                  className="px-4 py-2 text-sm font-medium text-white bg-red-600 border border-transparent rounded-md hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {processing ? 'Processing...' : 'Reverse Purchase'}
-                </button>
+            <div className="mb-4">
+              <p className="text-sm text-gray-600 mb-2">You are about to reverse purchase #{selectedPurchase.id}</p>
+              <div className="bg-gray-50 p-3 rounded text-sm">
+                <p><strong>Date:</strong> {new Date(selectedPurchase.purchaseDate).toLocaleDateString()}</p>
+                <p><strong>Supplier:</strong> {selectedPurchase.supplierName || 'N/A'}</p>
+                <p><strong>Amount:</strong> {formatCurrency(selectedPurchase.totalAmount || 0)}</p>
+                <p><strong>Items:</strong> {selectedPurchase.items?.length || 0}</p>
               </div>
             </div>
+
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-gray-700 mb-2">Reason for reversal *</label>
+              <textarea
+                value={reverseReason}
+                onChange={(e) => setReverseReason(e.target.value)}
+                placeholder="Please provide a detailed reason for reversing this purchase..."
+                rows={3}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
+                required
+              />
+            </div>
+
+            <div className="flex justify-end gap-3">
+              <button
+                onClick={() => { setShowReverseModal(false); setSelectedPurchase(null); setReverseReason(''); }}
+                className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 border border-gray-300 rounded-md hover:bg-gray-200"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleReversePurchase}
+                disabled={processing || !reverseReason.trim()}
+                className="px-4 py-2 text-sm font-medium text-white bg-red-600 border border-transparent rounded-md hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {processing ? 'Processing...' : 'Reverse Purchase'}
+              </button>
+            </div>
           </div>
-        </div>
+        </Modal>
       )}
     </div>
   );

@@ -6,6 +6,7 @@ import { FaBuilding, FaUsers, FaInbox, FaUserTie } from 'react-icons/fa';
 import api from '../lib/api';
 import Modal from '../components/Modal';
 import { useToast } from '../components/ToastContext';
+import { resolveMediaUrl } from '../lib/media';
 import StatCard from '../components/StatCard';
 import TableToolbar from '../components/TableToolbar';
 import CustomerTable from '../components/CustomerTable';
@@ -82,36 +83,69 @@ function CustomerModal({ open, form, onClose, onChange, onSave, saving, mode = '
   const handleLogo = (e) => {
     const f = e.target.files && e.target.files[0];
     if (!f) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      const data = reader.result;
-      setLogoName(f.name);
-      onChange('logo_data', data);
-      onChange('logo_name', f.name);
-    };
-    reader.readAsDataURL(f);
+    // Prefer multipart upload to /api/uploads; fallback to base64 if upload fails
+    (async () => {
+      try {
+        const fd = new FormData();
+        fd.append('file', f);
+  const resp = await api.upload('/uploads', fd);
+  const path = resp?.path || resp?.url || (resp?.data && (resp.data.path || resp.data.url));
+        // prefer path (server returns { path, url })
+        const publicPath = path || (resp?.data?.path) || (resp?.data?.url) || null;
+        if (publicPath) {
+          setLogoName(f.name);
+          onChange('logo_url', publicPath);
+          onChange('logo_name', f.name);
+          return;
+        }
+      } catch (err) {
+        // ignore and fallback to base64
+      }
+      const reader = new FileReader();
+      reader.onload = () => {
+        const data = reader.result;
+        setLogoName(f.name);
+        onChange('logo_data', data);
+        onChange('logo_name', f.name);
+      };
+      reader.readAsDataURL(f);
+    })();
   };
 
   const handleDocs = (e) => {
     const list = Array.from(e.target.files || []);
     if (list.length === 0) return;
-    const results = [];
-    let remaining = list.length;
-    for (const f of list) {
-      const reader = new FileReader();
-      reader.onload = () => {
-        results.push({ name: f.name, data: reader.result });
-        remaining -= 1;
-        if (remaining === 0) {
-          // preserve any existing documents uploaded earlier
-          const prev = Array.isArray(form.documents) ? form.documents : (form.documents ? JSON.parse(form.documents || '[]') : []);
-          const merged = [...(prev || []), ...results];
-          onChange('documents', merged);
-          setDocNames(merged.map(d => d.name || d));
+    // Try multipart upload for each file, fall back to base64 if upload fails
+    (async () => {
+      const uploaded = [];
+      const base64s = [];
+      for (const f of list) {
+        try {
+          const fd = new FormData();
+          fd.append('file', f);
+          const resp = await api.upload('/uploads', fd);
+          const path = resp?.path || resp?.url || (resp?.data && (resp.data.path || resp.data.url));
+          if (path) {
+            uploaded.push({ name: f.name, path });
+            continue;
+          }
+        } catch (err) {
+          // fall through to base64 fallback
         }
-      };
-      reader.readAsDataURL(f);
-    }
+        // fallback to base64
+        const asBase64 = await new Promise((resolve) => {
+          const r = new FileReader();
+          r.onload = () => resolve(r.result);
+          r.readAsDataURL(f);
+        });
+        base64s.push({ name: f.name, data: asBase64 });
+      }
+
+      const prev = Array.isArray(form.documents) ? form.documents : (form.documents ? JSON.parse(form.documents || '[]') : []);
+      const merged = [...(prev || []), ...uploaded, ...base64s];
+      onChange('documents', merged);
+      setDocNames(merged.map(d => d.name || d));
+    })();
   };
 
   return (
@@ -174,6 +208,46 @@ function CustomerModal({ open, form, onClose, onChange, onSave, saving, mode = '
                   <input type="file" multiple onChange={handleDocs} className="hidden" disabled={readOnly} />
                   <div className="mt-2 text-xs text-muted-foreground">{docNames.length ? docNames.join(', ') : 'No documents'}</div>
                 </label>
+              </div>
+            </div>
+          )}
+          {/* Attachments viewer / preview for existing uploaded files */}
+          {Boolean((form.attachments && form.attachments.length) || form.logo_url) && (
+            <div className="md:col-span-2">
+              <p className="text-sm font-semibold text-gray-600">Attachments</p>
+              <div className="mt-3 grid gap-3 grid-cols-2 md:grid-cols-4">
+                {/* Logo preview */}
+                {form.logo_url && (
+                  <div className="flex flex-col items-center text-sm">
+                    <img alt="logo" src={resolveMediaUrl(form.logo_url)} className="h-20 w-20 object-contain rounded-md border" />
+                    <div className="mt-2 text-xs text-gray-600">Logo</div>
+                  </div>
+                )}
+                {/* Other attachments */}
+                {(Array.isArray(form.attachments) ? form.attachments : (form.attachments ? JSON.parse(form.attachments||'[]') : [])).map((a, idx) => (
+                  <div key={a.path || idx} className="flex flex-col items-center text-sm">
+                    {String(a.path || '').toLowerCase().match(/\.(png|jpe?g|gif|webp)$/) ? (
+                      <img alt={a.name || 'file'} src={resolveMediaUrl(a.path)} className="h-20 w-20 object-cover rounded-md border" />
+                    ) : (
+                      <div className="h-20 w-20 flex items-center justify-center rounded-md border bg-gray-50 text-xs text-gray-600">{a.name || 'file'}</div>
+                    )}
+                    <div className="mt-2 flex items-center gap-2">
+                      <a className="text-xs text-blue-600" href={resolveMediaUrl(a.path)} target="_blank" rel="noreferrer">Open</a>
+                      {mode !== 'view' && (
+                        <button type="button" onClick={() => {
+                          // mark for removal by adding to remove_attachments on parent form
+                          const prev = Array.isArray(form.remove_attachments) ? form.remove_attachments.slice() : [];
+                          if (!prev.includes(a.path)) prev.push(a.path);
+                          onChange('remove_attachments', prev);
+                          // also remove from attachments list in the form so UI updates
+                          const existing = Array.isArray(form.attachments) ? form.attachments.slice() : (form.attachments ? JSON.parse(form.attachments||'[]') : []);
+                          const remaining = existing.filter((x) => x.path !== a.path);
+                          onChange('attachments', remaining);
+                        }} className="text-xs text-red-600">Remove</button>
+                      )}
+                    </div>
+                  </div>
+                ))}
               </div>
             </div>
           )}
@@ -456,6 +530,9 @@ export default function Customers() {
           gst_number: v.gst_number || v.tax_number || '',
           registration_number: v.registration_number || v.reg_number || '',
           is_business: true,
+          // include logo and attachments if present
+          logo_url: v.logo_url || null,
+          attachments: v.attachments || (v.attachments ? (typeof v.attachments === 'string' ? JSON.parse(v.attachments || '[]') : v.attachments) : []),
         });
       } else {
         data = await api.get(`/customers/${customer.id}`);
@@ -546,6 +623,12 @@ export default function Customers() {
         registration_number: detailForm.registration_number || null,
         is_business: detailForm.is_business ? 1 : 0,
       };
+      // include uploads/attachment changes if present
+      if (detailForm.logo_data) payload.logo_data = detailForm.logo_data;
+      if (detailForm.documents) payload.documents = detailForm.documents;
+      if (detailForm.logo_url) payload.logo_url = detailForm.logo_url;
+      if (detailForm.attachments) payload.attachments = detailForm.attachments;
+      if (detailForm.remove_attachments) payload.remove_attachments = detailForm.remove_attachments;
       await api.put(`/customers/${detailForm.id}`, payload);
       toast.push('Customer updated', 'success');
       setDetailModalOpen(false);

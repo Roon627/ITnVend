@@ -38,6 +38,7 @@ const TRUST_POINTS = [
 export default function VendorOnboarding() {
   const [formData, setFormData] = useState(initialForm);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  // logoData will store { name, path } when uploaded via multipart; documents will store array of { name, path }
   const [logoData, setLogoData] = useState(null);
   const [documents, setDocuments] = useState([]);
   const toast = useToast();
@@ -56,21 +57,55 @@ export default function VendorOnboarding() {
     });
   };
 
-  const handleLogo = (e) => {
+  const handleLogo = async (e) => {
     const f = e.target.files && e.target.files[0];
     if (!f) return;
+    // Try multipart upload first
+    try {
+      const fd = new FormData();
+      fd.append('file', f);
+      const resp = await api.upload('/uploads', fd);
+      const path = resp?.path || resp?.url || (resp?.data && (resp.data.path || resp.data.url));
+      if (path) {
+        setLogoData({ name: f.name, path });
+        return;
+      }
+    } catch (err) {
+      // fall back to base64 if upload fails
+    }
+    // fallback to base64 for environments without multipart support
     const reader = new FileReader();
     reader.onload = () => setLogoData({ name: f.name, data: reader.result });
     reader.readAsDataURL(f);
   };
 
-  const handleDocs = (e) => {
+  const handleDocs = async (e) => {
     const list = Array.from(e.target.files || []);
+    if (list.length === 0) return;
+    const uploaded = [];
+    const base64s = [];
     for (const f of list) {
-      const reader = new FileReader();
-      reader.onload = () => setDocuments((prev) => [...prev, { name: f.name, data: reader.result }]);
-      reader.readAsDataURL(f);
+      try {
+        const fd = new FormData();
+        fd.append('file', f);
+        const resp = await api.upload('/uploads', fd);
+        const path = resp?.path || resp?.url || (resp?.data && (resp.data.path || resp.data.url));
+        if (path) {
+          uploaded.push({ name: f.name, path });
+          continue;
+        }
+      } catch (err) {
+        // ignore and fallback to base64
+      }
+      // fallback to base64
+      const asBase64 = await new Promise((resolve) => {
+        const r = new FileReader();
+        r.onload = () => resolve(r.result);
+        r.readAsDataURL(f);
+      });
+      base64s.push({ name: f.name, data: asBase64 });
     }
+    setDocuments((prev) => [...(prev || []), ...uploaded, ...base64s]);
   };
 
   const handleSubmit = async (event) => {
@@ -86,8 +121,9 @@ export default function VendorOnboarding() {
         website: formData.website,
         capabilities: formData.capabilities.join(', '),
         notes: formData.notes,
-        logo_data: logoData?.data || null,
-        documents: documents.map(d => ({ name: d.name, data: d.data })),
+        // Prefer server path returned from /api/uploads (path or url). If multipart wasn't available, fall back to base64 data.
+        logo_url: logoData?.path || logoData?.url || null,
+        documents: documents.map(d => ({ name: d.name, path: d.path, data: d.data })),
       };
 
       await api.post('/vendors', payload);

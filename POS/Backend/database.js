@@ -378,6 +378,8 @@ export async function setupDatabase() {
     // allow storing uploaded logo URL and attachments metadata for business customers
     await ensureColumn(db, 'customers', 'logo_url', 'TEXT');
     await ensureColumn(db, 'customers', 'attachments', 'TEXT');
+    // vendor attachments metadata
+    await ensureColumn(db, 'vendors', 'attachments', 'TEXT');
         await ensureColumn(db, 'products', 'availability_status', "TEXT DEFAULT 'in_stock'");
         try {
             await db.run("UPDATE products SET availability_status = 'preorder' WHERE preorder_enabled = 1 AND (availability_status IS NULL OR availability_status = '' OR availability_status = 'in_stock')");
@@ -644,6 +646,7 @@ export async function setupDatabase() {
             notes TEXT,
             bank_details TEXT,
             logo_url TEXT,
+            attachments TEXT,
             commission_rate REAL DEFAULT 0.10,
             status TEXT DEFAULT 'pending',
             customer_id INTEGER,
