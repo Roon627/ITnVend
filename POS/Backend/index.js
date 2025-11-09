@@ -1843,7 +1843,10 @@ app.get('/api/products', async (req, res) => {
 });
 
 // Single product fetch for storefront
-app.get('/api/products/:id', async (req, res) => {
+// Only match numeric product IDs. This prevents routes like
+// '/api/products/categories' from being captured by the :id param
+// (Express supports regex in route params).
+app.get('/api/products/:id(\\d+)', async (req, res) => {
     const id = Number(req.params.id);
     if (!Number.isInteger(id)) return res.status(400).json({ error: 'Invalid product id' });
     try {
