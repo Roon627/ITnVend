@@ -4,7 +4,7 @@ import api from '../lib/api';
 import { resolveMediaUrl } from '../lib/media';
 
 // Minimal search suggestions component with highlighting, client-side limit, and analytics hook
-export default function SearchSuggestions({ query, onSelect, minChars = 2, limit = 6 }) {
+export default function SearchSuggestions({ query, onSelect, minChars = 2, limit = 6, enabled = true }) {
   const [items, setItems] = useState([]);
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -23,7 +23,7 @@ export default function SearchSuggestions({ query, onSelect, minChars = 2, limit
   }, []);
 
   useEffect(() => {
-    if (!query || query.length < minChars) {
+    if (!enabled || !query || query.length < minChars) {
       setItems([]);
       setOpen(false);
       return;

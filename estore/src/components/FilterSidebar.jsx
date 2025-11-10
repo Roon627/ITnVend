@@ -1,16 +1,24 @@
 import { FaSearch, FaUndoAlt } from 'react-icons/fa';
 import { Link } from 'react-router-dom';
+import { useEffect, useState } from 'react';
 
 export default function FilterSidebar({
   filters,
-  searchInput,
   onFilterChange,
-  onSearchChange,
+  onFilterSearchChange,
+  onSearchFocus,
+  onSearchBlur,
   resetFilters,
   categories,
   availableSubcategories,
   className = '',
 }) {
+  const [localSearch, setLocalSearch] = useState(filters.search || '');
+
+  useEffect(() => {
+    // keep the sidebar input in sync if filters.search changes externally
+    setLocalSearch(filters.search || '');
+  }, [filters.search]);
   return (
     <aside className={`w-full space-y-6 lg:max-w-xs ${className}`}>
       <div className="rounded-2xl border border-rose-200 bg-white p-5 shadow-lg shadow-rose-100">
@@ -30,8 +38,14 @@ export default function FilterSidebar({
               <FaSearch className="absolute left-3 top-1/2 -translate-y-1/2 text-rose-200" />
               <input
                 type="search"
-                value={searchInput}
-                onChange={(event) => onSearchChange(event.target.value)}
+                value={localSearch}
+                onFocus={() => onSearchFocus && onSearchFocus()}
+                onBlur={() => onSearchBlur && onSearchBlur()}
+                onChange={(event) => {
+                  const v = event.target.value;
+                  setLocalSearch(v);
+                  if (onFilterSearchChange) onFilterSearchChange(v);
+                }}
                 placeholder="Product, SKU, capability."
                 className="w-full rounded-lg border border-rose-200 bg-white py-2 pl-10 pr-3 text-sm text-slate-700 placeholder:text-rose-200 focus:border-rose-400 focus:outline-none focus:ring-2 focus:ring-rose-200"
               />
