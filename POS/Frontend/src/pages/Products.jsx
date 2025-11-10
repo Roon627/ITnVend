@@ -1625,7 +1625,6 @@ export default function Products() {
         highlightLabel: modalDraft.highlightLabel && modalDraft.highlightLabel.trim() ? modalDraft.highlightLabel.trim() : null,
         highlightPriority: modalDraft.highlightPriority ? parseInt(modalDraft.highlightPriority, 10) || 0 : 0,
         newArrival: modalDraft.newArrival ? 1 : 0,
-        newArrival: modalDraft.newArrival ? 1 : 0,
       };
 
       // Detect if only stock changed compared to original draft

@@ -272,18 +272,7 @@ export default function OutletsPanel({
               rows={4}
             />
           </div>
-          <div className="md:col-span-2">
-            <label className="block text-sm font-medium text-gray-700">Store header source</label>
-            <p className="mt-1 text-xs text-slate-500">Choose which highlight source populates the public storefront header/hero area.</p>
-            <select
-              value={formState.storefront_header_source || 'both'}
-              onChange={(e) => updateField('storefront_header_source', e.target.value)}
-              className="mt-2 block w-64 border rounded-md px-3 py-2 shadow-sm bg-white"
-            >
-              <option value="both">Both (Featured picks + Seller hotlist)</option>
-              <option value="featured">Featured picks only</option>
-            </select>
-          </div>
+          {/* Store header source removed — always show all highlight sections in the storefront */}
 
           {selectedOutletId && (
             <div className="md:col-span-2">

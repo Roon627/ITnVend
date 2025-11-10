@@ -2,7 +2,7 @@ export function isUserListing(product) {
   if (!product) return false;
   if (product.is_casual_listing) return true;
   const source = (product.listing_source || product.listingSource || '').toString().toLowerCase();
-  if (source === 'casual' || source === 'one-time' || source === 'seller') return true;
+  if (source === 'casual' || source === 'one-time') return true;
   const category = (product.category || product.category_name || '').toString().toLowerCase();
   if (category === 'casual' || category === 'one-time seller' || category === 'one-time-seller') return true;
   return false;

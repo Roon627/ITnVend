@@ -25,14 +25,14 @@ export default function ProductCard({ product, onAdd = () => {}, formatCurrency 
 
   return (
     <>
-      <article className="group flex flex-col overflow-hidden rounded-2xl border border-slate-200/40 bg-gradient-to-br from-white via-rose-50 to-sky-50 text-slate-900 shadow-lg shadow-rose-200/40 transition hover:-translate-y-1 hover:shadow-rose-300/70">
-        <div className="relative h-36 sm:h-44 overflow-hidden">
+      <article className="group flex flex-col overflow-hidden rounded-2xl border border-slate-200/40 bg-white text-slate-900 shadow-lg shadow-rose-100/40 transition-all duration-300 hover:shadow-xl hover:shadow-rose-200/60 hover:-translate-y-1">
+        <div className="relative h-48 sm:h-56 overflow-hidden">
           <AvailabilityTag availabilityStatus={availabilityStatus} />
           {image ? (
             <img
               src={image}
               alt={product.name}
-              className="h-full w-full object-cover transition duration-500 group-hover:scale-105"
+              className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
               loading="lazy"
             />
           ) : (
@@ -42,40 +42,14 @@ export default function ProductCard({ product, onAdd = () => {}, formatCurrency 
           )}
         </div>
 
-        <div className="flex flex-1 flex-col p-6">
-          <div>
-            <h3 className="text-lg font-semibold text-slate-900 line-clamp-2">{product.name}</h3>
-            {product.subcategory && (
-              <p className="mt-1 text-[11px] uppercase tracking-[0.3em] text-rose-400">{product.subcategory}</p>
-            )}
-            {userListing && (
-              <span className="mt-2 inline-flex items-center gap-2 rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.3em] text-amber-700">
-                Seller listing
-              </span>
-            )}
-            {!userListing && vendorListing && (
-              <span className="mt-2 inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.3em] text-emerald-700">
-                Marketplace partner
-              </span>
-            )}
-            {/* New arrival badge hidden in favor of dedicated New arrivals strip and carousel navigation */}
-            {detailBlurb && (
-              <p className="mt-3 text-sm text-slate-600 line-clamp-3">{detailBlurb}</p>
-            )}
-          </div>
-
-            <div className="mt-auto pt-4">
+        <div className="flex flex-1 flex-col p-4">
+          <h3 className="text-base font-semibold text-slate-800 line-clamp-2">{product.name}</h3>
+          
+          <div className="mt-auto pt-4">
             <div className="mb-3 text-left">
-              <span className="text-2xl font-bold text-rose-500">{formatCurrency(product.price)}</span>
+              <span className="text-xl font-bold text-rose-500">{formatCurrency(product.price)}</span>
             </div>
-            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
-              <button
-                onClick={() => setPreviewOpen(true)}
-                className="w-full sm:flex-1 inline-flex items-center justify-center gap-2 rounded-full border border-rose-200 bg-white/80 px-4 py-2 text-sm text-rose-600 shadow-sm transition hover:bg-rose-100"
-                aria-label={`View details for ${product.name}`}
-              >
-                View details
-              </button>
+            <div className="flex flex-col gap-2">
               {userListing ? (
                 contactHasInfo ? (
                   <a
@@ -83,27 +57,34 @@ export default function ProductCard({ product, onAdd = () => {}, formatCurrency 
                     onClick={(e) => {
                       if (!contactLink) e.preventDefault();
                     }}
-                    className="w-full sm:inline-flex sm:w-auto items-center justify-center gap-1 rounded-full border border-amber-200 bg-amber-500 px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-white shadow-sm transition hover:bg-amber-600"
+                    className="w-full inline-flex items-center justify-center gap-2 rounded-lg bg-amber-500 px-4 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-amber-600"
                     aria-label="Contact seller"
                   >
-                    <FaPhone className="text-[12px]" />
-                    Contact seller
+                    <FaPhone />
+                    Contact Seller
                   </a>
                 ) : (
-                  <div className="inline-flex items-center justify-center rounded-full border border-slate-200 bg-white/70 px-3 py-1.5 text-[11px] font-semibold uppercase text-slate-400">
-                    Contact pending
+                  <div className="w-full inline-flex items-center justify-center gap-2 rounded-lg bg-slate-200 px-4 py-2 text-sm font-semibold text-slate-500">
+                    Contact Pending
                   </div>
                 )
               ) : (
                 <button
                   onClick={() => onAdd(product)}
-                  className="w-full sm:flex-1 inline-flex items-center justify-center gap-2 rounded-full border border-rose-200 bg-rose-500 px-4 py-2 text-sm text-white shadow-sm transition hover:bg-rose-600"
+                  className="w-full inline-flex items-center justify-center gap-2 rounded-lg bg-rose-500 px-4 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-rose-600"
                   aria-label={`${isPreorder ? 'Preorder' : 'Add'} ${product.name}`}
                 >
                   <FaShoppingCart />
-                  <span>{isPreorder ? 'Preorder' : 'Add'}</span>
+                  <span>{isPreorder ? 'Preorder' : 'Add to Cart'}</span>
                 </button>
               )}
+              <button
+                onClick={() => setPreviewOpen(true)}
+                className="w-full inline-flex items-center justify-center gap-2 rounded-lg border border-rose-200 bg-white/80 px-4 py-2 text-sm font-medium text-rose-600 shadow-sm transition-colors hover:bg-rose-50"
+                aria-label={`View details for ${product.name}`}
+              >
+                View
+              </button>
             </div>
           </div>
         </div>

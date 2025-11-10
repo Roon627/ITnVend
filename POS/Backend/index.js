@@ -1744,8 +1744,11 @@ app.get('/api/products', async (req, res) => {
         brandId,
         type,
         vendorId,
+        highlight,
+        newArrival,
+        limit: qLimit,
+        offset: qOffset,
     } = req.query;
-
     const cacheKey = `products:${JSON.stringify({
         category,
         subcategory,
@@ -1759,6 +1762,8 @@ app.get('/api/products', async (req, res) => {
         brandId,
         type,
         vendorId,
+        limit: qLimit ? Number(qLimit) : null,
+        offset: qOffset ? Number(qOffset) : null,
     })}`;
 
     try {
@@ -1804,11 +1809,23 @@ app.get('/api/products', async (req, res) => {
             params.push(vendorId);
         }
         if (search) {
-            query += ' AND (p.name LIKE ? OR p.description LIKE ? OR p.short_description LIKE ? OR p.sku LIKE ?)';
-            params.push(`%${search}%`, `%${search}%`, `%${search}%`, `%${search}%`);
+            // Use case-insensitive matching depending on DB
+            if (isPostgres()) {
+                query += ' AND (p.name ILIKE ? OR p.description ILIKE ? OR p.short_description ILIKE ? OR p.sku ILIKE ?)';
+            } else {
+                // SQLite: use COLLATE NOCASE for case-insensitive match
+                query += " AND (p.name LIKE ? COLLATE NOCASE OR p.description LIKE ? COLLATE NOCASE OR p.short_description LIKE ? COLLATE NOCASE OR p.sku LIKE ? COLLATE NOCASE)";
+            }
+            const pattern = `%${search}%`;
+            params.push(pattern, pattern, pattern, pattern);
         }
         if (preorderOnly === 'true') {
             query += ' AND p.preorder_enabled = 1';
+        }
+        // filter for new arrivals if requested via highlight=newArrivals or newArrival=1
+        if (highlight === 'newArrivals' || newArrival === '1') {
+            query += ' AND p.new_arrival = 1';
+            params.push(1);
         }
         // By default exclude archived products unless explicitly requested
         if (!(includeArchived === 'true' || includeArchived === '1')) {
@@ -1829,6 +1846,18 @@ app.get('/api/products', async (req, res) => {
         }
 
         query += ` ORDER BY ${orderCaseInsensitive('p.name')}`;
+
+        // Support optional limit/offset for pagination
+        const limitNum = qLimit ? parseInt(qLimit, 10) : null;
+        const offsetNum = qOffset ? parseInt(qOffset, 10) : null;
+        if (limitNum) {
+            query += ' LIMIT ?';
+            params.push(limitNum);
+            if (offsetNum) {
+                query += ' OFFSET ?';
+                params.push(offsetNum);
+            }
+        }
 
         const productRows = await db.all(query, params);
 
@@ -2335,7 +2364,7 @@ app.post('/api/products', authMiddleware, requireRole('cashier'), async (req, re
                 preorder_eta, year, auto_sku, availability_status, vendor_id,
                 highlight_active, highlight_label, highlight_priority, new_arrival, gallery
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ? )`,
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             [
                 name,
                 normalizedPrice,

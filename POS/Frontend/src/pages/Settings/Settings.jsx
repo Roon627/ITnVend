@@ -77,7 +77,6 @@ const DEFAULT_FORM = {
   support_email: '',
   support_phone: '',
   support_hours: '',
-  storefront_header_source: 'both',
 };
 
 const DEFAULT_NEW_OUTLET = {
@@ -217,7 +216,7 @@ export default function Settings() {
       support_email: globalSettings.support_email ?? globalSettings.contact_email ?? '',
       support_phone: globalSettings.support_phone ?? globalSettings.contact_phone ?? '',
       support_hours: globalSettings.support_hours ?? globalSettings.contact_hours ?? '',
-      storefront_header_source: globalSettings.storefront_header_source ?? 'both',
+  // storefront_header_source removed from UI; keep server-side setting untouched
     });
   }, [globalSettings, defaultSettings]);
 
@@ -277,7 +276,7 @@ export default function Settings() {
         store_address: formState.store_address,
         invoice_template: formState.invoice_template,
         current_outlet_id: selectedOutletId,
-        storefront_header_source: formState.storefront_header_source,
+        // storefront_header_source removed from UI; keep server-side default unchanged
       };
 
       if (isAdmin) {

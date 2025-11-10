@@ -3,7 +3,7 @@ import { FaChevronLeft, FaChevronRight } from 'react-icons/fa';
 import { Link } from 'react-router-dom';
 import { resolveMediaUrl } from '../lib/media';
 
-export default function NewArrivalsStrip({ items = [], onView = () => {}, onBrowse = () => {} }) {
+export default function NewArrivalsStrip({ items = [], onView = () => {}, onBrowse = () => {}, formatCurrency = null }) {
   const listRef = useRef(null);
 
   const scrollBy = (dir = 1) => {
@@ -69,7 +69,7 @@ export default function NewArrivalsStrip({ items = [], onView = () => {}, onBrow
                     />
                   </div>
                   <div className="mt-2 text-xs font-semibold text-slate-800 line-clamp-2">{p.name}</div>
-                  <div className="mt-1 text-sm text-rose-500 font-bold">{typeof p.price === 'number' ? `${p.price}` : p.price}</div>
+                  <div className="mt-1 text-sm text-rose-500 font-bold">{typeof p.price === 'number' ? (formatCurrency ? formatCurrency(p.price) : `MVR ${p.price}`) : p.price}</div>
                 </Link>
             ))}
           </div>
