@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { FaChartLine, FaCloudUploadAlt, FaHandshake, FaShieldAlt, FaTruck, FaUpload, FaUserTie } from 'react-icons/fa';
 import api from '../lib/api';
 import { useToast } from '../components/ToastContext';
+import useMarketplaceStats from '../hooks/useMarketplaceStats';
 
 const initialForm = {
   legalName: '',
@@ -25,7 +26,7 @@ const capabilitiesHints = [
 
 const HERO_STATS = [
   { label: 'Avg. review', value: '48h' },
-  { label: 'Live partners', value: '120+' },
+  { label: 'Live partners', value: '—' },
   { label: 'Regions served', value: '4' },
 ];
 
@@ -36,6 +37,8 @@ const TRUST_POINTS = [
 ];
 
 export default function VendorOnboarding() {
+  // Use shared marketplace stats so both pages display the same live data
+  const { stats, loading: statsLoading } = useMarketplaceStats();
   const [formData, setFormData] = useState(initialForm);
   const [isSubmitting, setIsSubmitting] = useState(false);
   // logoData will store { name, path } when uploaded via multipart; documents will store array of { name, path }
@@ -142,7 +145,7 @@ export default function VendorOnboarding() {
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-blue-50 px-4 py-10 lg:px-8">
       <div className="mx-auto max-w-6xl space-y-8">
         <section className="rounded-2xl border border-blue-100 bg-white/90 p-6 shadow-xl shadow-blue-100/40">
-          <div className="flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
+          <div className="flex flex-col gap-6 items-start">
             <div className="space-y-4">
               <span className="inline-flex items-center gap-2 rounded-full bg-blue-50 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-blue-600">
                 Become a partner
@@ -164,9 +167,15 @@ export default function VendorOnboarding() {
                 ))}
               </div>
             </div>
-            <div className="grid flex-1 grid-cols-3 gap-4 text-center">
-              {HERO_STATS.map((stat) => (
-                <div key={stat.label} className="rounded-2xl border border-blue-100 bg-white px-4 py-3 shadow-sm">
+            <div className="w-full grid grid-cols-1 gap-4 sm:grid-cols-3 text-center items-stretch">
+              {(
+                stats && (stats.totalProducts || stats.vendors || stats.sellers) ? [
+                  { label: 'Total products', value: stats.totalProducts },
+                  { label: 'Approved vendors', value: stats.vendors },
+                  { label: 'Peer sellers', value: stats.sellers },
+                ] : HERO_STATS
+              ).map((stat) => (
+                <div key={stat.label} className="flex flex-col items-center justify-center rounded-2xl border border-blue-100 bg-white px-4 py-3 shadow-sm">
                   <div className="text-xl font-semibold text-slate-900">{stat.value}</div>
                   <div className="text-xs uppercase tracking-wide text-slate-500">{stat.label}</div>
                 </div>

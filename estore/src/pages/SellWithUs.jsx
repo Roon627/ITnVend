@@ -2,13 +2,15 @@ import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { FaCamera, FaCloudUploadAlt, FaHandshake, FaShieldAlt, FaStore } from 'react-icons/fa';
 import api from '../lib/api';
+import useMarketplaceStats from '../hooks/useMarketplaceStats';
 import { makeSku } from '../lib/sku';
 import { useToast } from '../components/ToastContext';
 
+// initial placeholders; will be replaced by live stats on mount
 const HIGHLIGHTS = [
-  { label: 'Average approval', value: '24h' },
-  { label: 'Marketplace reach', value: '80K+' },
-  { label: 'Instant payout', value: 'MVR / USD' },
+  { key: 'totalProducts', label: 'Total products', value: '—' },
+  { key: 'vendors', label: 'Approved vendors', value: '—' },
+  { key: 'sellers', label: 'Peer sellers', value: '—' },
 ];
 
 const FEATURE_LIST = [
@@ -101,6 +103,7 @@ function normalizeTags(value) {
 }
 
 export default function SellWithUs() {
+  const { stats, loading: statsLoading } = useMarketplaceStats();
   const [form, setForm] = useState(DEFAULT_FORM);
   const [categoriesMap, setCategoriesMap] = useState({});
   const [availableSubcategories, setAvailableSubcategories] = useState([]);
@@ -132,6 +135,8 @@ export default function SellWithUs() {
       mounted = false;
     };
   }, []);
+
+  // stats loading handled by useMarketplaceStats (polls by default every 30s)
 
   useEffect(() => {
     const subcats = categoriesMap[form.category];
@@ -403,7 +408,7 @@ export default function SellWithUs() {
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-rose-50 px-4 py-8 lg:px-8">
       <div className="mx-auto max-w-6xl space-y-8">
         <section className="rounded-2xl border border-rose-100 bg-white/90 p-6 shadow-lg shadow-rose-100/40">
-          <div className="flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
+          <div className="flex flex-col gap-6 items-start">
             <div className="space-y-4">
               <span className="inline-flex items-center gap-2 rounded-full bg-rose-50 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-rose-500">
                 Market Hub
@@ -423,8 +428,15 @@ export default function SellWithUs() {
                 ))}
               </ul>
             </div>
-            <div className="grid flex-1 grid-cols-3 gap-4">
-              {HIGHLIGHTS.map((stat) => (
+            <div className="w-full grid grid-cols-1 gap-4 sm:grid-cols-3">
+              {/* Render live stats when available, fall back to HIGHLIGHTS placeholders */}
+              {(
+                stats && (stats.totalProducts || stats.vendors || stats.sellers) ? [
+                  { label: 'Total products', value: stats.totalProducts },
+                  { label: 'Approved vendors', value: stats.vendors },
+                  { label: 'Peer sellers', value: stats.sellers },
+                ] : HIGHLIGHTS
+              ).map((stat) => (
                 <div key={stat.label} className="rounded-2xl border border-rose-100 bg-white px-4 py-3 text-center shadow-sm">
                   <div className="text-xl font-semibold text-slate-900">{stat.value}</div>
                   <div className="text-xs uppercase tracking-wide text-slate-500">{stat.label}</div>
