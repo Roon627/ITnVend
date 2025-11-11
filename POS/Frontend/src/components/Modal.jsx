@@ -1,7 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 
-export default function Modal({ open, onClose, labelledBy, children, className = '', title, message, primaryText = 'OK', onPrimary, variant = 'notice', showFooter = true }) {
+export default function Modal({ open, onClose, labelledBy, children, className = '', title, message, primaryText = 'OK', onPrimary, variant = 'notice', showFooter = true, align = 'center' }) {
   // Create a stable container element for the portal. Creating it here ensures the
   // same element is used across renders which prevents the modal DOM from being
   // recreated and losing focus on inner inputs during re-renders.
@@ -155,20 +155,26 @@ export default function Modal({ open, onClose, labelledBy, children, className =
 
   const defaultContent = renderDefaultContent();
 
+  const outerAlignment = align === 'start' ? 'items-start sm:items-center' : 'items-center';
+
   const modal = (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3">
+    // Align items based on the `align` prop: 'start' keeps modals near the top
+    // on small screens, while 'center' keeps the legacy centered behavior.
+    <div className={`fixed inset-0 z-50 flex ${outerAlignment} justify-center p-3`}>
       <div className="absolute inset-0 bg-black/30 backdrop-blur-sm" onClick={() => onCloseRef.current && onCloseRef.current()} />
       <div
         role="dialog"
         aria-modal="true"
         aria-labelledby={labelledBy}
-        className="relative z-10 w-full flex items-center justify-center"
+        // Inner alignment mirrors the outer alignment so children are placed
+        // correctly when callers provide custom content.
+        className={`relative z-10 w-full flex ${align === 'start' ? 'items-start sm:items-center' : 'items-center'} justify-center`}
       >
         {React.Children.count(children) > 0 ? (
           // When children are provided allow rendering them but optionally render
           // a consistent footer with primary action so callers don't need to
           // re-implement buttons for simple confirmation dialogs.
-          <div className="w-full flex items-center justify-center">
+          <div className={`w-full flex ${align === 'start' ? 'items-start sm:items-center' : 'items-center'} justify-center`}>
             <div className={`${className || ''}`}>
               <div className="">{children}</div>
               {showFooter && (typeof onPrimary === 'function') && (

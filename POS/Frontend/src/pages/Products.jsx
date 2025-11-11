@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Modal from '../components/Modal';
 import { Link } from 'react-router-dom';
-import { FaEdit, FaTrash, FaUpload, FaTimes, FaPlus, FaFileImport, FaExternalLinkAlt, FaArrowLeft, FaArrowRight, FaStar } from 'react-icons/fa';
+import { FaEdit, FaTrash, FaUpload, FaTimes, FaPlus, FaFileImport, FaExternalLinkAlt, FaArrowLeft, FaArrowRight, FaStar, FaBarcode, FaTags, FaBox, FaHashtag } from 'react-icons/fa';
 import api from '../lib/api';
 import { useToast } from '../components/ToastContext';
 import { useSettings } from '../components/SettingsContext';
@@ -373,7 +373,7 @@ function TechnicalDetailsPreview({ value }) {
   );
 }
 
-function ProductInsight({ product, formatCurrency, onTagClick }) {
+function ProductInsight({ product, formatCurrency, onTagClick, onEdit, onDelete, onPermDelete, canDelete, userRole, lookups }) {
   if (!product) {
     return (
       <div className="text-sm text-slate-500">Select a product to see stock levels, pricing, and technical notes.</div>
@@ -387,127 +387,117 @@ function ProductInsight({ product, formatCurrency, onTagClick }) {
   const tagList = Array.isArray(product.tags) ? product.tags : [];
   const availabilityStatus = normalizeAvailabilityStatus(product.availability_status || product.availabilityStatus || (product.preorder_enabled ? 'preorder' : null));
   const availabilityLabel = AVAILABILITY_STATUS_LABELS[availabilityStatus] || AVAILABILITY_STATUS_LABELS.in_stock;
+  // Meta fields (exclude Availability/Brand/Type since those are shown in the main info grid)
   const meta = [
-    { label: 'Availability', value: availabilityLabel },
     { label: 'Vendor', value: product.vendor_name || product.vendorName || (product.vendor_id ? `#${product.vendor_id}` : null) },
-    { label: 'Brand', value: product.brand || product.brandName || product.brand_id || product.brandId },
     { label: 'Material', value: product.material || product.materialName || product.materialId },
     { label: 'Color', value: product.color || product.colorName || product.colorId },
     { label: 'Year', value: product.year },
-    { label: 'Type', value: product.type },
     { label: 'Warranty', value: product.warranty_term || product.warrantyTerm },
     { label: 'Delivery', value: product.delivery_type || product.deliveryType },
   ].filter((m) => m.value || m.value === 0);
 
   const categoryPath = [product.category, product.subcategory, product.subsubcategory].filter(Boolean).join(' › ');
+  const brandDisplay =
+    product.brandName ||
+    (lookups?.brands || []).find((b) => b.id === (product.brand_id || product.brandId))?.name ||
+    product.brand ||
+    product.brand_id ||
+    '—';
 
   return (
-    <div className="bg-white rounded-lg border p-4">
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <div className="md:col-span-1">
-          <div className="relative">
+    <div className="relative bg-white rounded-lg border border-slate-100 p-4 shadow-sm">
+      {/* Action buttons moved to the Product insight header (handled by parent) */}
+
+      <div className="grid grid-cols-1 gap-4">
+        <div className="flex items-center justify-center">
+          <div className="w-full max-w-md">
             {previewSrc ? (
-              <img src={previewSrc} alt={product.name} className="w-full h-44 md:h-56 object-cover rounded-md border" />
+              <img src={previewSrc} alt={product.name} className="w-full h-56 object-cover rounded-md shadow-sm border" />
             ) : (
-              <div className="w-full h-44 md:h-56 rounded-md border border-dashed flex items-center justify-center text-slate-400 text-sm">No image</div>
+              <div className="w-full h-56 rounded-md border border-dashed flex items-center justify-center text-slate-400 text-sm">No image</div>
             )}
-            <AvailabilityTag availabilityStatus={availabilityStatus} />
           </div>
         </div>
 
-        <div className="md:col-span-3">
-          <div className="flex items-start justify-between">
-            <div>
-              <h3 className="text-lg font-semibold text-slate-800">{product.name}</h3>
-              <p className="text-sm text-slate-500 mt-1">{product.short_description || product.shortDescription}</p>
+        <div className="flex items-start justify-between gap-4">
+          <div className="flex-1 pr-2">
+            <h3 className="text-lg font-semibold text-slate-800 leading-tight">{product.name}</h3>
+            <p className="text-sm text-slate-500 mt-1">{product.short_description || product.shortDescription}</p>
+          </div>
+
+          <div className="text-right">
+            <div className="text-xl font-bold text-slate-800">{formatCurrency(product.price || 0)}</div>
+            <div className="text-sm text-slate-500">{product.stock ?? 0} in stock</div>
+          </div>
+        </div>
+
+        <div className="border-t border-slate-100 pt-3">
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-sm">
+            <div className="flex items-start gap-2">
+              <FaHashtag className="text-slate-400 mt-0.5" />
+              <div>
+                <div className="text-xs text-slate-500">SKU</div>
+                <div className="font-semibold text-slate-800 break-all">{product.sku || '—'}</div>
+              </div>
             </div>
-            <div className="text-right">
-              <div className="text-2xl font-bold text-slate-800">{formatCurrency(product.price || 0)}</div>
-              <div className="text-sm text-slate-500">{product.track_inventory === 0 ? 'Not tracked' : 'Tracked'}</div>
+            <div className="flex items-start gap-2">
+              <FaBarcode className="text-slate-400 mt-0.5" />
+              <div>
+                <div className="text-xs text-slate-500">Barcode</div>
+                <div className="font-semibold text-slate-800 break-all">{product.barcode || '—'}</div>
+              </div>
+            </div>
+            <div className="flex items-start gap-2">
+              <FaBox className="text-slate-400 mt-0.5" />
+              <div>
+                <div className="text-xs text-slate-500">Category</div>
+                <div className="font-semibold text-slate-800">{categoryPath || '—'}</div>
+              </div>
+            </div>
+            <div className="flex items-start gap-2">
+              <FaTags className="text-slate-400 mt-0.5" />
+              <div>
+                <div className="text-xs text-slate-500">Availability</div>
+                <div className="font-semibold text-slate-800">{availabilityLabel}</div>
+              </div>
+            </div>
+            <div className="flex items-start gap-2">
+              <div>
+                <div className="text-xs text-slate-500">Brand</div>
+                  <div className="font-semibold text-slate-800">{brandDisplay}</div>
+              </div>
+            </div>
+            <div className="flex items-start gap-2">
+              <div>
+                <div className="text-xs text-slate-500">Type</div>
+                <div className="font-semibold text-slate-800">{product.type || '—'}</div>
+              </div>
             </div>
           </div>
 
-          <div className="mt-3 grid grid-cols-2 gap-3 text-sm">
-            <div>
-              <p className="text-slate-500">Stock</p>
-              <p className="font-semibold text-slate-800">{product.stock ?? 0}</p>
-            </div>
-            <div>
-              <p className="text-slate-500">SKU</p>
-              <p className="font-semibold text-slate-800 break-all">{product.sku || '—'}</p>
-            </div>
-            <div>
-              <p className="text-slate-500">Barcode</p>
-              <p className="font-semibold text-slate-800 break-all">{product.barcode || '—'}</p>
-            </div>
-            <div>
-              <p className="text-slate-500">Category</p>
-              <p className="font-semibold text-slate-800">{categoryPath || '—'}</p>
-            </div>
-          </div>
-
-          {meta.length > 0 && (
-            <div className="mt-4 grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
-              {meta.map((m) => (
-                <div key={m.label} className="bg-slate-50 rounded px-2 py-1">
-                  <div className="text-slate-500">{m.label}</div>
-                  <div className="font-medium text-slate-800">{m.value}</div>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {product.highlight_active && (
-            <div className="mt-4">
-              <h4 className="text-sm font-semibold text-slate-700 mb-1">Featured on storefront</h4>
-              <div className="flex items-center gap-3 text-sm">
-                <span className="inline-flex items-center rounded-md bg-rose-100 text-rose-700 px-2 py-1 text-sm font-semibold">{product.highlight_label || 'Featured'}</span>
-                {product.highlight_priority ? <span className="text-xs text-slate-500">Priority #{product.highlight_priority}</span> : null}
+            {meta.length > 0 && (
+              <div className="mt-3 grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs">
+                {meta.map((m) => (
+                  <div key={m.label} className="bg-slate-50 rounded px-2 py-1">
+                    <div className="text-slate-400 text-[11px]">{m.label}</div>
+                    <div className="font-medium text-slate-800 text-sm truncate">{m.value}</div>
+                  </div>
+                ))}
               </div>
-              <p className="mt-2 text-xs text-slate-500">Products marked "Feature on storefront hero" appear in the public storefront highlights carousel.</p>
-            </div>
-          )}
+            )}
+        </div>
 
-          {product.new_arrival && (
-            <div className="mt-4">
-              <h4 className="text-sm font-semibold text-slate-700 mb-1">New arrival</h4>
-              <div className="flex items-center gap-3 text-sm">
-                <span className="inline-flex items-center rounded-md bg-emerald-100 text-emerald-700 px-2 py-1 text-sm font-semibold">New arrival</span>
-              </div>
-              <p className="mt-2 text-xs text-slate-500">This product is flagged as a new arrival and will be shown in the storefront New arrivals section.</p>
-            </div>
-          )}
-
-          {tagList.length > 0 && (
-            <div className="mt-4 flex flex-wrap gap-2">
-              {tagList.map((t, i) => {
-                const label = typeof t === 'string' ? t : (t.name || t.label || t.id || JSON.stringify(t));
-                return (
-                  <button
-                    key={i}
-                    type="button"
-                    onClick={() => onTagClick && onTagClick(label)}
-                    className="inline-flex items-center gap-2 px-2 py-1 bg-gradient-to-r from-blue-50 to-white text-blue-800 text-xs rounded-md hover:from-blue-100 hover:scale-105 transition-transform"
-                    title={`Filter by tag: ${label}`}
-                  >
-                    {label}
-                  </button>
-                );
-              })}
-            </div>
-          )}
-
-          {product.description && (
-            <div className="mt-4">
-              <h4 className="text-sm font-semibold text-slate-700 mb-2">Description</h4>
-              <p className="text-sm text-slate-600 whitespace-pre-line">{product.description}</p>
-            </div>
-          )}
-
+        {product.description && (
           <div className="mt-4">
-            <h4 className="text-sm font-semibold text-slate-700 mb-2">Technical details</h4>
-            <TechnicalDetailsPreview value={product.technical_details || product.technicalDetails || ''} />
+            <h4 className="text-sm font-semibold text-slate-700 mb-2">Description</h4>
+            <p className="text-sm text-slate-600 leading-relaxed whitespace-pre-line">{product.description}</p>
           </div>
+        )}
+
+        <div className="mt-4">
+          <h4 className="text-sm font-semibold text-slate-700 mb-2">Technical details</h4>
+          <TechnicalDetailsPreview value={product.technical_details || product.technicalDetails || ''} />
         </div>
       </div>
     </div>
@@ -850,7 +840,7 @@ function ProductModal({
             </div>
 
             <div className="rounded-2xl border border-slate-200 bg-white/90 p-4 shadow-sm">
-              <div className="flex items-center justify-between">
+              <div className="flex items-start justify-between">
                 <label className="inline-flex items-center gap-2 text-sm font-semibold text-slate-700">
                   <input
                     type="checkbox"
@@ -915,10 +905,11 @@ function ProductModal({
                 onChange={async (v) => {
                   // refresh lookups/tree in case user added categories in Manage Lookups
                   try { if (typeof onTagsChanged === 'function') await onTagsChanged(); } catch { /* ignore */ }
-                  const found = categoryTree.find((c) => c.id === v);
-                  const updatedDraft = { ...(draft || {}), categoryId: v, subcategoryId: '', subsubcategoryId: '', category: found ? found.name : '' };
+                  const parsedV = (v === '' || v === null || v === undefined) ? '' : (Number.isNaN(Number(v)) ? v : Number(v));
+                  const found = categoryTree.find((c) => c.id === parsedV || String(c.id) === String(v));
+                  const updatedDraft = { ...(draft || {}), categoryId: parsedV, subcategoryId: '', subsubcategoryId: '', category: found ? found.name : '' };
                   // perform atomic update to avoid transient stale state for dependent selects
-                  onChange && onChange('categoryId', v, updatedDraft);
+                  onChange && onChange('categoryId', parsedV, updatedDraft);
                 }}
                 options={categoryTree.map((c) => ({ id: c.id, name: c.name }))}
                 placeholder="Select category"
@@ -928,13 +919,14 @@ function ProductModal({
                 value={draft.subcategoryId || ''}
                 onChange={async (v) => {
                   try { if (typeof onTagsChanged === 'function') await onTagsChanged(); } catch { /* ignore */ }
+                  const parsedV = (v === '' || v === null || v === undefined) ? '' : (Number.isNaN(Number(v)) ? v : Number(v));
                   let name = '';
                   for (const c of categoryTree) {
-                    const child = (c.children || []).find((ch) => ch.id === v);
+                    const child = (c.children || []).find((ch) => ch.id === parsedV || String(ch.id) === String(v));
                     if (child) { name = child.name; break; }
                   }
-                  const updatedDraft = { ...(draft || {}), subcategoryId: v, subsubcategoryId: '', subcategory: name };
-                  onChange && onChange('subcategoryId', v, updatedDraft);
+                  const updatedDraft = { ...(draft || {}), subcategoryId: parsedV, subsubcategoryId: '', subcategory: name };
+                  onChange && onChange('subcategoryId', parsedV, updatedDraft);
                 }}
                 options={(() => {
                   const parent = categoryTree.find((c) => c.id === draft.categoryId);
@@ -947,8 +939,9 @@ function ProductModal({
                 label="Sub-subcategory"
                 value={draft.subsubcategoryId || ''}
                 onChange={(v) => {
-                  const updatedDraft = { ...(draft || {}), subsubcategoryId: v };
-                  onChange && onChange('subsubcategoryId', v, updatedDraft);
+                  const parsedV = (v === '' || v === null || v === undefined) ? '' : (Number.isNaN(Number(v)) ? v : Number(v));
+                  const updatedDraft = { ...(draft || {}), subsubcategoryId: parsedV };
+                  onChange && onChange('subsubcategoryId', parsedV, updatedDraft);
                 }}
                 options={(() => {
                   let list = [];
@@ -1134,7 +1127,8 @@ export default function Products() {
   const toast = useToast();
   const { formatCurrency } = useSettings();
   const { user } = useAuth();
-  const canDelete = user && ['manager', 'admin'].includes(user.role);
+  // Allow staff, manager and admin to archive (soft-delete) from the UI
+  const canDelete = user && ['staff', 'manager', 'admin'].includes(user.role);
 
   const [products, setProducts] = useState([]);
   const [showArchived, setShowArchived] = useState(false);
@@ -2030,7 +2024,6 @@ export default function Products() {
                           <td className="px-4 py-3">
                             <div className="flex justify-end gap-2">
                               <button type="button" onClick={(e) => { e.stopPropagation(); handleBeginEdit(product); }} className="inline-flex items-center gap-1 rounded-md border px-3 py-1.5 text-xs"> <FaEdit /> Edit</button>
-                              {canDelete && <button type="button" onClick={(e) => { e.stopPropagation(); handleDeleteProduct(product.id); }} className="inline-flex items-center gap-1 rounded-md border px-3 py-1.5 text-xs text-red-600"><FaTrash /> Remove</button>}
                               {user && user.role === 'admin' && <button type="button" onClick={(e) => { e.stopPropagation(); openPermanentDelete(product); }} className="inline-flex items-center gap-1 rounded-md border px-3 py-1.5 text-xs text-rose-700">🗑️ Permanently delete</button>}
                             </div>
                           </td>
@@ -2050,14 +2043,28 @@ export default function Products() {
                   <h3 className="text-sm font-semibold text-slate-700">Product insight</h3>
                   <p className="text-xs text-slate-500">Focus on a product to preview metadata.</p>
                 </div>
-                {selectedProduct && (
-                  <div className="flex gap-2">
-                    <button type="button" className="inline-flex items-center gap-1 rounded-md border px-3 py-1.5 text-xs" onClick={() => handleBeginEdit(selectedProduct)}><FaEdit /> Edit</button>
-                    {canDelete && <button type="button" className="inline-flex items-center gap-1 rounded-md border px-3 py-1.5 text-xs text-red-600" onClick={() => handleDeleteProduct(selectedProduct.id)}><FaTrash /> Remove</button>}
-                  </div>
-                )}
+                <div className="flex items-center gap-2">
+                  {selectedProduct && (
+                    <>
+                      <button type="button" onClick={() => handleBeginEdit(selectedProduct)} className="inline-flex items-center gap-2 rounded-md border px-3 py-1.5 text-xs"> <FaEdit /> Edit</button>
+                      {canDelete && (
+                        <button type="button" onClick={() => handleDeleteProduct(selectedProduct.id)} className="inline-flex items-center gap-2 rounded-md border px-3 py-1.5 text-xs text-rose-600">Archive</button>
+                      )}
+                    </>
+                  )}
+                </div>
               </div>
-              <ProductInsight product={selectedProduct} formatCurrency={formatCurrency} onTagClick={handleFilterByTag} />
+              <ProductInsight
+                product={selectedProduct}
+                formatCurrency={formatCurrency}
+                onTagClick={handleFilterByTag}
+                onEdit={() => selectedProduct && handleBeginEdit(selectedProduct)}
+                onDelete={() => selectedProduct && handleDeleteProduct(selectedProduct.id)}
+                onPermDelete={(p) => openPermanentDelete(p || selectedProduct)}
+                canDelete={canDelete}
+                userRole={user?.role}
+                lookups={lookups}
+              />
             </div>
           </aside>
         </div>

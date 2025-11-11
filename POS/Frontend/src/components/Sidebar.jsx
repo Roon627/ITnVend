@@ -10,7 +10,6 @@ import {
   FaUserCog,
   FaCalculator,
   FaChartBar,
-  FaQuestionCircle,
   FaClipboardList,
   FaTimes,
   FaInbox,
@@ -120,9 +119,6 @@ export default function Sidebar() {
             <FaClipboardList /> {!collapsedLabelsHidden && 'Manage Lookups'}
           </NavLink>
         )}
-        <NavLink to="/help" className={linkClass} onClick={handleNavClick}>
-          <FaQuestionCircle /> {!collapsedLabelsHidden && 'Help'}
-        </NavLink>
         <NavLink to="/settings" className={linkClass} onClick={handleNavClick}>
           <FaCog /> {!collapsedLabelsHidden && 'Settings'}
         </NavLink>

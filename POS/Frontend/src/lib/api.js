@@ -10,6 +10,10 @@ const API_BASE = import.meta.env.VITE_API_BASE || '';
 const API_DIRECT_FALLBACK = (import.meta.env.VITE_API_DIRECT_FALLBACK || '').trim().replace(/\/$/, '');
 let authToken = null;
 
+// Simple in-memory cache keyed by request URL to support ETag/304 semantics.
+// Stores the last successful JSON payload for a URL when the server returns an ETag.
+const responseCache = new Map();
+
 export function setAuthToken(token) {
   authToken = token;
   if (token) localStorage.setItem('ITnvend_token', token);
@@ -68,6 +72,16 @@ async function fetchWithRetry(path, options = {}, retries = 2, backoff = 200) {
       url = (API_BASE ? API_BASE : '') + url;
 
       const res = await fetch(url, options);
+      // If the server replies 304 Not Modified and we have a cached payload,
+      // return that cached JSON so callers get the expected data shape instead
+      // of an error (this is the typical ETag/conditional-GET flow).
+      if (res.status === 304) {
+        if (responseCache.has(url)) return responseCache.get(url);
+        // no cached value; treat as an empty-success so callers can decide how
+        // to handle it (fallback behavior below will throw if necessary).
+        return null;
+      }
+
       if (!res.ok) {
         const raw = await res.text();
         let parsed = null;
@@ -91,7 +105,18 @@ async function fetchWithRetry(path, options = {}, retries = 2, backoff = 200) {
         throw err;
       }
       const contentType = res.headers.get('content-type') || '';
-      if (contentType.includes('application/json')) return res.json();
+      if (contentType.includes('application/json')) {
+        const parsed = await res.json();
+        // cache JSON payloads when server provides an ETag so future 304s
+        // can be satisfied from memory. Use the request URL as the cache key.
+        try {
+          const etag = res.headers.get('etag') || res.headers.get('ETag');
+          if (etag) responseCache.set(url, parsed);
+        } catch (e) {
+          // no-op on header read/cache errors
+        }
+        return parsed;
+      }
       return res;
     } catch (err) {
       // optional direct fallback for dev environments

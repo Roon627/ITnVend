@@ -4,6 +4,7 @@ import { useToast } from '../components/ToastContext';
 import { useSettings } from '../components/SettingsContext';
 import { useAuth } from '../components/AuthContext';
 import InvoiceEditModal from '../components/InvoiceEditModal';
+import Modal from '../components/Modal';
 import AvailabilityTag from '../components/AvailabilityTag';
 import { useStockUpdates, useOrderUpdates, useWebSocketRoom, useWebSocketEvent } from '../hooks/useWebSocket';
 import { resolveMediaUrl } from '../lib/media';
@@ -528,8 +529,9 @@ export default function POS() {
       setShowPaymentModal(false);
       await loadTransactionHistory();
 
-      const linkResp = await api.post(`/invoices/${created.id}/pdf-link`);
-      window.open(linkResp.url);
+  // Do not automatically open/save PDF after checkout. Allow users to
+  // manually open the receipt/pdf from the history or the Print button.
+  // (Previously we auto-opened the PDF here.)
 
       api.get('/products').then((data) => setProducts(Array.isArray(data) ? data.map(normalizeProduct) : []));
 
@@ -1161,49 +1163,49 @@ export default function POS() {
           <button onClick={() => setCartOpenMobile(true)} className="px-4 py-2 bg-primary text-primary-foreground rounded-md">Go to Cart</button>
         </div>
       )}
-      {/* Payment Modal */}
+      {/* Payment Modal (uses shared Modal with align="start") */}
       {showPaymentModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 w-full max-w-md mx-4">
-            <h3 className="text-xl font-semibold mb-4">Payment</h3>
+        <Modal open={showPaymentModal} onClose={closePaymentModal} labelledBy="payment-title" align="start" className="bg-white rounded-lg p-4 w-full max-w-md mx-4">
+          <h3 id="payment-title" className="text-xl font-semibold mb-4">Payment</h3>
 
-            <div className="mb-4">
-              <p className="text-lg font-semibold">Total: {formatCurrency(totalWithTax)}</p>
+          <div className="mb-4">
+            <p className="text-lg font-semibold">Total: {formatCurrency(totalWithTax)}</p>
+          </div>
+
+          <div className="mb-4">
+            <label className="block text-sm font-medium text-gray-700 mb-2">Payment Method</label>
+            <select
+              value={paymentMethod}
+              onChange={(e) => setPaymentMethod(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md"
+            >
+              <option value="cash">Cash</option>
+              <option value="card">Card</option>
+              <option value="bank_transfer">Bank Transfer</option>
+              <option value="check">Check</option>
+            </select>
+          </div>
+
+          <div className="mb-4">
+            <label className="block text-sm font-medium text-gray-700 mb-2">Payment Amount</label>
+            <input
+              type="number"
+              step="0.01"
+              value={paymentAmount}
+              onChange={(e) => setPaymentAmount(e.target.value)}
+              placeholder={formatCurrency(totalWithTax)}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md"
+              autoFocus
+            />
+          </div>
+
+          {parseFloat(paymentAmount) > totalWithTax && (
+            <div className="mb-4 p-3 bg-green-50 rounded">
+              <p className="text-green-800 font-medium">Change: {formatCurrency(parseFloat(paymentAmount) - totalWithTax)}</p>
             </div>
+          )}
 
-            <div className="mb-4">
-              <label className="block text-sm font-medium text-gray-700 mb-2">Payment Method</label>
-              <select
-                value={paymentMethod}
-                onChange={(e) => setPaymentMethod(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md"
-              >
-                <option value="cash">Cash</option>
-                <option value="card">Card</option>
-                <option value="bank_transfer">Bank Transfer</option>
-                <option value="check">Check</option>
-              </select>
-            </div>
-
-            <div className="mb-4">
-              <label className="block text-sm font-medium text-gray-700 mb-2">Payment Amount</label>
-              <input
-                type="number"
-                step="0.01"
-                value={paymentAmount}
-                onChange={(e) => setPaymentAmount(e.target.value)}
-                placeholder={formatCurrency(totalWithTax)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md"
-                autoFocus
-              />
-            </div>
-
-            {parseFloat(paymentAmount) > totalWithTax && (
-              <div className="mb-4 p-3 bg-green-50 rounded">
-                <p className="text-green-800 font-medium">Change: {formatCurrency(parseFloat(paymentAmount) - totalWithTax)}</p>
-              </div>
-              )}
-
+          {paymentMethod !== 'cash' && (
             <div className="mb-4">
               <label className="block text-sm font-medium text-gray-700 mb-2">Reference Number</label>
               <input
@@ -1214,204 +1216,236 @@ export default function POS() {
                 className="w-full px-3 py-2 border border-gray-300 rounded-md"
               />
             </div>
+          )}
 
-            {isTransferPayment && (
-              <div className="mb-4">
-                <label className="block text-sm font-medium text-gray-700 mb-2">Transfer Slip</label>
-                {paymentSlipPreview ? (
-                  <div className="space-y-2">
-                    <img
-                      src={resolveMediaUrl(paymentSlipPreview)}
-                      alt="Transfer slip"
-                      className="max-h-40 w-full rounded border object-contain"
-                    />
-                    <div className="flex items-center gap-3">
-                      <a
-                        href={resolveMediaUrl(paymentSlipPreview)}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-sm text-blue-600 hover:underline"
-                      >
-                        Open
-                      </a>
-                      <button
-                        type="button"
-                        onClick={clearPaymentSlip}
-                        className="text-sm text-red-600 hover:text-red-700"
-                      >
-                        Remove
-                      </button>
-                    </div>
+          {isTransferPayment && (
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-gray-700 mb-2">Transfer Slip</label>
+              {paymentSlipPreview ? (
+                <div className="space-y-2">
+                  <img
+                    src={resolveMediaUrl(paymentSlipPreview)}
+                    alt="Transfer slip"
+                    className="max-h-40 w-full rounded border object-contain"
+                  />
+                  <div className="flex items-center gap-3">
+                    <a
+                      href={resolveMediaUrl(paymentSlipPreview)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-sm text-blue-600 hover:underline"
+                    >
+                      Open
+                    </a>
+                    <button
+                      type="button"
+                      onClick={clearPaymentSlip}
+                      className="text-sm text-red-600 hover:text-red-700"
+                    >
+                      Remove
+                    </button>
                   </div>
-                ) : (
-                  <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2">
-                    <input
-                      type="file"
-                      accept="image/*"
-                      onChange={(e) => {
-                        const file = e.target.files?.[0];
-                        if (file) handlePaymentSlipUpload(file);
-                        if (e.target) e.target.value = '';
-                      }}
-                      disabled={paymentSlipUploading}
-                      className="text-sm"
-                    />
-                    {paymentSlipUploading && <span className="text-sm text-gray-500">Uploading…</span>}
-                  </div>
-                )}
-              </div>
-            )}
-
-            <div className="flex gap-2">
-              <button
-                onClick={handlePayment}
-                disabled={isTransferPayment && paymentSlipUploading}
-                className="flex-1 bg-green-500 text-white px-4 py-2 rounded font-semibold hover:bg-green-600"
-              >
-                Complete Payment
-              </button>
-              <button
-                onClick={closePaymentModal}
-                className="flex-1 bg-gray-500 text-white px-4 py-2 rounded font-semibold hover:bg-gray-600"
-              >
-                Cancel
-              </button>
+                </div>
+              ) : (
+                <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2">
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) handlePaymentSlipUpload(file);
+                      if (e.target) e.target.value = '';
+                    }}
+                    disabled={paymentSlipUploading}
+                    className="text-sm"
+                  />
+                  {paymentSlipUploading && <span className="text-sm text-gray-500">Uploading…</span>}
+                </div>
+              )}
             </div>
+          )}
+
+          <div className="flex gap-2">
+            <button
+              onClick={handlePayment}
+              disabled={isTransferPayment && paymentSlipUploading}
+              className="flex-1 bg-green-500 text-white px-4 py-2 rounded font-semibold hover:bg-green-600"
+            >
+              Complete Payment
+            </button>
+            <button
+              onClick={closePaymentModal}
+              className="flex-1 bg-gray-500 text-white px-4 py-2 rounded font-semibold hover:bg-gray-600"
+            >
+              Cancel
+            </button>
           </div>
-        </div>
+        </Modal>
       )}
 
       {/* Customer Modal */}
       {showCustomerModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 w-full max-w-md mx-4">
-            <h3 className="text-xl font-semibold mb-4">Add New Customer</h3>
-
-            <div className="space-y-4">
+        <Modal
+          open={showCustomerModal}
+          onClose={() => setShowCustomerModal(false)}
+          labelledBy="add-customer-title"
+          className="bg-white rounded-lg shadow-xl w-full max-w-3xl sm:max-w-4xl max-h-[95vh] sm:max-h-[90vh] overflow-hidden"
+        >
+          <div className="flex h-full flex-col">
+            <header className="flex items-start justify-between px-6 py-5 border-b border-slate-200/60">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Name *</label>
+                <h2 id="add-customer-title" className="text-lg font-semibold text-slate-900">Add new customer</h2>
+                <p className="text-sm text-slate-500">Capture quick details so this sale is linked to the right customer.</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowCustomerModal(false)}
+                className="rounded-md p-2 text-slate-500 hover:bg-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+                aria-label="Close add customer modal"
+              >
+                <span aria-hidden="true">✕</span>
+              </button>
+            </header>
+
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                handleCreateCustomer();
+              }}
+              className="flex-1 overflow-y-auto px-6 py-6 grid gap-4 sm:grid-cols-2"
+            >
+              <div className="sm:col-span-2 flex flex-col gap-1 text-sm text-slate-600">
+                <label htmlFor="pos-new-customer-name" className="font-medium text-slate-700">
+                  Name <span className="text-red-500">*</span>
+                </label>
                 <input
+                  id="pos-new-customer-name"
                   type="text"
                   value={newCustomer.name}
-                  onChange={(e) => setNewCustomer({...newCustomer, name: e.target.value})}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                  onChange={(e) => setNewCustomer({ ...newCustomer, name: e.target.value })}
+                  className="border border-slate-200 rounded px-3 py-2 text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
                   required
                 />
               </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
+
+              <div className="flex flex-col gap-1 text-sm text-slate-600">
+                <label htmlFor="pos-new-customer-email" className="font-medium text-slate-700">Email</label>
                 <input
+                  id="pos-new-customer-email"
                   type="email"
                   value={newCustomer.email}
-                  onChange={(e) => setNewCustomer({...newCustomer, email: e.target.value})}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                  onChange={(e) => setNewCustomer({ ...newCustomer, email: e.target.value })}
+                  className="border border-slate-200 rounded px-3 py-2 text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
               </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Phone</label>
+
+              <div className="flex flex-col gap-1 text-sm text-slate-600">
+                <label htmlFor="pos-new-customer-phone" className="font-medium text-slate-700">Phone</label>
                 <input
+                  id="pos-new-customer-phone"
                   type="tel"
                   value={newCustomer.phone}
-                  onChange={(e) => setNewCustomer({...newCustomer, phone: e.target.value})}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                  onChange={(e) => setNewCustomer({ ...newCustomer, phone: e.target.value })}
+                  className="border border-slate-200 rounded px-3 py-2 text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
               </div>
-            </div>
 
-            <div className="flex gap-2 mt-6">
-              <button
-                onClick={handleCreateCustomer}
-                className="flex-1 bg-blue-500 text-white px-4 py-2 rounded font-semibold hover:bg-blue-600"
-              >
-                Create Customer
-              </button>
-              <button
-                onClick={() => setShowCustomerModal(false)}
-                className="flex-1 bg-gray-500 text-white px-4 py-2 rounded font-semibold hover:bg-gray-600"
-              >
-                Cancel
-              </button>
-            </div>
+              <div className="sm:col-span-2 mt-4 flex flex-col gap-3 border-t border-slate-200/60 pt-4 sm:flex-row sm:justify-end">
+                <button
+                  type="button"
+                  onClick={() => setShowCustomerModal(false)}
+                  className="inline-flex items-center justify-center gap-2 rounded-md border border-slate-200 px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="inline-flex items-center justify-center gap-2 rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+                >
+                  Create customer
+                </button>
+              </div>
+            </form>
           </div>
-        </div>
+        </Modal>
       )}
 
       {/* Receipt Modal */}
       {showReceipt && lastTransaction && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 w-full max-w-md mx-4 max-h-screen overflow-y-auto">
+        <Modal open={showReceipt} onClose={() => setShowReceipt(false)} labelledBy="receipt-title" align="start" className="bg-white rounded-lg p-6 w-full max-w-md mx-4 max-h-screen overflow-y-auto">
+          <div className="text-center mb-4">
+            <h3 id="receipt-title" className="text-xl font-bold">Receipt</h3>
+            <p className="text-sm text-gray-600">Transaction #{lastTransaction.id}</p>
+          </div>
+
+          <div className="border-t border-b py-4 my-4">
             <div className="text-center mb-4">
-              <h3 className="text-xl font-bold">Receipt</h3>
-              <p className="text-sm text-gray-600">Transaction #{lastTransaction.id}</p>
+              <p className="font-semibold">{globalSettings?.outlet?.name || 'ITnVend'}</p>
+              <p className="text-sm text-gray-600">{globalSettings?.outlet?.store_address}</p>
             </div>
 
-            <div className="border-t border-b py-4 my-4">
-              <div className="text-center mb-4">
-                <p className="font-semibold">{globalSettings?.outlet?.name || 'ITnVend'}</p>
-                <p className="text-sm text-gray-600">{globalSettings?.outlet?.store_address}</p>
-              </div>
+            <div className="mb-4">
+              <p><strong>Customer:</strong> {lastTransaction.customerName}</p>
+              <p><strong>Date:</strong> {new Date(lastTransaction.timestamp).toLocaleString()}</p>
+              <p><strong>Payment:</strong> {lastTransaction.type === 'quote' ? 'Pending' : (lastTransaction.paymentMethod || 'N/A')}</p>
+            </div>
 
-              <div className="mb-4">
-                <p><strong>Customer:</strong> {lastTransaction.customerName}</p>
-                <p><strong>Date:</strong> {new Date(lastTransaction.timestamp).toLocaleString()}</p>
-                <p><strong>Payment:</strong> {lastTransaction.paymentMethod}</p>
-              </div>
+            <div className="space-y-2 mb-4">
+              {lastTransaction.items.map((item, index) => (
+                <div key={index} className="flex justify-between text-sm">
+                  <span>{item.name} x{item.quantity}</span>
+                  <span>{formatCurrency(item.price * item.quantity)}</span>
+                </div>
+              ))}
+            </div>
 
-              <div className="space-y-2 mb-4">
-                {lastTransaction.items.map((item, index) => (
-                  <div key={index} className="flex justify-between text-sm">
-                    <span>{item.name} x{item.quantity}</span>
-                    <span>{formatCurrency(item.price * item.quantity)}</span>
-                  </div>
-                ))}
+            <div className="border-t pt-2 space-y-1">
+              <div className="flex justify-between text-sm">
+                <span>Subtotal:</span>
+                <span>{formatCurrency(lastTransaction.subtotal)}</span>
               </div>
-
-              <div className="border-t pt-2 space-y-1">
-                <div className="flex justify-between text-sm">
-                  <span>Subtotal:</span>
-                  <span>{formatCurrency(lastTransaction.subtotal)}</span>
-                </div>
-                <div className="flex justify-between text-sm">
-                  <span>Tax:</span>
-                  <span>{formatCurrency(lastTransaction.taxAmount)}</span>
-                </div>
-                <div className="flex justify-between font-bold">
-                  <span>Total:</span>
-                  <span>{formatCurrency(lastTransaction.total)}</span>
-                </div>
+              <div className="flex justify-between text-sm">
+                <span>Tax:</span>
+                <span>{formatCurrency(lastTransaction.taxAmount)}</span>
+              </div>
+              <div className="flex justify-between font-bold">
+                <span>Total:</span>
+                <span>{formatCurrency(lastTransaction.total)}</span>
+              </div>
+              {lastTransaction.type !== 'quote' && (
                 <div className="flex justify-between text-sm">
                   <span>Paid:</span>
                   <span>{formatCurrency(lastTransaction.paymentAmount)}</span>
                 </div>
-                {lastTransaction.changeAmount > 0 && (
-                  <div className="flex justify-between text-sm font-semibold">
-                    <span>Change:</span>
-                    <span>{formatCurrency(lastTransaction.changeAmount)}</span>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            <div className="text-center text-sm text-gray-600 mb-4">
-              Thank you for your business!
-            </div>
-
-            <div className="flex gap-2">
-              <button
-                onClick={() => window.print()}
-                className="flex-1 bg-blue-500 text-white px-4 py-2 rounded font-semibold hover:bg-blue-600"
-              >
-                Print Receipt
-              </button>
-              <button
-                onClick={() => setShowReceipt(false)}
-                className="flex-1 bg-gray-500 text-white px-4 py-2 rounded font-semibold hover:bg-gray-600"
-              >
-                Close
-              </button>
+              )}
+              {lastTransaction.changeAmount > 0 && (
+                <div className="flex justify-between text-sm font-semibold">
+                  <span>Change:</span>
+                  <span>{formatCurrency(lastTransaction.changeAmount)}</span>
+                </div>
+              )}
             </div>
           </div>
-        </div>
+
+          <div className="text-center text-sm text-gray-600 mb-4">
+            Thank you for your business!
+          </div>
+
+          <div className="flex gap-2">
+            <button
+              onClick={() => window.print()}
+              className="flex-1 bg-blue-500 text-white px-4 py-2 rounded font-semibold hover:bg-blue-600"
+            >
+              Print Receipt
+            </button>
+            <button
+              onClick={() => setShowReceipt(false)}
+              className="flex-1 bg-gray-500 text-white px-4 py-2 rounded font-semibold hover:bg-gray-600"
+            >
+              Close
+            </button>
+          </div>
+        </Modal>
       )}
 
       {historyEditingId && (

@@ -9,21 +9,62 @@ import { useWebSocket } from './WebSocketContext';
 import { useSettings } from './SettingsContext';
 import BrandLogo from './BrandLogo';
 
+const NOTIFICATION_LOCALE = import.meta.env.VITE_NOTIFICATIONS_LOCALE || undefined;
+const NOTIFICATION_TIMEZONE = import.meta.env.VITE_NOTIFICATIONS_TIMEZONE || null;
+
+function formatAbsolute(date) {
+  const options = {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+    timeZoneName: 'short',
+  };
+  if (NOTIFICATION_TIMEZONE) options.timeZone = NOTIFICATION_TIMEZONE;
+  try {
+    return new Intl.DateTimeFormat(NOTIFICATION_LOCALE, options).format(date);
+  } catch (err) {
+    // Fallback if locale/timezone are invalid
+    return date.toLocaleString();
+  }
+}
+
 function formatRelativeTime(value) {
   if (!value) return '';
   let input;
   if (typeof value === 'string') {
-    // Normalize common sqlite CURRENT_TIMESTAMP format "YYYY-MM-DD HH:MM:SS"
-    // to an unambiguous UTC ISO string so Date parsing is consistent across browsers.
-    let s = value;
-    if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(s)) {
-      s = s.replace(' ', 'T') + 'Z';
+    // Normalize timestamp parsing for ambiguous strings (those without an
+    // explicit timezone). We attempt to parse both as UTC and as local time and
+    // pick the result closest to the current time. This handles mixed sources
+    // where some rows are populated by SQLite CURRENT_TIMESTAMP (no timezone)
+    // and others by new Date().toISOString() (with 'Z').
+    let s = value.trim();
+    // If the string already contains a timezone indicator (Z or ±HH:MM) parse
+    // it directly.
+    if (/Z|[+-]\d{2}:?\d{2}$/.test(s)) {
+      input = new Date(s);
+    } else {
+      // For plain date format (YYYY-MM-DD) treat as start-of-day when parsing
+      // but still consider both UTC and local interpretations.
+      if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+        s = s + 'T00:00:00';
+      }
+      // Normalize space-separated date-times to ISO-like without timezone so
+      // both parsers behave consistently (e.g. "YYYY-MM-DD HH:MM:SS" ->
+      // "YYYY-MM-DDTHH:MM:SS").
+      if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(s)) {
+        s = s.replace(' ', 'T');
+      }
+
+      const asUtc = new Date(s + 'Z');
+      const asLocal = new Date(s);
+      const now = Date.now();
+      const dUtc = Number.isNaN(asUtc.getTime()) ? Infinity : Math.abs(now - asUtc.getTime());
+      const dLocal = Number.isNaN(asLocal.getTime()) ? Infinity : Math.abs(now - asLocal.getTime());
+      if (dUtc === Infinity && dLocal === Infinity) {
+        input = new Date(s);
+      } else {
+        input = dUtc <= dLocal ? asUtc : asLocal;
+      }
     }
-    // If it's a plain date like YYYY-MM-DD, make it explicit UTC start of day
-    else if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
-      s = s + 'T00:00:00Z';
-    }
-    input = new Date(s);
   } else {
     input = value;
   }
@@ -31,11 +72,11 @@ function formatRelativeTime(value) {
   const diff = Date.now() - input.getTime();
   const absDiff = Math.abs(diff);
   if (absDiff < 60 * 1000) return 'Just now';
-  if (diff < 0) return input.toLocaleString();
+  if (diff < 0) return formatAbsolute(input);
   if (diff < 60 * 60 * 1000) return `${Math.floor(diff / (60 * 1000))}m ago`;
   if (diff < 24 * 60 * 60 * 1000) return `${Math.floor(diff / (60 * 60 * 1000))}h ago`;
   // For older items show a localized date/time
-  return input.toLocaleString();
+  return formatAbsolute(input);
 }
 
 export default function Header() {
@@ -53,7 +94,7 @@ export default function Header() {
   const profileRef = useRef(null);
   const profileButtonRef = useRef(null);
   const [profileOpen, setProfileOpen] = useState(false);
-  const storeUrl = import.meta.env.VITE_ESTORE_URL || 'http://localhost:5174';
+  const storeUrl = (import.meta.env.VITE_ESTORE_URL || 'https://estore.itnvend.com').replace(/\/$/, '');
   const { settings } = useSettings();
   const outlet = settings?.outlet?.name || settings?.outlet_name || 'ITnVend';
 
