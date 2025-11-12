@@ -276,13 +276,13 @@ export default function PublicNavbar() {
             <div className="mt-6 grid gap-3">
               <Link
                 to="/market"
-                className="inline-flex items-center justify-center rounded-full bg-gradient-to-r from-rose-500 to-sky-400 px-5 py-3 text-sm font-semibold text-white shadow-lg shadow-rose-200/80 transition hover:-translate-y-0.5"
+                className="btn-sm btn-sm-primary inline-flex items-center justify-center rounded-full bg-gradient-to-r from-rose-500 to-sky-400 text-white shadow-lg shadow-rose-200/80 transition hover:-translate-y-0.5"
               >
                 Explore Market Hub
               </Link>
               <Link
                 to="/contact"
-                className="inline-flex items-center justify-center rounded-full border border-rose-200 bg-white px-5 py-3 text-sm font-semibold text-rose-500 transition hover:border-rose-300 hover:text-rose-600"
+                className="btn-sm btn-sm-outline inline-flex items-center justify-center rounded-full border border-rose-200 bg-white text-rose-500 transition hover:border-rose-300 hover:text-rose-600"
               >
                 Talk to a human
               </Link>

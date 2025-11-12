@@ -35,14 +35,14 @@ export default function Footer() {
             <div className="flex flex-wrap items-center justify-center gap-3">
               <Link
                 to="/contact"
-                className="inline-flex items-center gap-2 rounded-full bg-gradient-to-r from-rose-500 to-sky-400 px-4 py-2 text-sm font-semibold text-white shadow-md shadow-rose-200 transition hover:-translate-y-0.5"
+                className="btn-sm btn-sm-primary inline-flex items-center gap-2 rounded-full text-white shadow-md shadow-rose-200 transition hover:-translate-y-0.5"
               >
                 <FaHeadset aria-hidden="true" />
                 Talk to a human
               </Link>
               <Link
                 to="/contact?topic=issue"
-                className="inline-flex items-center gap-2 rounded-full border border-rose-200 px-4 py-2 text-sm font-semibold text-rose-500 transition hover:bg-rose-50"
+                className="btn-sm btn-sm-outline inline-flex items-center gap-2 rounded-full text-rose-500 transition hover:bg-rose-50"
               >
                 <FaShieldAlt aria-hidden="true" />
                 Report an issue
@@ -102,7 +102,7 @@ export default function Footer() {
             </div>
             <Link
               to="/socials"
-              className="inline-flex items-center gap-2 rounded-full bg-rose-500 px-5 py-2 text-sm font-semibold text-white shadow-md shadow-rose-200 transition hover:-translate-y-0.5"
+              className="btn-sm btn-sm-primary inline-flex items-center gap-2 rounded-full text-white shadow-md shadow-rose-200 transition hover:-translate-y-0.5"
             >
               Build your own vibe
               <span aria-hidden="true">→</span>

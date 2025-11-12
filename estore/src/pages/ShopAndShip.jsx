@@ -489,21 +489,21 @@ export default function ShopAndShip() {
               .
             </div>
             <div className="flex gap-3">
-              <button
-                type="button"
-                onClick={resetForm}
-                className="inline-flex items-center rounded-full border border-slate-200 px-5 py-2 text-sm font-semibold text-slate-500 shadow-sm transition hover:border-slate-300 hover:text-slate-700"
-                disabled={submitting}
-              >
-                Clear form
-              </button>
-              <button
-                type="submit"
-                className="inline-flex items-center rounded-full bg-gradient-to-r from-rose-500 to-sky-400 px-6 py-2 text-sm font-semibold text-white shadow-lg shadow-rose-200/80 transition hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-70"
-                disabled={submitting}
-              >
-                {submitting ? 'Submitting.' : 'Send preorder'}
-              </button>
+                <button
+                  type="button"
+                  onClick={resetForm}
+                  className="btn-sm btn-sm-outline inline-flex items-center rounded-full border border-slate-200 text-slate-500 shadow-sm transition hover:border-slate-300 hover:text-slate-700"
+                  disabled={submitting}
+                >
+                  Clear form
+                </button>
+                <button
+                  type="submit"
+                  className="btn-sm btn-sm-primary inline-flex items-center rounded-full bg-gradient-to-r from-rose-500 to-sky-400 text-white shadow-lg shadow-rose-200/80 transition hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-70"
+                  disabled={submitting}
+                >
+                  {submitting ? 'Submitting.' : 'Send preorder'}
+                </button>
             </div>
           </div>
         </form>

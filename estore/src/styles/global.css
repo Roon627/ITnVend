@@ -41,6 +41,22 @@
   display: none; /* Safari and Chrome */
 }
 
+/* Compact button utilities for consistent small CTAs */
+@layer components {
+  .btn-sm {
+    @apply inline-flex items-center gap-2 rounded-full px-3 py-2 text-sm font-semibold;
+  }
+  .btn-sm-primary {
+    @apply bg-rose-500 text-white shadow transition hover:-translate-y-0.5 hover:bg-rose-400 focus:outline-none focus:ring-2 focus:ring-rose-200;
+  }
+  .btn-sm-outline {
+    @apply border border-rose-200 bg-white text-rose-600;
+  }
+  .btn-sm-ghost {
+    @apply text-rose-500 hover:bg-rose-50;
+  }
+}
+
 [data-theme='mauve'] {
   /* Mauve & Grey palette (custom provided) */
   --color-primary: #877c93; /* main mauve */
@@ -361,12 +377,10 @@ a:hover {
   color: var(--color-primary-strong);
 }
 
-/* Careful global touch-target improvements for mobile only.
-   We target common button patterns used across the app (Tailwind utility
-   combinations like `inline-flex items-center` and our .btn-* helpers).
-   This increases vertical padding and font-size only on small screens so
-   desktop layouts remain unchanged. Uses !important sparingly to override
-   inline utility classes where necessary for accessibility. */
+/* Adjust mobile button sizing to be more compact while remaining tappable.
+   This reduces the large mobile button footprints introduced earlier that
+   made many CTAs feel oversized on small screens. We still keep a sensible
+   minimum tap target but prefer slightly tighter paddings and smaller icons. */
 @media (max-width: 640px) {
   /* common inline-flex buttons with icons */
   .inline-flex.items-center,
@@ -376,34 +390,35 @@ a:hover {
   .btn-primary,
   .btn-secondary,
   .btn-muted {
-    font-size: 1rem !important; /* ~16px for comfortable tap */
-    padding-top: 0.56rem !important;
-    padding-bottom: 0.56rem !important;
-    min-height: 44px !important; /* common mobile recommended touch size */
+    font-size: 0.925rem !important; /* slightly smaller text on mobile */
+    padding-top: 0.35rem !important;
+    padding-bottom: 0.35rem !important;
+    min-height: 36px !important; /* more compact but still touchable */
   }
 
-  /* slightly increase horizontal padding for rounded/full buttons */
+  /* reduce horizontal padding for rounded/full buttons */
   .px-4.py-2,
   .px-5.py-2,
   .rounded-full.px-4.py-2 {
-    padding-left: 1rem !important;
-    padding-right: 1rem !important;
-    padding-top: 0.56rem !important;
-    padding-bottom: 0.56rem !important;
+    padding-left: 0.6rem !important;
+    padding-right: 0.6rem !important;
+    padding-top: 0.35rem !important;
+    padding-bottom: 0.35rem !important;
   }
 
-  /* ensure small icon-only buttons keep contrast but are easier to tap */
+  /* compact icon-only buttons */
   button.p-2,
   .p-2 {
-    padding: 0.5rem !important;
-    min-width: 44px !important;
-    min-height: 44px !important;
+    padding: 0.35rem !important;
+    min-width: 36px !important;
+    min-height: 36px !important;
   }
+
   /* reduce icon sizes inside buttons on mobile so text remains primary */
   .inline-flex.items-center svg,
   .inline-flex svg,
   button svg {
-    width: 18px !important;
-    height: 18px !important;
+    width: 16px !important;
+    height: 16px !important;
   }
 }

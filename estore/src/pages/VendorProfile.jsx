@@ -111,14 +111,14 @@ export default function VendorProfile() {
                         href={vendor.website.startsWith('http') ? vendor.website : `https://${vendor.website}`}
                         target="_blank"
                         rel="noreferrer"
-                        className="inline-flex items-center gap-2 rounded-full border border-white/60 bg-white/20 px-5 py-2 text-sm font-semibold text-white backdrop-blur transition hover:bg-white/30"
+                        className="btn-sm btn-sm-outline inline-flex items-center gap-2 rounded-full border border-white/60 bg-white/20 text-sm font-semibold text-white backdrop-blur transition hover:bg-white/30"
                       >
                         Visit site
                       </a>
                     )}
                     <Link
                       to="/vendor-onboarding"
-                      className="inline-flex items-center gap-2 rounded-full border border-white/60 bg-white/20 px-5 py-2 text-sm font-semibold text-white backdrop-blur transition hover:bg-white/30"
+                      className="btn-sm btn-sm-outline inline-flex items-center gap-2 rounded-full border border-white/60 bg-white/20 text-sm font-semibold text-white backdrop-blur transition hover:bg-white/30"
                     >
                       Become a vendor
                     </Link>
@@ -154,7 +154,7 @@ export default function VendorProfile() {
                 </div>
                 <Link
                   to="/market"
-                  className="inline-flex items-center gap-2 rounded-full border border-rose-200 bg-white px-5 py-2 text-sm font-semibold text-rose-500 transition hover:bg-rose-50"
+                  className="btn-sm btn-sm-outline inline-flex items-center gap-2 rounded-full border border-rose-200 bg-white text-sm font-semibold text-rose-500 transition hover:bg-rose-50"
                 >
                   Back to Market Hub
                 </Link>

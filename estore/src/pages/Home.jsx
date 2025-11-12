@@ -78,7 +78,7 @@ export default function Home() {
             <div className="flex flex-wrap items-center justify-center gap-4 lg:justify-start">
               <Link
                 to="/market"
-                className="inline-flex items-center gap-3 rounded-2xl bg-white px-5 py-3 text-rose-600 font-semibold shadow-[0_12px_35px_rgba(244,114,182,0.35)] transition hover:-translate-y-0.5"
+                className="btn-sm inline-flex items-center gap-3 rounded-2xl bg-white text-rose-600 font-semibold shadow-[0_12px_35px_rgba(244,114,182,0.35)] transition hover:-translate-y-0.5"
               >
                 <span className="inline-flex h-8 w-8 items-center justify-center rounded-xl bg-rose-500 text-white">
                   <FaShoppingBag />
@@ -90,14 +90,14 @@ export default function Home() {
               </Link>
               <Link
                 to="/shop-and-ship"
-                className="inline-flex items-center gap-3 rounded-full border border-rose-100/60 bg-white/60 px-6 py-3 text-sm font-semibold text-rose-500 shadow-sm transition hover:border-rose-200 hover:bg-white"
+                className="btn-sm btn-sm-outline inline-flex items-center gap-3 rounded-full border border-rose-100/60 bg-white/60 text-rose-500 shadow-sm transition hover:border-rose-200 hover:bg-white"
               >
                 Share your overseas cart
                 <FaArrowRight className="text-rose-400" />
               </Link>
               <Link
                 to="/checkout"
-                className="inline-flex items-center gap-3 rounded-full border border-slate-200/70 px-6 py-3 text-sm font-semibold text-slate-600 transition hover:border-slate-300 hover:bg-white/70"
+                className="btn-sm btn-sm-outline inline-flex items-center gap-3 rounded-full border border-slate-200/70 text-slate-600 transition hover:border-slate-300 hover:bg-white/70"
               >
                 Build a happy bundle
                 <FaArrowRight className="text-slate-400" />
@@ -130,7 +130,7 @@ export default function Home() {
               </div>
               <Link
                 to="/market"
-                className="inline-flex items-center gap-2 rounded-full border border-rose-200 bg-white px-5 py-2 text-sm font-semibold text-rose-500 transition hover:bg-rose-50"
+                className="btn-sm btn-sm-outline inline-flex items-center gap-2 rounded-full border border-rose-200 text-rose-500 transition hover:bg-rose-50"
               >
                 See everything
                 <FaArrowRight />
@@ -183,7 +183,7 @@ export default function Home() {
               </div>
               <Link
                 to="/cart"
-                className="relative inline-flex items-center gap-3 rounded-full border border-rose-200 bg-white px-5 py-2 text-sm font-semibold text-rose-500 shadow-sm transition hover:bg-rose-50"
+                className="btn-sm btn-sm-outline relative inline-flex items-center gap-3 rounded-full border border-rose-200 text-rose-500 shadow-sm transition hover:bg-rose-50"
               >
                 View cart ({cartCount})
                 <FaShoppingCart />
@@ -221,14 +221,14 @@ export default function Home() {
                 <div className="flex flex-wrap gap-3">
                   <Link
                     to="/vendors"
-                    className="inline-flex items-center gap-2 rounded-full border border-rose-200 bg-white px-5 py-2 text-sm font-semibold text-rose-500 transition hover:bg-rose-50"
+                    className="btn-sm btn-sm-outline inline-flex items-center gap-2 rounded-full border border-rose-200 text-rose-500 transition hover:bg-rose-50"
                   >
                     Browse all vendors
                     <FaArrowRight />
                   </Link>
                   <Link
                     to="/vendor-onboarding"
-                    className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-5 py-2 text-sm font-semibold text-slate-500 transition hover:bg-slate-50"
+                    className="btn-sm btn-sm-outline inline-flex items-center gap-2 rounded-full border border-slate-200 text-slate-500 transition hover:bg-slate-50"
                   >
                     Become a vendor
                   </Link>
@@ -260,7 +260,7 @@ export default function Home() {
             </div>
             <Link
               to="/vendor-onboarding"
-              className="inline-flex items-center gap-3 rounded-full bg-white px-6 py-3 text-rose-500 font-semibold shadow-lg shadow-rose-200 transition hover:-translate-y-0.5"
+              className="btn-sm inline-flex items-center gap-3 rounded-full bg-white text-rose-500 font-semibold shadow-lg shadow-rose-200 transition hover:-translate-y-0.5"
             >
               Book a discovery session
               <FaArrowRight />

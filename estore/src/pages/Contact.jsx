@@ -181,7 +181,7 @@ export default function Contact() {
             <button
               type="submit"
               disabled={submitting}
-              className="inline-flex items-center gap-2 rounded-full bg-gradient-to-r from-rose-500 to-sky-400 px-6 py-3 text-sm font-semibold text-white shadow-lg shadow-rose-200 transition hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-60"
+              className="btn-sm btn-sm-primary inline-flex items-center gap-2 rounded-full bg-gradient-to-r from-rose-500 to-sky-400 text-white shadow-lg shadow-rose-200 transition hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-60"
             >
               <FaEnvelope aria-hidden="true" />
               {submitting ? 'Sending...' : 'Send message'}

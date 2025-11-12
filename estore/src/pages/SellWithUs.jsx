@@ -103,7 +103,7 @@ function normalizeTags(value) {
 }
 
 export default function SellWithUs() {
-  const { stats, loading: statsLoading } = useMarketplaceStats();
+  const { stats, loading: _statsLoading } = useMarketplaceStats();
   const [form, setForm] = useState(DEFAULT_FORM);
   const [categoriesMap, setCategoriesMap] = useState({});
   const [availableSubcategories, setAvailableSubcategories] = useState([]);
@@ -918,7 +918,7 @@ export default function SellWithUs() {
                 <button
                   type="submit"
                   disabled={submitting}
-                  className="rounded-full bg-rose-500 px-6 py-3 text-sm font-semibold text-white shadow-lg shadow-rose-200/60 transition hover:bg-rose-400 disabled:cursor-not-allowed disabled:opacity-70"
+                  className="btn-sm btn-sm-primary rounded-full bg-rose-500 text-sm font-semibold text-white shadow-lg shadow-rose-200/60 transition hover:bg-rose-400 disabled:cursor-not-allowed disabled:opacity-70"
                 >
                   {submitting ? 'Submitting.' : 'Submit listing'}
                 </button>

@@ -135,13 +135,13 @@ export default function Socials() {
           <div className="flex flex-wrap items-center justify-center gap-3">
             <Link
               to="/contact"
-              className="inline-flex items-center gap-2 rounded-full bg-rose-500 px-5 py-2 text-sm font-semibold text-white shadow-md shadow-rose-200 transition hover:-translate-y-0.5"
+              className="btn-sm btn-sm-primary inline-flex items-center gap-2 rounded-full text-white shadow-md shadow-rose-200 transition hover:-translate-y-0.5"
             >
               Contact the team
             </Link>
             <Link
               to="/market"
-              className="inline-flex items-center gap-2 rounded-full border border-rose-200 px-5 py-2 text-sm font-semibold text-rose-500 transition hover:bg-rose-50"
+              className="btn-sm btn-sm-outline inline-flex items-center gap-2 rounded-full border border-rose-200 text-rose-500 transition hover:bg-rose-50"
             >
               Browse what’s trending
             </Link>

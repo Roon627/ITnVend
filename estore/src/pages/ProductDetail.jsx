@@ -74,7 +74,7 @@ export default function ProductDetail() {
   if (loading) {
     return (
       <div className="flex min-h-[50vh] items-center justify-center bg-gradient-to-br from-rose-50 via-white to-sky-50">
-        <p className="rounded-full border border-rose-200 bg-white px-6 py-3 text-sm font-semibold text-rose-500 shadow-sm">
+        <p className="btn-sm btn-sm-outline rounded-full border border-rose-200 bg-white text-sm font-semibold text-rose-500 shadow-sm">
           Loading your item...
         </p>
       </div>
@@ -88,10 +88,10 @@ export default function ProductDetail() {
           <p className="mb-4 text-lg font-semibold text-rose-600">{error === 'not-found' ? 'Item not found' : 'Something went wrong'}</p>
           <p className="mb-4 text-sm text-rose-500">{error === 'not-found' ? "We couldn't locate that product. It may have been removed or is unavailable." : 'An error occurred while fetching the product. Please try again later.'}</p>
           <div className="flex justify-center gap-3">
-            <Link to="/market" className="inline-flex items-center gap-2 rounded-full border border-rose-200 px-5 py-3 text-sm font-semibold text-rose-600 hover:bg-rose-50">
+            <Link to="/market" className="btn-sm btn-sm-outline inline-flex items-center gap-2 rounded-full border border-rose-200 text-sm font-semibold text-rose-600 hover:bg-rose-50">
               Back to Market Hub
             </Link>
-            <Link to="/" className="inline-flex items-center gap-2 rounded-full border border-rose-200 px-5 py-3 text-sm font-semibold text-rose-600 hover:bg-rose-50">
+            <Link to="/" className="btn-sm btn-sm-outline inline-flex items-center gap-2 rounded-full border border-rose-200 text-sm font-semibold text-rose-600 hover:bg-rose-50">
               Home
             </Link>
           </div>
@@ -287,7 +287,7 @@ export default function ProductDetail() {
               </section>
             )}
 
-            <div className="flex flex-wrap gap-3">
+            <div className="flex flex-row flex-wrap items-center gap-2">
               {userListing ? (
                 contactHasInfo ? (
                   <a
@@ -295,12 +295,12 @@ export default function ProductDetail() {
                     onClick={(e) => {
                       if (!contactLink) e.preventDefault();
                     }}
-                    className="inline-flex items-center gap-3 rounded-full bg-amber-500 px-6 py-3 text-white shadow-lg shadow-amber-300 transition hover:-translate-y-0.5 hover:bg-amber-400 focus:outline-none focus:ring-2 focus:ring-amber-200"
+                    className="btn-sm btn-sm-primary inline-flex items-center gap-2 rounded-full bg-amber-500 text-white shadow-lg shadow-amber-300 transition hover:-translate-y-0.5 hover:bg-amber-400 focus:outline-none focus:ring-2 focus:ring-amber-200"
                   >
                     Contact seller
                   </a>
                 ) : (
-                  <div className="inline-flex items-center gap-3 rounded-full border border-amber-200 px-6 py-3 text-sm font-semibold text-amber-700">
+                  <div className="btn-sm btn-sm-outline inline-flex items-center gap-2 rounded-full border border-amber-200 text-sm font-semibold text-amber-700">
                     Awaiting seller contact
                   </div>
                 )
@@ -308,14 +308,14 @@ export default function ProductDetail() {
                 <>
                   <button
                     onClick={() => addToCart(product)}
-                    className="hidden sm:inline-flex items-center gap-3 rounded-full bg-rose-500 px-6 py-3 text-white shadow-lg shadow-rose-300 transition hover:-translate-y-0.5 hover:bg-rose-400 focus:outline-none focus:ring-2 focus:ring-rose-200"
+                    className="hidden sm:inline-flex btn-sm btn-sm-primary bg-rose-500 text-white shadow focus:outline-none focus:ring-2 focus:ring-rose-200"
                     aria-label={`Add ${product.name} to cart`}
                   >
                     Add to cart
                   </button>
                   <button
                     onClick={handleBuyNow}
-                    className="hidden sm:inline-flex items-center gap-3 rounded-full border border-rose-200 px-5 py-3 text-sm font-semibold text-white bg-rose-600 hover:bg-rose-700 focus:outline-none focus:ring-2 focus:ring-rose-200"
+                    className="hidden sm:inline-flex btn-sm btn-sm-primary bg-rose-600 text-white focus:outline-none focus:ring-2 focus:ring-rose-200"
                   >
                     Buy now
                   </button>
@@ -323,7 +323,7 @@ export default function ProductDetail() {
                     <button
                       type="button"
                       onClick={handlePreorder}
-                      className="inline-flex items-center gap-3 rounded-full border border-rose-200 px-5 py-3 text-sm font-semibold text-rose-600 transition hover:bg-rose-100"
+                      className="inline-flex btn-sm items-center gap-2 rounded-full border border-rose-200 text-rose-600 transition hover:bg-rose-100"
                     >
                       Preorder via Shop &amp; Ship
                     </button>
@@ -332,13 +332,13 @@ export default function ProductDetail() {
               )}
               <Link
                 to="/market"
-                className="inline-flex items-center gap-2 rounded-full border border-rose-200 px-3 py-2 text-xs sm:px-5 sm:py-3 sm:text-sm font-semibold text-rose-600 transition hover:bg-rose-100"
+                className="inline-flex items-center gap-2 rounded-full border border-rose-200 px-3 py-2 text-xs sm:px-3 sm:py-2 sm:text-sm font-semibold text-rose-600 transition hover:bg-rose-100"
               >
                 Back to Market Hub
               </Link>
               <Link
                 to="/"
-                className="inline-flex items-center gap-2 rounded-full border border-rose-200 px-3 py-2 text-xs sm:px-5 sm:py-3 sm:text-sm font-semibold text-rose-600 transition hover:bg-rose-100"
+                className="inline-flex items-center gap-2 rounded-full border border-rose-200 px-3 py-2 text-xs sm:px-3 sm:py-2 sm:text-sm font-semibold text-rose-600 transition hover:bg-rose-100"
               >
                 Home
               </Link>
@@ -364,7 +364,7 @@ export default function ProductDetail() {
                     contactHasInfo ? (
                       <a
                         href={contactLink || '#'}
-                        className="inline-flex items-center gap-2 rounded-full bg-amber-500 px-4 py-2 text-white text-sm font-semibold"
+                        className="inline-flex items-center gap-1 rounded-full bg-amber-500 px-3 py-2 text-white text-sm font-semibold"
                       >
                         Contact
                       </a>
@@ -377,13 +377,13 @@ export default function ProductDetail() {
                     <>
                       <button
                         onClick={() => addToCart(product)}
-                        className="inline-flex sm:hidden items-center gap-2 rounded-full bg-rose-500 px-4 py-2 text-white text-sm font-semibold"
+                        className="inline-flex sm:hidden items-center gap-1 rounded-full bg-rose-500 px-3 py-2 text-white text-sm font-semibold"
                       >
                         Add to cart
                       </button>
                       <button
                         onClick={handleBuyNow}
-                        className="inline-flex items-center gap-2 rounded-full bg-rose-600 px-4 py-2 text-white text-sm font-semibold"
+                        className="inline-flex items-center gap-1 rounded-full bg-rose-600 px-3 py-2 text-white text-sm font-semibold"
                       >
                         Buy now
                       </button>

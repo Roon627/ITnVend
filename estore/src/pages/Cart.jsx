@@ -21,13 +21,13 @@ export default function Cart() {
           <div className="flex items-center justify-center gap-3">
             <Link
               to="/market"
-              className="inline-flex items-center gap-2 rounded-full bg-rose-500 px-6 py-3 text-white shadow-lg shadow-rose-200 transition hover:-translate-y-0.5 hover:bg-rose-400"
+              className="btn-sm btn-sm-primary inline-flex items-center gap-2 rounded-full bg-rose-500 text-white shadow-lg shadow-rose-200 transition hover:-translate-y-0.5 hover:bg-rose-400"
             >
               Start shopping
             </Link>
             <Link
               to="/"
-              className="inline-flex items-center gap-2 rounded-full border border-rose-200 px-5 py-3 text-sm font-semibold text-rose-500 transition hover:bg-rose-50"
+              className="btn-sm btn-sm-outline inline-flex items-center gap-2 rounded-full border border-rose-200 text-rose-500 transition hover:bg-rose-50"
             >
               Back home
             </Link>
@@ -130,20 +130,20 @@ export default function Cart() {
           <div className="mt-6 flex flex-wrap justify-between gap-4">
             <Link
               to="/market"
-              className="inline-flex items-center gap-2 rounded-full border border-rose-200 px-5 py-3 text-sm font-semibold text-rose-500 transition hover:bg-rose-50"
+              className="btn-sm btn-sm-outline inline-flex items-center gap-2 rounded-full border border-rose-200 text-rose-500 transition hover:bg-rose-50"
             >
               Continue shopping
             </Link>
             <div className="flex flex-wrap gap-3">
               <Link
                 to="/checkout?quote=true"
-                className="inline-flex items-center gap-2 rounded-full bg-white px-6 py-3 text-sm font-semibold text-rose-500 shadow-sm transition hover:-translate-y-0.5 hover:bg-rose-50"
+                className="btn-sm btn-sm-outline inline-flex items-center gap-2 rounded-full bg-white text-rose-500 shadow-sm transition hover:-translate-y-0.5 hover:bg-rose-50"
               >
                 <FaFileAlt /> Request a quote
               </Link>
               <Link
                 to="/checkout"
-                className="inline-flex items-center gap-2 rounded-full bg-rose-500 px-6 py-3 text-sm font-semibold text-white shadow-lg shadow-rose-200 transition hover:-translate-y-0.5 hover:bg-rose-400"
+                className="btn-sm btn-sm-primary inline-flex items-center gap-2 rounded-full bg-rose-500 text-white shadow-lg shadow-rose-200 transition hover:-translate-y-0.5 hover:bg-rose-400"
               >
                 <FaShoppingBag /> Checkout as guest
               </Link>

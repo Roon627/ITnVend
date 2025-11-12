@@ -38,7 +38,7 @@ const TRUST_POINTS = [
 
 export default function VendorOnboarding() {
   // Use shared marketplace stats so both pages display the same live data
-  const { stats, loading: statsLoading } = useMarketplaceStats();
+  const { stats, loading: _statsLoading } = useMarketplaceStats();
   const [formData, setFormData] = useState(initialForm);
   const [isSubmitting, setIsSubmitting] = useState(false);
   // logoData will store { name, path } when uploaded via multipart; documents will store array of { name, path }
@@ -73,7 +73,7 @@ export default function VendorOnboarding() {
         setLogoData({ name: f.name, path });
         return;
       }
-    } catch (err) {
+  } catch {
       // fall back to base64 if upload fails
     }
     // fallback to base64 for environments without multipart support
@@ -97,7 +97,7 @@ export default function VendorOnboarding() {
           uploaded.push({ name: f.name, path });
           continue;
         }
-      } catch (err) {
+  } catch {
         // ignore and fallback to base64
       }
       // fallback to base64
@@ -241,8 +241,8 @@ export default function VendorOnboarding() {
               </div>
 
               <div className="flex flex-col gap-3 border-t pt-4 sm:flex-row sm:justify-end">
-                <button type="button" onClick={() => navigate('/')} className="rounded-full border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-600">Cancel</button>
-                <button type="submit" disabled={isSubmitting} className="rounded-full bg-blue-600 px-6 py-2 text-sm font-semibold text-white shadow-lg shadow-blue-200/60 disabled:cursor-not-allowed disabled:opacity-70">
+                <button type="button" onClick={() => navigate('/')} className="btn-sm btn-sm-outline rounded-full border border-slate-200 text-slate-600">Cancel</button>
+                <button type="submit" disabled={isSubmitting} className="btn-sm btn-sm-primary rounded-full bg-blue-600 text-sm font-semibold text-white shadow-lg shadow-blue-200/60 disabled:cursor-not-allowed disabled:opacity-70">
                   {isSubmitting ? 'Submitting…' : 'Submit application'}
                 </button>
               </div>
