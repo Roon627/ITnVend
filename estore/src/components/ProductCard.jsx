@@ -5,9 +5,10 @@ import { resolveMediaUrl } from '../lib/media';
 import { isPreorderProduct } from '../lib/preorder';
 import AvailabilityTag from './AvailabilityTag';
 import { isUserListing, getSellerContact, buildContactLink } from '../lib/listings';
+import { useSettings } from './SettingsContext';
 
 // Dark-styled product card used across Home and PublicProducts
-export default function ProductCard({ product, onAdd = () => {}, formatCurrency = (n) => n }) {
+export default function ProductCard({ product, onAdd = () => {}, formatCurrency: formatCurrencyProp }) {
   const image = resolveMediaUrl(product.image || product.image_source || product.imageUrl);
   // modal removed - navigates to product detail page instead
 
@@ -21,6 +22,8 @@ export default function ProductCard({ product, onAdd = () => {}, formatCurrency 
   const contactLink = buildContactLink(sellerContact);
   const contactHasInfo = Boolean(sellerContact.phone);
   // intentionally omit unused description piece here (kept minimal in card view)
+  const { formatCurrency } = useSettings();
+  const fmt = formatCurrencyProp || formatCurrency || ((n) => n);
 
   return (
     <>
@@ -46,9 +49,9 @@ export default function ProductCard({ product, onAdd = () => {}, formatCurrency 
           
           <div className="mt-auto pt-4">
             <div className="mb-3 text-left">
-              <span className="text-xl font-bold text-rose-500">{formatCurrency(product.price)}</span>
+              <span className="text-xl font-bold text-rose-500">{fmt(product.price)}</span>
             </div>
-            <div className="flex flex-col gap-2">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-2">
               {userListing ? (
                 contactHasInfo ? (
                   <a
@@ -56,21 +59,21 @@ export default function ProductCard({ product, onAdd = () => {}, formatCurrency 
                     onClick={(e) => {
                       if (!contactLink) e.preventDefault();
                     }}
-                    className="w-full inline-flex items-center justify-center gap-2 rounded-lg bg-amber-500 px-4 py-3 text-base font-semibold text-white shadow-sm transition-colors hover:bg-amber-600"
+                    className="btn-sm btn-sm-primary w-full sm:flex-1 inline-flex items-center justify-center gap-2 rounded-lg bg-amber-500 text-white shadow-sm transition-colors hover:bg-amber-600"
                     aria-label="Contact seller"
                   >
                     <FaPhone />
                     Contact Seller
                   </a>
                 ) : (
-                  <div className="w-full inline-flex items-center justify-center gap-2 rounded-lg bg-slate-200 px-4 py-3 text-base font-semibold text-slate-500">
+                  <div className="btn-sm btn-sm-outline w-full sm:flex-1 inline-flex items-center justify-center gap-2 rounded-lg bg-slate-200 text-slate-500">
                     Contact Pending
                   </div>
                 )
               ) : (
                 <button
                   onClick={() => onAdd(product)}
-                  className="w-full inline-flex items-center justify-center gap-2 rounded-lg bg-rose-500 px-4 py-3 text-base font-semibold text-white shadow-sm transition-colors hover:bg-rose-600"
+                  className="btn-sm btn-sm-primary w-full sm:flex-1 inline-flex items-center justify-center gap-2 rounded-lg bg-rose-500 text-white shadow-sm transition-colors hover:bg-rose-600"
                   aria-label={`${isPreorder ? 'Preorder' : 'Add'} ${product.name}`}
                 >
                   <FaShoppingCart />
@@ -80,7 +83,7 @@ export default function ProductCard({ product, onAdd = () => {}, formatCurrency 
               <Link
                 to={`/product/${product.id}`}
                 state={{ preloadedProduct: product }}
-                className="w-full inline-flex items-center justify-center gap-2 rounded-lg border border-rose-200 bg-white/80 px-4 py-3 text-base font-medium text-rose-600 shadow-sm transition-colors hover:bg-rose-50"
+                className="btn-sm btn-sm-outline w-full sm:flex-1 inline-flex items-center justify-center gap-2 rounded-lg border border-rose-200 bg-white/80 text-rose-600 shadow-sm transition-colors hover:bg-rose-50"
                 aria-label={`View details for ${product.name}`}
               >
                 View

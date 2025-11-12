@@ -26,14 +26,21 @@ export default function SpecPreview({ value }) {
       );
     }
   } catch (e) {
-    console.warn('SpecPreview JSON parse failed', e);
+    if (process.env.NODE_ENV !== 'production') {
+      // keep a lightweight debug message during development only
+      console.debug('SpecPreview JSON parse failed (falling back to plain text)', e?.message || e);
+    }
     // fallback to lines
   }
   return (
     <div className="text-sm">
-      {String(value).split(/\r?\n/).map((line, idx) => (
-        <div key={idx} className="py-1 text-slate-700">• {line}</div>
-      ))}
+      {String(value)
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .filter(Boolean)
+        .map((line, idx) => (
+          <div key={idx} className="py-1 text-slate-700">• {line}</div>
+        ))}
     </div>
   );
 }
