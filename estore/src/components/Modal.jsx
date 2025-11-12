@@ -49,7 +49,8 @@ export default function Modal({ open, onClose, labelledBy, children, className =
   if (!open) return null;
 
   const modal = (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-2">
+    // on small screens anchor to the top and allow page/modal scrolling to avoid clipping
+    <div className="fixed inset-0 z-50 flex items-start sm:items-center justify-center p-2 overflow-auto">
       <div
         className="absolute inset-0 bg-black/30"
         onClick={() => onClose && onClose()}
@@ -59,7 +60,8 @@ export default function Modal({ open, onClose, labelledBy, children, className =
         role="dialog"
         aria-modal="true"
         aria-labelledby={labelledBy}
-        className={`relative z-10 w-full max-w-lg transform overflow-hidden rounded-xl bg-white shadow-md ${className}`}
+        // constrain modal height and allow internal scrolling
+        className={`relative z-10 w-full max-w-lg transform overflow-hidden rounded-xl bg-white shadow-md max-h-[96vh] ${className}`}
       >
         {children}
       </div>

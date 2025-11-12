@@ -18,15 +18,29 @@ const PAYMENT_METHODS = [
 ];
 
 export default function Checkout() {
-  const { cart, cartTotal, clearCart } = useCart();
+  const { cart, clearCart, removeFromCart } = useCart();
   const toast = useToast();
   const navigate = useNavigate();
   const location = useLocation();
   const isQuote = new URLSearchParams(location.search).get('quote') === 'true';
-  const { formatCurrency, currencyCode } = useSettings();
+  // Support buy-now flow: ProductDetail navigates with state { buyNowItem } (full product) or { buyNowItemId } or ?buyNow=<id>
+  const buyNowItem = (location && location.state && location.state.buyNowItem) || null;
+  const buyNowItemId = buyNowItem?.id || (location && location.state && location.state.buyNowItemId) || new URLSearchParams(location.search).get('buyNow');
+
+  const displayCart = useMemo(() => {
+    if (buyNowItem) {
+      const qtyFromCart = cart.find((c) => String(c.id) === String(buyNowItem.id))?.quantity || buyNowItem.quantity || 1;
+      return [{ ...buyNowItem, quantity: qtyFromCart }];
+    }
+    if (!buyNowItemId) return cart;
+    return cart.filter((item) => String(item.id) === String(buyNowItemId));
+  }, [cart, buyNowItem, buyNowItemId]);
+
+  const displayTotal = useMemo(() => displayCart.reduce((sum, item) => sum + item.price * item.quantity, 0), [displayCart]);
+  const { formatCurrency, currencyCode, getAccountTransferDetails } = useSettings();
   const cartHasPreorder = useMemo(
-    () => cart.some((item) => item?.preorder || item?.availableForPreorder || item?.preorder_enabled === 1 || item?.preorder_enabled === '1'),
-    [cart]
+    () => displayCart.some((item) => item?.preorder || item?.availableForPreorder || item?.preorder_enabled === 1 || item?.preorder_enabled === '1'),
+    [displayCart]
   );
 
   const [form, setForm] = useState({
@@ -213,7 +227,7 @@ export default function Checkout() {
         toast.push('Please provide your existing account reference.', 'error');
         return;
       }
-      const cartLines = cart.map((item) => `${item.name} (Qty: ${item.quantity})`).join('\n');
+  const cartLines = displayCart.map((item) => `${item.name} (Qty: ${item.quantity})`).join('\n');
       const contextLines = [
         `Request type: ${quoteType}`,
         form.phone ? `Phone: ${form.phone}` : null,
@@ -229,11 +243,11 @@ export default function Checkout() {
           contact_name: form.name,
           email: form.email,
           phone: form.phone || null,
-          details: `${contextLines.join('\n')}\n\nItems:\n${cartLines || '(cart empty)'}\n\nEstimated total: ${formatCurrency(cartTotal)} ${currencyCode}`,
+          details: `${contextLines.join('\n')}\n\nItems:\n${cartLines || '(cart empty)'}\n\nEstimated total: ${formatCurrency(displayTotal)} ${currencyCode}`,
           submission_type: quoteType,
           existing_customer_ref: quoteType === 'existing' ? form.existingAccountRef || null : null,
           registration_number: quoteType === 'vendor' ? form.registrationNumber || null : null,
-          cart: cart.map((item) => ({
+          cart: displayCart.map((item) => ({
             id: item.id,
             product_id: item.id,
             quantity: item.quantity,
@@ -248,7 +262,7 @@ export default function Checkout() {
           registrationNumber: quoteType === 'vendor' ? form.registrationNumber || null : null,
           existingAccountRef: quoteType === 'existing' ? form.existingAccountRef || null : null,
         };
-        const summaryItems = cart.map((item) => ({
+        const summaryItems = displayCart.map((item) => ({
           id: item.id,
           name: item.name,
           quantity: item.quantity,
@@ -259,7 +273,7 @@ export default function Checkout() {
           state: {
             type: 'quote',
             cart: summaryItems,
-            total: cart.reduce((sum, item) => sum + item.price * item.quantity, 0),
+            total: displayTotal,
             quote: quoteSummary,
           },
         });
@@ -292,7 +306,7 @@ export default function Checkout() {
         return;
       }
       const trimmedReference = paymentReference.trim();
-      const validation = await validateSlipPublic(paymentSlip, trimmedReference, cartTotal);
+    const validation = await validateSlipPublic(paymentSlip, trimmedReference, displayTotal);
       if (validation && validation.error) {
         toast.push(validation.error || 'Slip validation failed', 'error');
         return;
@@ -325,7 +339,7 @@ export default function Checkout() {
       const trimmedReference = paymentMethod === 'transfer' ? paymentReference.trim() : '';
       await api.post('/orders', {
         customer: customerPayload,
-        cart,
+        cart: displayCart,
         payment: {
           method: paymentMethod,
           reference: paymentMethod === 'transfer' ? trimmedReference : null,
@@ -336,17 +350,22 @@ export default function Checkout() {
       });
       toast.push('Order placed successfully!', 'success');
       const orderSummary = {
-        items: cart.map((item) => ({
+        items: displayCart.map((item) => ({
           id: item.id,
           name: item.name,
           quantity: item.quantity,
           price: item.price,
         })),
-        total: cart.reduce((sum, item) => sum + item.price * item.quantity, 0),
+        total: displayTotal,
         paymentMethod,
         paymentReference: paymentMethod === 'transfer' ? trimmedReference || null : null,
       };
-      resetState();
+      // If this was a buy-now, remove only purchased items from the cart; otherwise clear the whole cart
+      if (buyNowItemId) {
+        displayCart.forEach((it) => removeFromCart(it.id));
+      } else {
+        resetState();
+      }
       navigate('/confirmation', { state: { type: 'order', order: orderSummary } });
     } catch (err) {
       console.error('Order submission failed', err);
@@ -585,7 +604,7 @@ export default function Checkout() {
         <div>
           <h2 className="text-2xl font-semibold mb-4">Order Summary</h2>
           <div className="bg-white p-6 rounded-lg shadow-md space-y-4">
-            {cart.map((item) => (
+            {displayCart.map((item) => (
               <div key={item.id} className="flex justify-between items-center border-b py-2 text-sm">
                 <div>
                   <p className="font-semibold text-gray-800">{item.name}</p>
@@ -596,12 +615,29 @@ export default function Checkout() {
             ))}
             <div className="flex justify-between items-center font-bold text-xl mt-4">
               <p>Total</p>
-              <p>{formatCurrency(cartTotal)}</p>
+              <p>{formatCurrency(displayTotal)}</p>
             </div>
             {!isQuote && paymentMethod === 'transfer' && (
-              <p className="text-xs text-gray-500">
-                Once we verify the payment slip we will confirm your order via email.
-              </p>
+              <>
+                {typeof getAccountTransferDetails === 'function' && (() => {
+                  const saved = getAccountTransferDetails();
+                  if (saved && (saved.bank_name || saved.account_name || saved.account_number)) {
+                    return (
+                      <div className="mb-3 rounded-lg border border-gray-200 bg-gray-50 p-3 text-sm text-gray-700">
+                        <div className="font-semibold text-gray-800">Bank transfer details</div>
+                        {saved.bank_name && <div className="mt-1">Bank: {saved.bank_name}</div>}
+                        {saved.account_name && <div>Account name: {saved.account_name}</div>}
+                        {saved.account_number && <div className="font-mono">Account number: {saved.account_number}</div>}
+                        <div className="mt-2 text-xs text-gray-500">These details come from your saved account settings.</div>
+                      </div>
+                    );
+                  }
+                  return null;
+                })()}
+                <p className="text-xs text-gray-500">
+                  Once we verify the payment slip we will confirm your order via email.
+                </p>
+              </>
             )}
             {paymentSlipPreview && (
               <div className="mt-4 sm:mt-6">

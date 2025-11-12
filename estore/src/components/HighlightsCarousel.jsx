@@ -1,6 +1,6 @@
 import { useMemo, useState, useEffect } from 'react';
 import AvailabilityTag from './AvailabilityTag';
-import ProductPreviewModal from './ProductPreviewModal';
+import { Link } from 'react-router-dom';
 import { resolveMediaUrl } from '../lib/media';
 import {
   isUserListing,
@@ -18,7 +18,7 @@ export default function HighlightsCarousel({ sections = [], formatCurrency, onAd
 
   // track which section tab is active. Initialize to first available tab when sections load.
   const [activeKey, setActiveKey] = useState(tabs[0]?.key || null);
-  const [modalProduct, setModalProduct] = useState(null);
+  // modal removed; use page navigation instead
 
   // Keep activeKey in sync when the available tabs change (e.g. after async highlights load).
   useEffect(() => {
@@ -29,15 +29,13 @@ export default function HighlightsCarousel({ sections = [], formatCurrency, onAd
     // If current activeKey is not present in tabs, pick the first tab.
     const found = tabs.find((t) => t.key === activeKey);
     if (!found) setActiveKey(tabs[0].key);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tabs]);
+  }, [tabs, activeKey]);
 
   // Allow parent to override which tab is active (e.g. jump to "newArrivals")
   useEffect(() => {
     if (!activeKeyOverride) return;
     const hit = tabs.find((t) => t.key === activeKeyOverride);
     if (hit) setActiveKey(activeKeyOverride);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeKeyOverride, tabs]);
 
   if (!tabs.length) return null;
@@ -67,7 +65,7 @@ export default function HighlightsCarousel({ sections = [], formatCurrency, onAd
       {activeSection.description && (
         <p className="text-sm text-slate-500">{activeSection.description}</p>
       )}
-      <div className="flex gap-4 overflow-x-auto pb-2 snap-x">
+      <div className="flex gap-4 overflow-x-auto pb-2 snap-x snap-mandatory scroll-smooth touch-pan-x no-scrollbar">
         {items.map((item) => {
           const galleryPaths = Array.isArray(item.gallery)
             ? item.gallery
@@ -96,7 +94,10 @@ export default function HighlightsCarousel({ sections = [], formatCurrency, onAd
           return (
             <div
               key={`highlight-${activeSection.key}-${item.id}`}
-              className="min-w-[240px] snap-start rounded-2xl border border-rose-100 bg-gradient-to-br from-white via-rose-50 to-sky-50 p-4 shadow-sm"
+              // On small screens make each card take most of the viewport width so
+              // users see one product at a time. On larger screens fall back to
+              // the original min-width layout to show multiple cards.
+              className="min-w-full sm:min-w-[240px] snap-center rounded-2xl border border-rose-100 bg-gradient-to-br from-white via-rose-50 to-sky-50 p-4 shadow-sm"
             >
               <div className="relative h-36 overflow-hidden rounded-xl">
                 <AvailabilityTag availabilityStatus={item.availability_status || item.availabilityStatus || 'in_stock'} />
@@ -122,13 +123,13 @@ export default function HighlightsCarousel({ sections = [], formatCurrency, onAd
                   {typeof formatCurrency === 'function' ? formatCurrency(item.price) : `${item.price} MVR`}
                 </div>
                 <div className="flex gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setModalProduct(item)}
-                    className="flex-1 rounded-full border border-rose-200 bg-white px-3 py-1.5 text-sm font-semibold text-rose-600 shadow-sm hover:bg-rose-50"
-                  >
-                    View details
-                  </button>
+                  <Link
+                      to={`/product/${item.id}`}
+                      state={{ preloadedProduct: item }}
+                      className="flex-1 text-center rounded-full border border-rose-200 bg-white px-4 py-2 text-base font-semibold text-rose-600 shadow-sm hover:bg-rose-50"
+                    >
+                      View details
+                    </Link>
                   {userListing ? (
                     contactHasInfo ? (
                       <a
@@ -136,12 +137,12 @@ export default function HighlightsCarousel({ sections = [], formatCurrency, onAd
                         onClick={(e) => {
                           if (!contactLink) e.preventDefault();
                         }}
-                        className="inline-flex items-center justify-center rounded-full border border-amber-300 bg-amber-500 px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-white shadow-sm hover:bg-amber-400"
+                        className="inline-flex items-center justify-center rounded-full border border-amber-300 bg-amber-500 px-4 py-2 text-base font-semibold uppercase tracking-wide text-white shadow-sm hover:bg-amber-400"
                       >
                         Contact seller
                       </a>
                     ) : (
-                      <div className="inline-flex items-center justify-center rounded-full border border-slate-200 bg-white/80 px-3 py-1.5 text-[11px] font-semibold uppercase text-slate-400">
+                      <div className="inline-flex items-center justify-center rounded-full border border-slate-200 bg-white/80 px-4 py-2 text-[12px] font-semibold uppercase text-slate-400">
                         Contact pending
                       </div>
                     )
@@ -150,7 +151,7 @@ export default function HighlightsCarousel({ sections = [], formatCurrency, onAd
                       <button
                         type="button"
                         onClick={() => onAdd(item)}
-                        className="rounded-full border border-rose-500 bg-rose-500 px-3 py-1.5 text-sm font-semibold text-white shadow-sm hover:bg-rose-400"
+                        className="rounded-full border border-rose-500 bg-rose-500 px-4 py-2 text-base font-semibold text-white shadow-sm hover:bg-rose-400"
                       >
                         Add
                       </button>
@@ -162,13 +163,7 @@ export default function HighlightsCarousel({ sections = [], formatCurrency, onAd
           );
         })}
       </div>
-      <ProductPreviewModal
-        open={!!modalProduct}
-        product={modalProduct}
-        onClose={() => setModalProduct(null)}
-        onAdd={onAdd}
-        formatCurrency={formatCurrency}
-      />
+      {/* ProductPreviewModal removed: navigation goes to product page now */}
     </section>
   );
 }

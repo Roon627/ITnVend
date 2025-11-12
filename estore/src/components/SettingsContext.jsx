@@ -134,6 +134,44 @@ export function SettingsProvider({ children }) {
     refreshSettings: fetchSettings,
   };
 
+  // helper: read transfer/account details from settings or localStorage fallback
+  const getAccountTransferDetails = () => {
+    const fromSettings = settings?.transfer_details || settings?.account_details || null;
+    if (fromSettings && typeof fromSettings === 'object') return fromSettings;
+    try {
+      const raw = localStorage.getItem('account_details');
+      if (raw) return JSON.parse(raw);
+    } catch {
+      // ignore localStorage errors
+    }
+    return null;
+  };
+
+  // helper: attempt to persist account details via API, fallback to localStorage
+  const saveAccountTransferDetails = async (details) => {
+    try {
+      // optimistic local save
+      localStorage.setItem('account_details', JSON.stringify(details || {}));
+    } catch {
+      // ignore localStorage errors
+    }
+    try {
+      // try saving to backend if supported
+      await api.post('/settings/account-details', { transfer_details: details });
+      // refresh settings from server
+      await fetchSettings();
+      return { ok: true };
+    } catch (err) {
+      // not fatal; return information for the UI
+      console.warn('Could not save account details to server', err?.message || err);
+      return { ok: false, error: err?.message || String(err) };
+    }
+  };
+
+  // extend value
+  value.getAccountTransferDetails = getAccountTransferDetails;
+  value.saveAccountTransferDetails = saveAccountTransferDetails;
+
   return (
     <SettingsContext.Provider value={value}>
       {children}

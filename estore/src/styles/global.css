@@ -32,6 +32,15 @@
   --color-warning-soft: #fff7ed;
 }
 
+/* Utility to hide scrollbars while keeping scrolling available (for mobile carousels) */
+.no-scrollbar {
+  -ms-overflow-style: none; /* IE and Edge */
+  scrollbar-width: none; /* Firefox */
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none; /* Safari and Chrome */
+}
+
 [data-theme='mauve'] {
   /* Mauve & Grey palette (custom provided) */
   --color-primary: #877c93; /* main mauve */
@@ -350,4 +359,51 @@ a:hover {
   background: transparent;
   border: 1px solid var(--color-primary-border);
   color: var(--color-primary-strong);
+}
+
+/* Careful global touch-target improvements for mobile only.
+   We target common button patterns used across the app (Tailwind utility
+   combinations like `inline-flex items-center` and our .btn-* helpers).
+   This increases vertical padding and font-size only on small screens so
+   desktop layouts remain unchanged. Uses !important sparingly to override
+   inline utility classes where necessary for accessibility. */
+@media (max-width: 640px) {
+  /* common inline-flex buttons with icons */
+  .inline-flex.items-center,
+  .inline-flex.items-center.gap-2,
+  .inline-flex.items-center.gap-3,
+  .inline-flex.items-center.gap-4,
+  .btn-primary,
+  .btn-secondary,
+  .btn-muted {
+    font-size: 1rem !important; /* ~16px for comfortable tap */
+    padding-top: 0.56rem !important;
+    padding-bottom: 0.56rem !important;
+    min-height: 44px !important; /* common mobile recommended touch size */
+  }
+
+  /* slightly increase horizontal padding for rounded/full buttons */
+  .px-4.py-2,
+  .px-5.py-2,
+  .rounded-full.px-4.py-2 {
+    padding-left: 1rem !important;
+    padding-right: 1rem !important;
+    padding-top: 0.56rem !important;
+    padding-bottom: 0.56rem !important;
+  }
+
+  /* ensure small icon-only buttons keep contrast but are easier to tap */
+  button.p-2,
+  .p-2 {
+    padding: 0.5rem !important;
+    min-width: 44px !important;
+    min-height: 44px !important;
+  }
+  /* reduce icon sizes inside buttons on mobile so text remains primary */
+  .inline-flex.items-center svg,
+  .inline-flex svg,
+  button svg {
+    width: 18px !important;
+    height: 18px !important;
+  }
 }

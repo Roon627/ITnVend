@@ -1,0 +1,17 @@
+{
+  // Silence unknown @rule diagnostics from the built-in CSS language service
+  // so Tailwind directives like `@tailwind` and `@apply` don't show as warnings.
+  "css.lint.unknownAtRules": "ignore",
+  "less.lint.unknownAtRules": "ignore",
+  "scss.lint.unknownAtRules": "ignore",
+
+  // Help Tailwind IntelliSense understand some file mappings if the extension
+  // is installed. This is optional but improves editor behavior.
+  "tailwindCSS.includeLanguages": {
+    "javascript": "javascript",
+    "javascriptreact": "html",
+    "typescript": "typescript",
+    "typescriptreact": "html",
+    "html": "html"
+  }
+}

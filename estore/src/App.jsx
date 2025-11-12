@@ -2,6 +2,7 @@ import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import Home from "./pages/Home";
 import PublicProducts from "./pages/PublicProducts";
 import ProductDetail from "./pages/ProductDetail";
+import AccountDetails from "./pages/AccountDetails";
 import Cart from "./pages/Cart";
 import Checkout from "./pages/Checkout";
 import OrderConfirmation from "./pages/OrderConfirmation";
@@ -54,12 +55,13 @@ function App() {
         <Route path="/vendors" element={<PublicLayout><VendorDirectory /></PublicLayout>} />
         <Route path="/vendors/:slug" element={<PublicLayout><VendorProfile /></PublicLayout>} />
         <Route path="/contact" element={<PublicLayout><Contact /></PublicLayout>} />
-        <Route path="/shop-and-ship" element={<PublicLayout><ShopAndShip /></PublicLayout>} />
+    <Route path="/shop-and-ship" element={<PublicLayout><ShopAndShip /></PublicLayout>} />
   <Route path="/socials" element={<PublicLayout><Socials /></PublicLayout>} />
         <Route path="/privacy" element={<PublicLayout><Privacy /></PublicLayout>} />
         <Route path="/use" element={<PublicLayout><UsePolicy /></PublicLayout>} />
         <Route path="/use/global" element={<PublicLayout><UseGlobal /></PublicLayout>} />
         <Route path="/use/mv" element={<PublicLayout><UseMV /></PublicLayout>} />
+        <Route path="/settings/account-details" element={<PublicLayout><AccountDetails /></PublicLayout>} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </BrowserRouter>

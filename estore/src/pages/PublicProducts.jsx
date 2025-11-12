@@ -3,7 +3,7 @@ import { Link, useSearchParams, useNavigate } from 'react-router-dom';
 import api from '../lib/api';
 import { useCart } from '../components/CartContext';
 import { useSettings } from '../components/SettingsContext';
-import { FaSearch, FaUndoAlt, FaHeart, FaFilter } from 'react-icons/fa';
+import { FaSearch, FaUndoAlt, FaHeart } from 'react-icons/fa';
 import ProductCard from '../components/ProductCard';
 import HighlightsCarousel from '../components/HighlightsCarousel';
 import NewArrivalsStrip from '../components/NewArrivalsStrip';
@@ -39,7 +39,7 @@ export default function PublicProducts() {
   const [categoryPreviewItems, setCategoryPreviewItems] = useState([]);
   const [categoryLoading, setCategoryLoading] = useState(false);
   const [categoryHasMore, setCategoryHasMore] = useState(false);
-  const [categoryOffset, setCategoryOffset] = useState(0);
+  
   const categoryCacheRef = useRef({}); // { [categoryLabel]: { items: [], hasMore: bool } }
   const [suppressHeaderSuggestions, setSuppressHeaderSuggestions] = useState(false);
   const previewRef = useRef(null);
@@ -59,7 +59,7 @@ export default function PublicProducts() {
         setCategoryHasMore(hasMore);
         // update cache
         categoryCacheRef.current[label] = { items: next, hasMore };
-        setCategoryOffset(offset + items.length);
+        // removed categoryOffset (not used)
       } catch (err) {
         console.error('Failed to load more category items', err);
       } finally {
@@ -83,7 +83,7 @@ export default function PublicProducts() {
           // scrolling inside the preview panel — ignore
           return;
         }
-      } catch (err) {
+      } catch {
         // ignore containment errors
       }
       const y = window.scrollY || window.pageYOffset;
@@ -219,9 +219,7 @@ export default function PublicProducts() {
   }, [highlightSections]);
 
   const newArrivalsList = highlights?.newArrivals || [];
-  const carouselRef = (node) => {
-    // placeholder ref setter for scrolling via id
-  };
+  
 
   const handleFilterChange = (event) => {
     const { name, value } = event.target;
@@ -297,38 +295,16 @@ export default function PublicProducts() {
           {/* Category menu - horizontally scrollable on mobile, evenly spaced on desktop */}
           <nav className="mt-2">
             <div className="overflow-x-auto no-scrollbar">
-              <div className="flex gap-2 md:justify-between md:gap-4 whitespace-nowrap px-2">
-                <button
-                  type="button"
-                  onClick={() => setFilterSidebarOpen(true)}
-                  className="lg:hidden inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-slate-700 hover:underline hover:bg-rose-50"
-                >
-                  <FaFilter />
-                  Filters
-                </button>
-                {(Object.keys(categories).length ? Object.keys(categories) : ['Electronics','Fashion','Home & Garden','Sports','Health & Beauty','Deals']).map((label) => (
+              <div className="flex gap-2 md:justify-between md:gap-4 whitespace-nowrap px-2 items-center">
+                {/* Show a subset of categories on narrow screens and provide a 'View all' CTA */}
+                {((Object.keys(categories).length ? Object.keys(categories) : ['Electronics','Fashion','Home & Garden','Sports','Health & Beauty','Deals']).slice(0, 6)).map((label) => (
                   <button
                     key={label}
                     type="button"
-                    onClick={async () => {
+                    onClick={() => {
                       // Toggle category preview panel
-                      if (openCategory === label) {
-                        setOpenCategory(null);
-                        return;
-                      }
-                      // Toggle preview for this category. If opening, load from cache
-                      // if available; otherwise fetch the first page.
-                      const willClose = openCategory === label;
-                      if (willClose) {
-                        setOpenCategory(null);
-                        return;
-                      }
-
-                      setOpenCategory(label);
-                      setCategoryLoading(true);
-                      setCategoryOffset(0);
-
-                      // serve from cache if present
+                      setOpenCategory((prev) => (prev === label ? null : label));
+                      // If we have cached preview items, use them; otherwise fetch the first page
                       const cached = categoryCacheRef.current[label];
                       if (cached && Array.isArray(cached.items) && cached.items.length > 0) {
                         setCategoryPreviewItems(cached.items);
@@ -336,32 +312,20 @@ export default function PublicProducts() {
                         setCategoryLoading(false);
                         return;
                       }
-
-                      try {
-                        const limit = 12;
-                        const res = await api.get('/products', { params: { category: label, limit } });
-                        const items = Array.isArray(res) ? res : [];
-                        setCategoryPreviewItems(items);
-                        setCategoryHasMore(items.length === limit);
-                        // cache it
-                        categoryCacheRef.current[label] = { items, hasMore: items.length === limit };
-                      } catch (err) {
-                        console.error('Failed to load category preview', err);
-                        setCategoryPreviewItems([]);
-                        setCategoryHasMore(false);
-                        categoryCacheRef.current[label] = { items: [], hasMore: false };
-                      } finally {
-                        setCategoryLoading(false);
-                      }
+                      // trigger fetch for preview items (fetchMoreCategoryItems is async)
+                      fetchMoreCategoryItems(label);
                     }}
                     className={`inline-block rounded-lg px-3 py-2 text-sm font-medium text-slate-700 hover:underline hover:bg-rose-50 ${filters.category === label ? 'bg-rose-50 underline' : ''}`}
                   >
                     {label}
                   </button>
                 ))}
+                <Link to="/market" className="inline-flex shrink-0 items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-rose-600 bg-rose-50 hover:bg-rose-100">
+                  View all
+                </Link>
                 <Link
                   to="/vendor-onboarding"
-                  className="inline-block rounded-lg px-3 py-2 text-sm font-medium text-slate-700 hover:underline hover:bg-rose-50"
+                  className="hidden sm:inline-block rounded-lg px-3 py-2 text-sm font-medium text-slate-700 hover:underline hover:bg-rose-50"
                 >
                   Sell
                 </Link>

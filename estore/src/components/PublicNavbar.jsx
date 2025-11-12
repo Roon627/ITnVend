@@ -17,9 +17,8 @@ const NAV_LINKS = [
 ];
 
 export default function PublicNavbar() {
-    const cartContext = useCart();
-    const cartCount = cartContext?.cartCount ?? 0;
-    const cartItems = cartContext?.cart ?? [];
+  const cartContext = useCart();
+  const cartCount = cartContext?.cartCount ?? 0;
     const location = useLocation();
     const { settings, logoUrl } = useSettings() || {};
     const [mobileOpen, setMobileOpen] = useState(false);
@@ -66,8 +65,10 @@ export default function PublicNavbar() {
       </span>
     ) : null;
 
+    // Larger tap target on small screens: default (mobile) uses bigger padding/text, shrink slightly on sm+
     const cartButtonClasses = [
-      'inline-flex items-center gap-2 rounded-full border border-white/30 bg-white/10 px-4 py-2 text-sm font-semibold text-rose-600 backdrop-blur-md',
+      'inline-flex items-center gap-2 rounded-full border border-white/30 bg-white/10 px-4 py-3 text-base font-semibold text-rose-600 backdrop-blur-md',
+      'sm:px-4 sm:py-2 sm:text-sm',
       'shadow-[0_5px_25px_rgba(244,114,182,0.25)] transition-colors duration-200 hover:border-white/60 hover:shadow-[0_10px_35px_rgba(244,114,182,0.45)]'
     ].join(' ');
 
@@ -157,34 +158,12 @@ export default function PublicNavbar() {
           </nav>
 
           <div className="ml-auto flex items-center gap-3">
-            <div className="relative group">
+            <div className="relative">
               <Link to="/cart" className={cartButtonClasses}>
                 <FaShoppingCart className="mr-2" aria-hidden="true" />
                 Cart
                 {cartbadge}
               </Link>
-              {cartCount > 0 && (
-                <div className="pointer-events-none absolute right-0 top-full mt-2 hidden min-w-[220px] rounded-2xl border border-white/70 bg-white/95 p-3 text-left shadow-xl shadow-rose-100 backdrop-blur group-hover:block">
-                  <p className="text-xs font-semibold uppercase tracking-widest text-rose-400">Recently added</p>
-                  <ul className="mt-2 space-y-2 text-sm text-slate-600">
-                    {cartItems.slice(0, 3).map((item) => (
-                      <li key={item.id} className="flex justify-between gap-3">
-                        <span className="flex-1 truncate font-medium">{item.name}</span>
-                        <span className="text-xs text-slate-400">×{item.quantity}</span>
-                      </li>
-                    ))}
-                  </ul>
-                  {cartItems.length > 3 && (
-                    <p className="mt-1 text-xs text-slate-400">+{cartItems.length - 3} more items</p>
-                  )}
-                  <Link
-                    to="/cart"
-                    className="mt-3 inline-flex w-full items-center justify-center rounded-full bg-gradient-to-r from-rose-500 to-sky-400 px-3 py-2 text-xs font-semibold text-white"
-                  >
-                    View cart
-                  </Link>
-                </div>
-              )}
             </div>
 
             {!isOnMarketPage && (

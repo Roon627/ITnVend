@@ -1,15 +1,15 @@
-import React, { useState } from 'react';
+import React from 'react';
+import { Link } from 'react-router-dom';
 import { FaShoppingCart, FaPhone } from 'react-icons/fa';
 import { resolveMediaUrl } from '../lib/media';
-import ProductPreviewModal from './ProductPreviewModal';
 import { isPreorderProduct } from '../lib/preorder';
 import AvailabilityTag from './AvailabilityTag';
-import { isUserListing, isVendorListing, getSellerContact, buildContactLink, productDescriptionCopy } from '../lib/listings';
+import { isUserListing, getSellerContact, buildContactLink } from '../lib/listings';
 
 // Dark-styled product card used across Home and PublicProducts
 export default function ProductCard({ product, onAdd = () => {}, formatCurrency = (n) => n }) {
   const image = resolveMediaUrl(product.image || product.image_source || product.imageUrl);
-  const [previewOpen, setPreviewOpen] = useState(false);
+  // modal removed - navigates to product detail page instead
 
   const isPreorder = isPreorderProduct(product);
   const availabilityStatus =
@@ -17,11 +17,10 @@ export default function ProductCard({ product, onAdd = () => {}, formatCurrency 
     product.availabilityStatus ||
     (isPreorder ? 'preorder' : 'in_stock');
   const userListing = isUserListing(product);
-  const vendorListing = isVendorListing(product);
   const sellerContact = getSellerContact(product);
   const contactLink = buildContactLink(sellerContact);
   const contactHasInfo = Boolean(sellerContact.phone);
-  const { primary: detailBlurb } = productDescriptionCopy(product);
+  // intentionally omit unused description piece here (kept minimal in card view)
 
   return (
     <>
@@ -57,40 +56,41 @@ export default function ProductCard({ product, onAdd = () => {}, formatCurrency 
                     onClick={(e) => {
                       if (!contactLink) e.preventDefault();
                     }}
-                    className="w-full inline-flex items-center justify-center gap-2 rounded-lg bg-amber-500 px-4 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-amber-600"
+                    className="w-full inline-flex items-center justify-center gap-2 rounded-lg bg-amber-500 px-4 py-3 text-base font-semibold text-white shadow-sm transition-colors hover:bg-amber-600"
                     aria-label="Contact seller"
                   >
                     <FaPhone />
                     Contact Seller
                   </a>
                 ) : (
-                  <div className="w-full inline-flex items-center justify-center gap-2 rounded-lg bg-slate-200 px-4 py-2 text-sm font-semibold text-slate-500">
+                  <div className="w-full inline-flex items-center justify-center gap-2 rounded-lg bg-slate-200 px-4 py-3 text-base font-semibold text-slate-500">
                     Contact Pending
                   </div>
                 )
               ) : (
                 <button
                   onClick={() => onAdd(product)}
-                  className="w-full inline-flex items-center justify-center gap-2 rounded-lg bg-rose-500 px-4 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-rose-600"
+                  className="w-full inline-flex items-center justify-center gap-2 rounded-lg bg-rose-500 px-4 py-3 text-base font-semibold text-white shadow-sm transition-colors hover:bg-rose-600"
                   aria-label={`${isPreorder ? 'Preorder' : 'Add'} ${product.name}`}
                 >
                   <FaShoppingCart />
                   <span>{isPreorder ? 'Preorder' : 'Add to Cart'}</span>
                 </button>
               )}
-              <button
-                onClick={() => setPreviewOpen(true)}
-                className="w-full inline-flex items-center justify-center gap-2 rounded-lg border border-rose-200 bg-white/80 px-4 py-2 text-sm font-medium text-rose-600 shadow-sm transition-colors hover:bg-rose-50"
+              <Link
+                to={`/product/${product.id}`}
+                state={{ preloadedProduct: product }}
+                className="w-full inline-flex items-center justify-center gap-2 rounded-lg border border-rose-200 bg-white/80 px-4 py-3 text-base font-medium text-rose-600 shadow-sm transition-colors hover:bg-rose-50"
                 aria-label={`View details for ${product.name}`}
               >
                 View
-              </button>
+              </Link>
             </div>
           </div>
         </div>
       </article>
 
-      <ProductPreviewModal open={previewOpen} product={product} onClose={() => setPreviewOpen(false)} onAdd={onAdd} formatCurrency={formatCurrency} />
+  {/* modal removed; navigation to product page used instead */}
     </>
   );
 }
