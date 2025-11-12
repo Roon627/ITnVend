@@ -62,9 +62,14 @@ export default function ProductPreviewModal({ open, product, onClose, onAdd, for
       : (value) => (value != null ? `${Number(value).toLocaleString()} MVR` : '—');
 
   return (
-    <Modal open={open} onClose={onClose} labelledBy={`preview-${product.id}`} className="max-w-4xl md:max-w-6xl">
-      <div id={`preview-${product.id}`} className="grid gap-6 lg:grid-cols-[1.1fr_0.9fr] p-4 sm:p-6">
-        <div className="relative flex items-center justify-center bg-gradient-to-br from-white via-rose-50 to-sky-50 p-4">
+    <Modal
+      open={open}
+      onClose={onClose}
+      labelledBy={`preview-${product.id}`}
+      className="max-w-md sm:max-w-2xl md:max-w-4xl lg:max-w-6xl"
+    >
+      <div id={`preview-${product.id}`} className="grid gap-4 lg:grid-cols-[1.1fr_0.9fr] p-3 sm:p-6 max-h-[86vh]">
+        <div className="relative flex items-center justify-center bg-gradient-to-br from-white via-rose-50 to-sky-50 p-3 sm:p-4 max-h-[36vh] sm:max-h-[48vh] md:max-h-none min-h-0 min-w-0">
           <AvailabilityTag availabilityStatus={availabilityStatus} />
           {uniq.length ? (
             <ImageCarousel images={uniq} alt={product.name} />
@@ -75,10 +80,10 @@ export default function ProductPreviewModal({ open, product, onClose, onAdd, for
           )}
         </div>
 
-        <div className="flex flex-col gap-4 overflow-y-auto p-2 sm:p-4">
+        <div className="flex flex-col gap-3 overflow-y-auto p-2 sm:p-4 min-h-0 min-w-0">
           <header className="flex items-start justify-between">
             <div>
-              <h3 className="text-xl font-extrabold text-slate-900">{product.name}</h3>
+              <h3 className="text-lg md:text-xl font-extrabold text-slate-900">{product.name}</h3>
               <p className="text-sm uppercase tracking-wider text-rose-400">{product.subcategory || ''}</p>
               {userListing && (
                 <span className="mt-2 inline-flex items-center gap-2 rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-[11px] font-semibold uppercase tracking-wider text-amber-700">
@@ -93,9 +98,9 @@ export default function ProductPreviewModal({ open, product, onClose, onAdd, for
             </div>
           </header>
 
-          <div className="rounded-2xl bg-rose-50/60 p-4 text-rose-700">
-            <p className="text-sm font-semibold uppercase tracking-wider text-rose-400">Price</p>
-            <p className="mt-1 text-2xl font-bold text-rose-600">{formatPrice(product.price)}</p>
+          <div className="rounded-2xl bg-rose-50/60 p-3 sm:p-4 text-rose-700">
+            <p className="text-xs sm:text-sm font-semibold uppercase tracking-wider text-rose-400">Price</p>
+            <p className="mt-1 text-xl md:text-2xl font-bold text-rose-600">{formatPrice(product.price)}</p>
           </div>
 
           <section className="space-y-3">
@@ -153,7 +158,7 @@ export default function ProductPreviewModal({ open, product, onClose, onAdd, for
                     onClick={(e) => {
                       if (!contactLink) e.preventDefault();
                     }}
-                    className="inline-flex items-center gap-2 rounded-full bg-amber-500 px-5 py-2 text-white font-semibold shadow hover:bg-amber-400"
+                    className="inline-flex items-center gap-2 rounded-full bg-amber-500 px-4 py-2 sm:px-5 sm:py-2 text-white text-sm font-semibold shadow hover:bg-amber-400"
                   >
                     Reach out
                   </a>
@@ -169,7 +174,7 @@ export default function ProductPreviewModal({ open, product, onClose, onAdd, for
                     onAdd(product);
                     onClose();
                   }}
-                  className="inline-flex items-center gap-2 rounded-full bg-rose-500 px-5 py-2 text-white font-semibold shadow hover:bg-rose-400"
+                  className="inline-flex items-center gap-2 rounded-full bg-rose-500 px-4 py-2 sm:px-5 sm:py-2 text-white text-sm font-semibold shadow hover:bg-rose-400"
                 >
                   {preorder ? 'Preorder item' : 'Add to cart'}
                 </button>

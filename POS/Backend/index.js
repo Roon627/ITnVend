@@ -728,6 +728,30 @@ async function sendNotificationEmail(subject, html, toOverride, throwOnError = f
     const from = fromName ? `${fromName} <${fromAddress}>` : fromAddress;
         const to = toOverride || emailCfg.email_to || emailCfg.email_from;
 
+        // Mailgun provider (API) support
+        if (emailCfg.provider === 'mailgun' && emailCfg.api_key && emailCfg.mailgun_domain) {
+            const mgDomain = emailCfg.mailgun_domain;
+            const mgUrl = `https://api.mailgun.net/v3/${mgDomain}/messages`;
+            const params = new URLSearchParams();
+            params.append('from', from);
+            params.append('to', to);
+            params.append('subject', subject);
+            // Mailgun accepts both text and html; we'll send html
+            params.append('html', html);
+            if (emailCfg.smtp_reply_to) params.append('h:Reply-To', emailCfg.smtp_reply_to);
+
+            await fetch(mgUrl, {
+                method: 'POST',
+                headers: {
+                    'Authorization': 'Basic ' + Buffer.from(`api:${emailCfg.api_key}`).toString('base64'),
+                    'Content-Type': 'application/x-www-form-urlencoded'
+                },
+                body: params.toString()
+            });
+            return;
+        }
+
+        // SendGrid provider (API) support
         if (emailCfg.provider === 'sendgrid' && emailCfg.api_key) {
             await fetch('https://api.sendgrid.com/v3/mail/send', {
                 method: 'POST',
@@ -745,23 +769,100 @@ async function sendNotificationEmail(subject, html, toOverride, throwOnError = f
         }
 
         if (emailCfg.provider === 'smtp' && emailCfg.smtp_host) {
-            const port = Number(emailCfg.smtp_port) || 465;
-            const secureFlag = (emailCfg.smtp_secure === 1) || port === 465;
+            const requestedPort = Number(emailCfg.smtp_port) || 465;
+            const requestedSecure = (emailCfg.smtp_secure === 1) || requestedPort === 465;
             const requireTLS = emailCfg.smtp_require_tls === 1;
-            const transporter = nodemailer.createTransport({
+
+            const makeTransport = (p, secure) => nodemailer.createTransport({
                 host: emailCfg.smtp_host,
-                port,
-                secure: secureFlag,
+                port: p,
+                secure: secure,
                 requireTLS,
                 auth: {
                     user: emailCfg.smtp_user,
                     pass: emailCfg.smtp_pass || emailCfg.api_key
                 }
             });
+
             const mailOptions = { from, to, subject, html };
             if (emailCfg.smtp_reply_to) mailOptions.replyTo = emailCfg.smtp_reply_to;
-            await transporter.sendMail(mailOptions);
-            return { ok: true };
+
+            // Try primary SMTP settings first. If that fails and the configured port
+            // is 587 (commonly blocked on some cloud providers), retry on 465 (SMTPS).
+            // If that also fails and a SendGrid API key is configured, attempt SendGrid API
+            // as a last-resort fallback.
+            let lastErr = null;
+            try {
+                const transporter = makeTransport(requestedPort, requestedSecure);
+                await transporter.sendMail(mailOptions);
+                return { ok: true };
+            } catch (err) {
+                console.warn('Primary SMTP send failed', err?.message || err);
+                lastErr = err;
+            }
+
+            // Retry on SMTPS (465) when initial attempt used 587 or non-secure.
+            if (requestedPort === 587 || !requestedSecure) {
+                try {
+                    const transporter465 = makeTransport(465, true);
+                    await transporter465.sendMail(mailOptions);
+                    return { ok: true, fallback: 'smtp465' };
+                } catch (err2) {
+                    console.warn('Fallback SMTP (465) failed', err2?.message || err2);
+                    lastErr = err2;
+                }
+            }
+
+            // Final fallback: attempt Mailgun (if domain/key present) then SendGrid if available
+            if (emailCfg.api_key && emailCfg.mailgun_domain) {
+                try {
+                    const mgDomain = emailCfg.mailgun_domain;
+                    const mgUrl = `https://api.mailgun.net/v3/${mgDomain}/messages`;
+                    const params = new URLSearchParams();
+                    params.append('from', from);
+                    params.append('to', to);
+                    params.append('subject', subject);
+                    params.append('html', html);
+                    if (emailCfg.smtp_reply_to) params.append('h:Reply-To', emailCfg.smtp_reply_to);
+
+                    await fetch(mgUrl, {
+                        method: 'POST',
+                        headers: {
+                            'Authorization': 'Basic ' + Buffer.from(`api:${emailCfg.api_key}`).toString('base64'),
+                            'Content-Type': 'application/x-www-form-urlencoded'
+                        },
+                        body: params.toString()
+                    });
+                    return { ok: true, fallback: 'mailgun' };
+                } catch (err3) {
+                    console.warn('Mailgun fallback failed', err3?.message || err3);
+                    lastErr = err3;
+                }
+            }
+
+            if (emailCfg.api_key) {
+                try {
+                    await fetch('https://api.sendgrid.com/v3/mail/send', {
+                        method: 'POST',
+                        headers: {
+                            'Authorization': `Bearer ${emailCfg.api_key}`,
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({
+                            personalizations: [{ to: [{ email: to }], subject }],
+                            from: { email: from },
+                            content: [{ type: 'text/html', value: html }]
+                        })
+                    });
+                    return { ok: true, fallback: 'sendgrid' };
+                } catch (err3) {
+                    console.warn('SendGrid fallback failed', err3?.message || err3);
+                    lastErr = err3;
+                }
+            }
+
+            // All attempts failed — surface the last error to the outer catch
+            if (lastErr) throw lastErr;
         }
     } catch (err) {
         console.warn('Failed to send notification email', err?.message || err);
@@ -1608,71 +1709,115 @@ app.get('/api/seed', async (req, res) => {
         res.status(500).json({ error: error.message });
     }
 });
-
-// Login endpoint - supports staff table (bcrypt) and falls back to demo users
+// Login endpoint - supports staff table (bcrypt) and email fallback
 app.post('/api/login', async (req, res) => {
-    const { username, password } = req.body;
-    if (!username || !password) return res.status(400).json({ error: 'Missing username or password' });
-    try {
-        // try staff table first
-        const staff = await db.get('SELECT * FROM staff WHERE username = ?', [username]);
-        if (staff) {
-            const storedPassword = staff.password || '';
-            const isHashed = typeof storedPassword === 'string' && storedPassword.startsWith('$2');
-            let ok = false;
-            if (isHashed) {
-                ok = await bcrypt.compare(password, storedPassword);
-            } else if (storedPassword) {
-                ok = storedPassword === password;
-                if (ok) {
-                    try {
-                        const hashed = await bcrypt.hash(password, 10);
-                        await db.run('UPDATE staff SET password = ? WHERE id = ?', [hashed, staff.id]);
-                    } catch (rehashErr) {
-                        console.warn('Failed to rehash legacy staff password', rehashErr?.message || rehashErr);
-                    }
-                }
-            }
-            // prevent login for locked accounts
-            if (staff.locked) {
-                return res.status(403).json({ error: 'Account locked. Contact your administrator.' });
-            }
-            if (!ok) return res.status(401).json({ error: 'Invalid credentials' });
-            // fetch roles
-            const roles = await db.all('SELECT r.name FROM roles r JOIN staff_roles sr ON sr.role_id = r.id WHERE sr.staff_id = ?', [staff.id]);
-            // pick the highest-privilege role when a user has multiple roles (so admin isn't shadowed by order)
-            const rankMap = { cashier: 1, accounts: 2, manager: 3, admin: 4 };
-            let roleName = 'staff';
-            if (roles && roles.length) {
-                // roles may be returned in arbitrary order; choose the role with the highest rank
-                roleName = roles.map(r => r.name).reduce((best, cur) => {
-                    if (!best) return cur;
-                    return (rankMap[cur] || 0) > (rankMap[best] || 0) ? cur : best;
-                }, null) || (roles[0] && roles[0].name) || 'staff';
-            }
-            // create JWT token (long lived)
-            const token = jwt.sign({ username: staff.username, role: roleName, staffId: staff.id }, JWT_SECRET, { expiresIn: '30d' });
-            // create a refresh token and persist its hash
-            const refreshToken = crypto.randomBytes(32).toString('hex');
-            const rhash = crypto.createHash('sha256').update(refreshToken).digest('hex');
-            const expiresAt = new Date(Date.now() + 60 * 24 * 60 * 60 * 1000).toISOString(); // 60 days
-            try { await db.run('INSERT INTO refresh_tokens (staff_id, token_hash, expires_at) VALUES (?, ?, ?)', [staff.id, rhash, expiresAt]); } catch (e) { /* ignore */ }
-            // keep session map for compatibility
-            sessions.set(token, { username: staff.username, role: roleName, staffId: staff.id });
-            await logActivity('staff', staff.id, 'login', staff.username, 'staff login');
-            // set HttpOnly refresh token cookie (helper sets both new + legacy names)
-            setRefreshCookie(res, refreshToken);
-            return res.json({ token, role: roleName, username: staff.username, refreshToken });
-        }
+  console.log('LOGIN BODY →', req.body); 
+  const { username, email, password } = req.body;
+  if ((!username && !email) || !password) {
+    return res.status(400).json({ error: 'Missing credentials' });
+  }
 
-        // If no staff user found, fail authentication (no demo fallback)
-        if (!staff) return res.status(401).json({ error: 'Invalid credentials' });
+  try {
+    // allow login via either username or email
+    const identifier = username || email;
+    const staff = await db.get(
+      'SELECT * FROM staff WHERE username = ? OR email = ?',
+      [identifier, identifier]
+    );
 
-    } catch (err) {
-        // Log full error and stack to help diagnose 500s seen by the frontend
-        console.error('GET /api/products error', err && err.stack ? err.stack : err);
-        res.status(500).json({ error: err?.message || 'Internal server error' });
+    if (!staff) {
+      return res.status(401).json({ error: 'Invalid credentials' });
     }
+
+    // block locked accounts
+    if (staff.locked && Number(staff.locked) !== 0) {
+      return res
+        .status(403)
+        .json({ error: 'Account locked. Contact your administrator.' });
+    }
+
+    const storedPassword = staff.password || '';
+    const isHashed =
+      typeof storedPassword === 'string' &&
+      storedPassword.startsWith('$2');
+
+    let ok = false;
+    if (isHashed) {
+      ok = await bcrypt.compare(password, storedPassword);
+    } else if (storedPassword) {
+      ok = storedPassword === password;
+      if (ok) {
+        // upgrade legacy plain-text password to bcrypt
+        try {
+          const hashed = await bcrypt.hash(password, 10);
+          await db.run('UPDATE staff SET password = ? WHERE id = ?', [
+            hashed,
+            staff.id,
+          ]);
+          console.log(`Rehashed legacy password for ${staff.username}`);
+        } catch (rehashErr) {
+          console.warn('Failed to rehash legacy staff password', rehashErr);
+        }
+      }
+    }
+
+    if (!ok) {
+      return res.status(401).json({ error: 'Invalid credentials' });
+    }
+
+    // determine primary role
+    let roleName = 'staff';
+    try {
+      const roles = await db.all(
+        'SELECT r.name FROM roles r JOIN staff_roles sr ON sr.role_id = r.id WHERE sr.staff_id = ?',
+        [staff.id]
+      );
+      if (roles && roles.length) {
+        const rankMap = { cashier: 1, accounts: 2, manager: 3, admin: 4 };
+        roleName = roles
+          .map(r => r.name)
+          .reduce((best, cur) => {
+            if (!best) return cur;
+            return (rankMap[cur] || 0) > (rankMap[best] || 0) ? cur : best;
+          }, null) || roles[0].name || 'staff';
+      }
+    } catch (roleErr) {
+      console.warn('Role lookup failed', roleErr);
+    }
+
+    // create access token
+    const token = jwt.sign(
+      { username: staff.username, role: roleName, staffId: staff.id },
+      process.env.JWT_SECRET || 'changeme',
+      { expiresIn: '30d' }
+    );
+
+    // optional refresh token support
+    const refreshToken = crypto.randomBytes(32).toString('hex');
+    const rhash = crypto.createHash('sha256').update(refreshToken).digest('hex');
+    const expiresAt = new Date(Date.now() + 60 * 24 * 60 * 60 * 1000).toISOString(); // 60 days
+    try {
+      await db.run(
+        'INSERT INTO refresh_tokens (staff_id, token_hash, expires_at) VALUES (?, ?, ?)',
+        [staff.id, rhash, expiresAt]
+      );
+    } catch (e) {
+      /* ignore */
+    }
+
+    if (setRefreshCookie) setRefreshCookie(res, refreshToken);
+
+    return res.json({
+      token,
+      refreshToken,
+      role: roleName,
+      username: staff.username,
+      email: staff.email,
+    });
+  } catch (err) {
+    console.error('Login failed', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
 });
 
 // Password reset request (staff only)

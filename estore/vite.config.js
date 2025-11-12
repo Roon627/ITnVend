@@ -11,7 +11,7 @@ const DEV_PORT = Number.parseInt(process.env.VITE_DEV_PORT || '5174', 10);
 const ALLOWED_HOSTS = (process.env.VITE_ALLOWED_HOSTS ||
   'estore.itnvend.com,localhost,127.0.0.1').split(',').map((entry) => entry.trim()).filter(Boolean);
 const HMR_HOST = process.env.VITE_HMR_HOST || (typeof DEV_HOST === 'string' ? DEV_HOST : undefined);
-const proxyTarget = process.env.VITE_POS_API_PROXY || 'https://pos.itnvend.com:4000';
+const proxyTarget = process.env.VITE_POS_API_PROXY || 'https://pos.itnvend.com/api';
 const USE_HTTPS = process.env.VITE_DEV_HTTPS !== 'false';
 const CERTS_DIR = path.resolve(process.cwd(), 'Backend', 'certs');
 const CERT_PATH = path.join(CERTS_DIR, 'estore-itnvend-com.pem');
