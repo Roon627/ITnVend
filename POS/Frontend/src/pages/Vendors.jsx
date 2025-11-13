@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState, useCallback } from 'react';
-import { FaBuilding, FaEnvelope, FaGlobe } from 'react-icons/fa';
+import { FaBuilding, FaEnvelope, FaGlobe, FaKey } from 'react-icons/fa';
 import api from '../lib/api';
 import { useToast } from '../components/ToastContext';
+import Modal from '../components/Modal';
+import { useAuth } from '../components/AuthContext';
 
 const STATUS_PILLS = [
   { id: 'pending', label: 'Pending', color: 'bg-amber-50 text-amber-700 border border-amber-100' },
@@ -14,6 +16,13 @@ export default function Vendors() {
   const [statusFilter, setStatusFilter] = useState('pending');
   const [loading, setLoading] = useState(false);
   const toast = useToast();
+  const [tokensModalOpen, setTokensModalOpen] = useState(false);
+  const [tokensLoading, setTokensLoading] = useState(false);
+  const [tokensList, setTokensList] = useState([]);
+  const [tokensVendor, setTokensVendor] = useState(null);
+  const [credModalOpen, setCredModalOpen] = useState(false);
+  const [credLoading, setCredLoading] = useState(false);
+  const [credData, setCredData] = useState(null);
 
   const fetchVendors = useCallback(async () => {
     try {
@@ -40,6 +49,83 @@ export default function Vendors() {
     } catch (err) {
       console.error('Failed to update status', err);
       toast.push(err?.message || 'Failed to update vendor status', 'error');
+    }
+  }
+
+  async function resendCredentialsUI(id) {
+    try {
+      await api.post(`/vendors/${id}/resend-credentials`);
+      toast.push('Credentials regenerated (email attempted)', 'success');
+      fetchVendors();
+    } catch (err) {
+      console.error('Failed to resend credentials', err);
+      toast.push(err?.data?.error || err?.message || 'Failed to resend credentials', 'error');
+    }
+  }
+
+  async function showCredentials(vendor) {
+    setCredLoading(true);
+    setCredModalOpen(true);
+    setCredData(null);
+    try {
+      const res = await api.post(`/vendors/${vendor.id}/resend-credentials`, { reveal: true });
+      if (res?.revealed) {
+        setCredData(res.revealed);
+        toast.push('Credentials shown — copy or share as needed', 'info');
+      } else {
+        setCredData({ username: vendor.email, loginUrl: `${window.location.origin}/vendor/login` });
+        toast.push('Credentials regenerated; email attempted', 'success');
+      }
+      fetchVendors();
+    } catch (err) {
+      console.error('Failed to show credentials', err);
+      toast.push(err?.data?.error || err?.message || 'Failed to retrieve credentials', 'error');
+      setCredModalOpen(false);
+    } finally {
+      setCredLoading(false);
+    }
+  }
+
+  async function sendPasswordReset(vendor) {
+    if (!vendor?.email) return toast.push('Vendor has no email', 'error');
+    try {
+      await api.post('/vendors/password-reset/request', { email: vendor.email });
+      toast.push('Password reset email sent (if address exists)', 'success');
+    } catch (err) {
+      console.error('Failed to send password reset', err);
+      toast.push(err?.data?.error || err?.message || 'Failed to request password reset', 'error');
+    }
+  }
+
+  async function impersonateVendor(id) {
+    try {
+      const res = await api.post(`/vendors/${id}/impersonate`);
+      if (res?.token) {
+        const url = `${window.location.origin}/vendor/dashboard?impersonation_token=${res.token}`;
+        window.open(url, '_blank');
+        toast.push('Opened vendor dashboard in new tab (impersonation)', 'success');
+      } else {
+        toast.push('Failed to impersonate vendor', 'error');
+      }
+    } catch (err) {
+      console.error('Impersonation failed', err);
+      toast.push(err?.data?.error || err?.message || 'Failed to impersonate vendor', 'error');
+    }
+  }
+
+  async function openTokensModal(vendor) {
+    setTokensVendor(vendor);
+    setTokensModalOpen(true);
+    setTokensLoading(true);
+    try {
+      const res = await api.get(`/vendors/${vendor.id}/password-reset-tokens`);
+      setTokensList(res || []);
+    } catch (err) {
+      console.error('Failed to load tokens', err);
+      toast.push('Failed to load reset tokens', 'error');
+      setTokensList([]);
+    } finally {
+      setTokensLoading(false);
     }
   }
 
@@ -127,30 +213,117 @@ export default function Vendors() {
                       <p className="text-xs text-slate-500 line-clamp-2">{vendor.capabilities}</p>
                     )}
                   </div>
-                  {vendor.status === 'pending' && (
                     <div className="mt-4 flex flex-wrap gap-2">
-                      <button
-                        type="button"
-                        onClick={() => updateStatus(vendor.id, 'active')}
-                        className="flex-1 rounded-full bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow hover:bg-emerald-500"
-                      >
-                        Approve
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => updateStatus(vendor.id, 'rejected')}
-                        className="flex-1 rounded-full border border-rose-200 bg-rose-50 px-4 py-2 text-sm font-semibold text-rose-700"
-                      >
-                        Reject
-                      </button>
+                      {vendor.status === 'pending' ? (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => updateStatus(vendor.id, 'active')}
+                            className="flex-1 rounded-full bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow hover:bg-emerald-500"
+                          >
+                            Approve
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => updateStatus(vendor.id, 'rejected')}
+                            className="flex-1 rounded-full border border-rose-200 bg-rose-50 px-4 py-2 text-sm font-semibold text-rose-700"
+                          >
+                            Reject
+                          </button>
+                        </>
+                      ) : (
+                        <>
+                          <button type="button" onClick={() => resendCredentialsUI(vendor.id)} className="rounded-full border px-4 py-2 text-sm font-semibold">Resend credentials</button>
+                          <button type="button" onClick={() => sendPasswordReset(vendor)} className="rounded-full border px-4 py-2 text-sm font-semibold">Send password reset</button>
+                          <button type="button" onClick={() => impersonateVendor(vendor.id)} className="rounded-full bg-blue-600 text-white px-4 py-2 text-sm font-semibold">Login as vendor</button>
+                          <button type="button" onClick={() => openTokensModal(vendor)} className="rounded-full border px-4 py-2 text-sm font-semibold inline-flex items-center gap-2"><FaKey />View tokens</button>
+                          <button type="button" onClick={() => showCredentials(vendor)} className="rounded-full border px-4 py-2 text-sm font-semibold">Show credentials</button>
+                        </>
+                      )}
                     </div>
-                  )}
+                  
                 </article>
               );
             })}
           </div>
         )}
       </section>
+      <Modal open={tokensModalOpen} onClose={() => setTokensModalOpen(false)}>
+        <div className="w-full max-w-2xl rounded-2xl border border-slate-200 bg-white p-4">
+          <div className="flex items-center justify-between">
+            <h3 className="text-lg font-semibold">Password reset tokens — {tokensVendor?.legal_name}</h3>
+            <button onClick={() => setTokensModalOpen(false)} className="text-sm text-slate-500">Close</button>
+          </div>
+          <div className="mt-3">
+            {tokensLoading ? (
+              <div className="text-sm text-slate-500">Loading…</div>
+            ) : tokensList.length === 0 ? (
+              <div className="text-sm text-slate-500">No tokens found for this vendor.</div>
+            ) : (
+              <table className="min-w-full text-sm">
+                <thead>
+                  <tr className="text-left text-xs text-slate-500">
+                    <th className="px-2 py-2">Preview</th>
+                    <th className="px-2 py-2">Used</th>
+                    <th className="px-2 py-2">Expires at</th>
+                    <th className="px-2 py-2">Created</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {tokensList.map((t) => (
+                    <tr key={t.id} className="border-t">
+                      <td className="px-2 py-2 font-mono">{t.token_hash_preview || '—'}</td>
+                      <td className="px-2 py-2">{t.used ? 'Yes' : 'No'}</td>
+                      <td className="px-2 py-2">{t.expires_at || '—'}</td>
+                      <td className="px-2 py-2">{t.created_at || '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+        </div>
+      </Modal>
+      <Modal open={credModalOpen} onClose={() => setCredModalOpen(false)}>
+        <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-4">
+          <div className="flex items-center justify-between">
+            <h3 className="text-lg font-semibold">Vendor credentials — {tokensVendor?.legal_name || ''}</h3>
+            <button onClick={() => setCredModalOpen(false)} className="text-sm text-slate-500">Close</button>
+          </div>
+          <div className="mt-4">
+            {credLoading ? (
+              <div className="text-sm text-slate-500">Generating credentials…</div>
+            ) : credData ? (
+              <div className="space-y-3">
+                <div>
+                  <div className="text-xs text-slate-400">Login URL</div>
+                  <div className="text-sm text-blue-600">{credData.loginUrl}</div>
+                </div>
+                <div>
+                  <div className="text-xs text-slate-400">Username</div>
+                  <div className="text-sm font-mono">{credData.username}</div>
+                </div>
+                {credData.temporaryPassword && (
+                  <div>
+                    <div className="text-xs text-slate-400">Temporary password</div>
+                    <div className="text-sm font-mono">{credData.temporaryPassword}</div>
+                  </div>
+                )}
+                <div className="flex gap-2">
+                  <button onClick={() => navigator.clipboard.writeText(credData.loginUrl)} className="rounded-full border px-3 py-2 text-sm">Copy login URL</button>
+                  <button onClick={() => navigator.clipboard.writeText(credData.username)} className="rounded-full border px-3 py-2 text-sm">Copy username</button>
+                  {credData.temporaryPassword && (
+                    <button onClick={() => navigator.clipboard.writeText(credData.temporaryPassword)} className="rounded-full border px-3 py-2 text-sm">Copy password</button>
+                  )}
+                </div>
+                <div className="text-xs text-slate-500">Note: sharing temporary passwords is sensitive — prefer sending via email. If emails are not arriving, check SMTP settings and server logs.</div>
+              </div>
+            ) : (
+              <div className="text-sm text-slate-500">No credential data available.</div>
+            )}
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 }

@@ -32,7 +32,13 @@ export default function ForgotPassword() {
         <form onSubmit={submit} className="space-y-4">
           <div>
             <label className="block text-sm text-[var(--color-muted)] mb-1">Email</label>
-            <input value={email} onChange={(e) => setEmail(e.target.value)} required type="email" className="w-full px-3 py-2 border rounded" />
+            <input
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              required
+              type="email"
+              className="mt-1 block w-full rounded-md border px-3 py-2 shadow-sm"
+            />
           </div>
           <div className="flex items-center justify-between">
             <button type="submit" className="btn-primary" disabled={loading}>{loading ? 'Sending…' : 'Send reset link'}</button>

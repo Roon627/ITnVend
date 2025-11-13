@@ -659,7 +659,7 @@ export async function setupDatabase() {
             bank_details TEXT,
             logo_url TEXT,
             attachments TEXT,
-            commission_rate REAL DEFAULT 0.10,
+            commission_rate REAL DEFAULT 0.0,
             status TEXT DEFAULT 'pending',
             customer_id INTEGER,
             slug TEXT UNIQUE,
@@ -1004,7 +1004,7 @@ export async function setupDatabase() {
     await ensureColumn(db, 'settings', 'storefront_header_source', "TEXT DEFAULT 'both'");
 
     // Vendor extensions: commission rate (default 10%), bank/payment details and logo
-    await ensureColumn(db, 'vendors', 'commission_rate', 'REAL DEFAULT 0.10');
+    await ensureColumn(db, 'vendors', 'commission_rate', 'REAL DEFAULT 0.0');
     await ensureColumn(db, 'vendors', 'bank_details', 'TEXT');
     await ensureColumn(db, 'vendors', 'logo_url', 'TEXT');
     await ensureColumn(db, 'vendors', 'status', "TEXT DEFAULT 'pending'");
@@ -1169,12 +1169,15 @@ export async function setupDatabase() {
     await ensureColumn(db, 'settings', 'social_telegram', 'TEXT');
     await ensureColumn(db, 'settings', 'email_template_new_order_staff', 'TEXT');
     await ensureColumn(db, 'settings', 'logo_url', 'TEXT');
+    await ensureColumn(db, 'settings', 'payment_qr_code_url', 'TEXT');
+    await ensureColumn(db, 'settings', 'payment_transfer_details', 'TEXT');
 
     await ensureColumn(db, 'invoices', 'total_amount', 'REAL DEFAULT 0');
     await ensureColumn(db, 'invoices', 'payment_method', 'TEXT');
     await ensureColumn(db, 'invoices', 'payment_reference', 'TEXT');
     await ensureColumn(db, 'preorders', 'delivery_address', 'TEXT');
     await ensureColumn(db, 'preorders', 'payment_bank', 'TEXT');
+    await ensureColumn(db, 'preorders', 'payment_type', 'TEXT DEFAULT \'bank_transfer\'');
     await ensureColumn(db, 'preorders', 'items_snapshot', 'TEXT');
 
     // ensure a default settings row exists with id = 1

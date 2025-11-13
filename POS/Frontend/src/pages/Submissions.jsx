@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import api from '../lib/api';
 import resolveMediaUrl from '../lib/media';
 import { useToast } from '../components/ToastContext';
-import { FaCheck, FaTimes, FaSearch, FaFileAlt } from 'react-icons/fa';
+import { FaCheck, FaTimes, FaSearch, FaFileAlt, FaEnvelope } from 'react-icons/fa';
 import Modal from '../components/Modal';
 
 const DOCUMENT_KEYS = [
@@ -190,6 +190,17 @@ export default function Submissions() {
     }
   }
 
+  async function resendCredentials(id) {
+    try {
+      await api.post(`/vendors/${id}/resend-credentials`);
+      toast.push('Credentials resent — check email or server logs', 'success');
+      fetchSubmissions();
+    } catch (err) {
+      console.error('Failed to resend credentials', err);
+      toast.push(err?.data?.error || err?.message || 'Failed to resend credentials', 'error');
+    }
+  }
+
   async function approveCasual(id) {
     try {
       await api.put(`/casual-items/${id}/approve`);
@@ -290,9 +301,12 @@ export default function Submissions() {
                   <td className="px-4 py-2 text-right">
                     <div className="inline-flex gap-2">
                       <button onClick={() => { setSelected({ type: 'vendor', row: v }); }} className="inline-flex items-center rounded-full border border-slate-200 px-3 py-1 text-xs font-semibold text-slate-600 transition hover:border-blue-400 hover:text-blue-600">View</button>
-                      <button onClick={() => approveVendor(v.id)} className="inline-flex items-center justify-center rounded-full bg-emerald-500 px-3 py-1 text-xs font-semibold text-white shadow-sm shadow-emerald-200/70 transition hover:-translate-y-0.5">
+                        <button onClick={() => approveVendor(v.id)} className="inline-flex items-center justify-center rounded-full bg-emerald-500 px-3 py-1 text-xs font-semibold text-white shadow-sm shadow-emerald-200/70 transition hover:-translate-y-0.5">
                         <FaCheck />
                       </button>
+                        <button onClick={() => resendCredentials(v.id)} title="Resend credentials" className="inline-flex items-center justify-center rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-semibold text-slate-600 hover:bg-blue-50 hover:text-blue-600">
+                          <FaEnvelope />
+                        </button>
                       <button onClick={() => rejectVendor(v.id)} className="inline-flex items-center justify-center rounded-full bg-rose-50 px-3 py-1 text-xs font-semibold text-rose-600 transition hover:bg-rose-100">
                         <FaTimes />
                       </button>
@@ -421,6 +435,13 @@ export default function Submissions() {
                     </div>
                   </div>
                   <div className="flex flex-wrap gap-2 pt-2">
+                    <button
+                      onClick={() => resendCredentials(selected.row.id)}
+                      className="inline-flex flex-1 items-center justify-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-blue-50 sm:flex-none"
+                    >
+                      <FaEnvelope />
+                      <span>Resend credentials</span>
+                    </button>
                     <button
                       onClick={() => approveVendor(selected.row.id)}
                       className="inline-flex flex-1 items-center justify-center gap-2 rounded-full bg-emerald-500 px-4 py-2 text-sm font-semibold text-white shadow shadow-emerald-200/70 transition hover:-translate-y-0.5 sm:flex-none"

@@ -15,6 +15,7 @@ const QUOTE_TYPES = [
 const PAYMENT_METHODS = [
   { value: 'cod', label: 'Cash on delivery' },
   { value: 'transfer', label: 'Bank transfer (attach slip)' },
+  { value: 'qr_code', label: 'QR Code Payment' },
 ];
 
 export default function Checkout() {
@@ -37,7 +38,7 @@ export default function Checkout() {
   }, [cart, buyNowItem, buyNowItemId]);
 
   const displayTotal = useMemo(() => displayCart.reduce((sum, item) => sum + item.price * item.quantity, 0), [displayCart]);
-  const { formatCurrency, currencyCode, getAccountTransferDetails } = useSettings();
+  const { formatCurrency, currencyCode, getAccountTransferDetails, getPaymentQrCodeUrl } = useSettings();
   const cartHasPreorder = useMemo(
     () => displayCart.some((item) => item?.preorder || item?.availableForPreorder || item?.preorder_enabled === 1 || item?.preorder_enabled === '1'),
     [displayCart]
@@ -62,7 +63,7 @@ export default function Checkout() {
   const [submitting, setSubmitting] = useState(false);
   const paymentSlipInputRef = useRef(null);
 
-  const requiresSlip = !isQuote && (paymentMethod === 'transfer' || cartHasPreorder);
+  const requiresSlip = !isQuote && (paymentMethod === 'transfer' || paymentMethod === 'qr_code' || cartHasPreorder);
 
   const clearPaymentSlipState = (preserveError = false) => {
     setPaymentSlip(null);
@@ -77,7 +78,7 @@ export default function Checkout() {
   };
 
   useEffect(() => {
-    if (cartHasPreorder && paymentMethod !== 'transfer') {
+    if (cartHasPreorder && paymentMethod !== 'transfer' && paymentMethod !== 'qr_code') {
       setPaymentMethod('transfer');
     }
   }, [cartHasPreorder, paymentMethod]);
@@ -94,8 +95,8 @@ export default function Checkout() {
 
   const handlePaymentMethodChange = (event) => {
     const value = event.target.value;
-    if (cartHasPreorder && value !== 'transfer') {
-      toast.push('Preorder items require bank transfer payment.', 'error');
+    if (cartHasPreorder && value !== 'transfer' && value !== 'qr_code') {
+      toast.push('Preorder items require bank transfer or QR code payment.', 'error');
       return;
     }
     setPaymentMethod(value);
@@ -514,7 +515,7 @@ export default function Checkout() {
                 <legend className="text-sm font-semibold text-gray-700">Payment method</legend>
                 <div className="space-y-3">
                   {PAYMENT_METHODS.map((option) => {
-                    const disabled = cartHasPreorder && option.value !== 'transfer';
+                    const disabled = cartHasPreorder && option.value !== 'transfer' && option.value !== 'qr_code';
                     return (
                       <label
                         key={option.value}
@@ -540,11 +541,39 @@ export default function Checkout() {
                     );
                   })}
                 </div>
-                {paymentMethod === 'transfer' && (
+
+                {/* Payment Details */}
+                {paymentMethod === 'transfer' && getAccountTransferDetails() && (
+                  <div className="rounded-lg border border-amber-200 bg-amber-50 p-4">
+                    <h3 className="font-semibold text-amber-800 mb-2">Bank Transfer Details</h3>
+                    <div className="text-sm text-amber-700 whitespace-pre-line">
+                      {getAccountTransferDetails()}
+                    </div>
+                  </div>
+                )}
+
+                {paymentMethod === 'qr_code' && getPaymentQrCodeUrl() && (
+                  <div className="rounded-lg border border-blue-200 bg-blue-50 p-4">
+                    <h3 className="font-semibold text-blue-800 mb-2">QR Code Payment</h3>
+                    <div className="flex items-center gap-4">
+                      <img
+                        src={getPaymentQrCodeUrl()}
+                        alt="Payment QR Code"
+                        className="w-48 h-48 object-contain border border-gray-200 rounded-lg"
+                      />
+                      <div className="text-sm text-blue-700">
+                        <p className="mb-2">Scan this QR code with your banking app to make payment.</p>
+                        <p className="font-medium">Enter the transaction reference below after payment.</p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {(paymentMethod === 'transfer' || paymentMethod === 'qr_code') && (
                   <div className="space-y-4">
                     <div>
                       <label htmlFor="paymentReference" className="block text-gray-700 font-semibold mb-2">
-                        Transfer reference <span className="text-red-500">*</span>
+                        {paymentMethod === 'qr_code' ? 'Transaction reference' : 'Transfer reference'} <span className="text-red-500">*</span>
                       </label>
                       <input
                         type="text"
@@ -553,14 +582,19 @@ export default function Checkout() {
                         value={paymentReference}
                         onChange={(event) => setPaymentReference(event.target.value)}
                         className="w-full p-2 border rounded-md"
-                        placeholder="Transaction ID or narration"
+                        placeholder={paymentMethod === 'qr_code' ? 'Enter transaction ID from your app' : 'Transaction ID or narration'}
                         required
                       />
-                      <p className="text-xs text-gray-400 mt-1">Upload an image that clearly shows this reference number.</p>
+                      <p className="text-xs text-gray-400 mt-1">
+                        {paymentMethod === 'qr_code' 
+                          ? 'Upload an image that clearly shows this transaction reference.' 
+                          : 'Upload an image that clearly shows this reference number.'
+                        }
+                      </p>
                     </div>
                     <div>
                       <label className="block text-gray-700 font-semibold mb-2">
-                        Payment slip <span className="text-red-500">*</span>
+                        {paymentMethod === 'qr_code' ? 'Payment confirmation' : 'Payment slip'} <span className="text-red-500">*</span>
                       </label>
                       <div className="flex flex-col gap-3 md:flex-row">
                         <div className="flex-1 space-y-2">

@@ -136,7 +136,8 @@ export function SettingsProvider({ children }) {
 
   // helper: read transfer/account details from settings or localStorage fallback
   const getAccountTransferDetails = () => {
-    const fromSettings = settings?.transfer_details || settings?.account_details || null;
+    const fromSettings = settings?.payment_transfer_details || settings?.transfer_details || settings?.account_details || null;
+    if (fromSettings && typeof fromSettings === 'string') return fromSettings;
     if (fromSettings && typeof fromSettings === 'object') return fromSettings;
     try {
       const raw = localStorage.getItem('account_details');
@@ -145,6 +146,11 @@ export function SettingsProvider({ children }) {
       // ignore localStorage errors
     }
     return null;
+  };
+
+  // helper: get QR code URL from settings
+  const getPaymentQrCodeUrl = () => {
+    return resolveMediaUrl(settings?.payment_qr_code_url) || null;
   };
 
   // helper: attempt to persist account details via API, fallback to localStorage
@@ -171,6 +177,7 @@ export function SettingsProvider({ children }) {
   // extend value
   value.getAccountTransferDetails = getAccountTransferDetails;
   value.saveAccountTransferDetails = saveAccountTransferDetails;
+  value.getPaymentQrCodeUrl = getPaymentQrCodeUrl;
 
   return (
     <SettingsContext.Provider value={value}>

@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useLocation } from 'react-router-dom';
-import { FaCloudUploadAlt, FaInfoCircle } from 'react-icons/fa';
+import { FaCloudUploadAlt, FaInfoCircle, FaQrcode } from 'react-icons/fa';
 import api from '../lib/api';
+import { useSettings } from '../components/SettingsContext';
 
 const DEFAULT_RATE = 15.42;
 const STOREFRONT_API_KEY = import.meta.env.VITE_STOREFRONT_API_KEY || '';
@@ -52,6 +53,7 @@ async function createSignature(secret, message) {
 }
 
 export default function ShopAndShip() {
+  const { getAccountTransferDetails, getPaymentQrCodeUrl } = useSettings();
   const [form, setForm] = useState({
     sourceStore: '',
     cartLinks: '',
@@ -62,6 +64,7 @@ export default function ShopAndShip() {
     deliveryAddress: '',
     usdTotal: '',
     exchangeRate: DEFAULT_RATE.toString(),
+    paymentType: 'bank_transfer',
     paymentReference: '',
     paymentDate: '',
     paymentSlip: null,
@@ -139,6 +142,7 @@ export default function ShopAndShip() {
       deliveryAddress: '',
       usdTotal: '',
       exchangeRate: DEFAULT_RATE.toString(),
+      paymentType: 'bank_transfer',
       paymentReference: '',
       paymentDate: '',
       paymentSlip: null,
@@ -181,6 +185,7 @@ export default function ShopAndShip() {
       usdTotal: Number(form.usdTotal),
       exchangeRate: Number(form.exchangeRate) || DEFAULT_RATE,
       payment: {
+        type: form.paymentType,
         reference: form.paymentReference || null,
         date: form.paymentDate || null,
         slip: form.paymentSlip,
@@ -357,8 +362,106 @@ export default function ShopAndShip() {
           <div>
             <h2 className="text-xl font-semibold text-slate-800">3. Payment confirmation</h2>
             <p className="mt-1 text-sm text-slate-500">
-              Enter the USD amount charged and we’ll estimate the Maldives amount. Upload your Bank of Maldives or Maldives Islamic Bank payment slip if available.
+              Choose your payment method and enter the USD amount charged. We'll estimate the Maldives amount.
             </p>
+
+            <div className="mt-4 space-y-4">
+              <div>
+                <span className="block text-sm font-semibold uppercase tracking-wide text-slate-500 mb-3">
+                  Payment method
+                </span>
+                <div className="flex flex-wrap gap-3">
+                  <label
+                    className={`inline-flex items-center gap-3 rounded-2xl border px-4 py-2 text-sm font-semibold transition cursor-pointer ${
+                      form.paymentType === 'bank_transfer'
+                        ? 'border-rose-300 bg-rose-50 text-rose-600'
+                        : 'border-slate-200 bg-white text-slate-500 hover:border-rose-200'
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name="paymentType"
+                      value="bank_transfer"
+                      checked={form.paymentType === 'bank_transfer'}
+                      onChange={handleChange('paymentType')}
+                      className="h-4 w-4 text-rose-500 focus:ring-rose-400"
+                    />
+                    Bank Transfer
+                  </label>
+                  <label
+                    className={`inline-flex items-center gap-3 rounded-2xl border px-4 py-2 text-sm font-semibold transition cursor-pointer ${
+                      form.paymentType === 'qr_code'
+                        ? 'border-rose-300 bg-rose-50 text-rose-600'
+                        : 'border-slate-200 bg-white text-slate-500 hover:border-rose-200'
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name="paymentType"
+                      value="qr_code"
+                      checked={form.paymentType === 'qr_code'}
+                      onChange={handleChange('paymentType')}
+                      className="h-4 w-4 text-rose-500 focus:ring-rose-400"
+                    />
+                    <FaQrcode className="text-lg" />
+                    QR Code Payment
+                  </label>
+                  <label
+                    className={`inline-flex items-center gap-3 rounded-2xl border px-4 py-2 text-sm font-semibold transition cursor-pointer ${
+                      form.paymentType === 'cash'
+                        ? 'border-rose-300 bg-rose-50 text-rose-600'
+                        : 'border-slate-200 bg-white text-slate-500 hover:border-rose-200'
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name="paymentType"
+                      value="cash"
+                      checked={form.paymentType === 'cash'}
+                      onChange={handleChange('paymentType')}
+                      className="h-4 w-4 text-rose-500 focus:ring-rose-400"
+                    />
+                    Cash Payment
+                  </label>
+                </div>
+              </div>
+
+              {/* Payment Details */}
+              {form.paymentType === 'bank_transfer' && getAccountTransferDetails() && (
+                <div className="rounded-xl border border-amber-200 bg-amber-50/50 p-4">
+                  <h3 className="font-semibold text-amber-800 mb-2">Bank Transfer Details</h3>
+                  <div className="text-sm text-amber-700 whitespace-pre-line">
+                    {getAccountTransferDetails()}
+                  </div>
+                </div>
+              )}
+
+              {form.paymentType === 'qr_code' && getPaymentQrCodeUrl() && (
+                <div className="rounded-xl border border-blue-200 bg-blue-50/50 p-4">
+                  <h3 className="font-semibold text-blue-800 mb-2">QR Code Payment</h3>
+                  <div className="flex items-center gap-4">
+                    <img
+                      src={getPaymentQrCodeUrl()}
+                      alt="Payment QR Code"
+                      className="w-48 h-48 object-contain border border-slate-200 rounded-lg"
+                    />
+                    <div className="text-sm text-blue-700">
+                      <p className="mb-2">Scan this QR code with your banking app to make payment.</p>
+                      <p className="font-medium">Enter the transaction reference below after payment.</p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {form.paymentType === 'cash' && (
+                <div className="rounded-xl border border-green-200 bg-green-50/50 p-4">
+                  <h3 className="font-semibold text-green-800 mb-2">Cash Payment</h3>
+                  <p className="text-sm text-green-700">
+                    You can pay in cash when your order arrives. No payment slip required.
+                  </p>
+                </div>
+              )}
+            </div>
 
             <div className="mt-4 grid gap-4 md:grid-cols-3">
               <div>
@@ -404,83 +507,90 @@ export default function ShopAndShip() {
               </div>
             </div>
 
-            <div className="mt-6 space-y-2">
-              <span className="block text-sm font-semibold uppercase tracking-wide text-slate-500">
-                Bank used for payment
-              </span>
-              <div className="flex flex-wrap gap-3">
-                <label
-                  className={`inline-flex items-center gap-3 rounded-2xl border px-4 py-2 text-sm font-semibold transition ${
-                    form.paymentBank === 'bml'
-                      ? 'border-rose-300 bg-rose-50 text-rose-600'
-                      : 'border-slate-200 bg-white text-slate-500 hover:border-rose-200'
-                  }`}
-                >
-                  <input
-                    type="radio"
-                    name="paymentBank"
-                    value="bml"
-                    checked={form.paymentBank === 'bml'}
-                    onChange={handleChange('paymentBank')}
-                    className="h-4 w-4 text-rose-500 focus:ring-rose-400"
-                  />
-                  Bank of Maldives
-                </label>
-                <label
-                  className={`inline-flex items-center gap-3 rounded-2xl border px-4 py-2 text-sm font-semibold transition ${
-                    form.paymentBank === 'mib'
-                      ? 'border-rose-300 bg-rose-50 text-rose-600'
-                      : 'border-slate-200 bg-white text-slate-500 hover:border-rose-200'
-                  }`}
-                >
-                  <input
-                    type="radio"
-                    name="paymentBank"
-                    value="mib"
-                    checked={form.paymentBank === 'mib'}
-                    onChange={handleChange('paymentBank')}
-                    className="h-4 w-4 text-rose-500 focus:ring-rose-400"
-                  />
-                  Maldives Islamic Bank
-                </label>
-              </div>
-              <p className="text-xs text-slate-400">
-                Same exchange rate applies for both banks so you can choose the slip you have on hand.
-              </p>
-            </div>
+            {(form.paymentType === 'bank_transfer' || form.paymentType === 'qr_code') && (
+              <>
+                <div className="mt-6 space-y-2">
+                  <span className="block text-sm font-semibold uppercase tracking-wide text-slate-500">
+                    Bank used for payment
+                  </span>
+                  <div className="flex flex-wrap gap-3">
+                    <label
+                      className={`inline-flex items-center gap-3 rounded-2xl border px-4 py-2 text-sm font-semibold transition ${
+                        form.paymentBank === 'bml'
+                          ? 'border-rose-300 bg-rose-50 text-rose-600'
+                          : 'border-slate-200 bg-white text-slate-500 hover:border-rose-200'
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name="paymentBank"
+                        value="bml"
+                        checked={form.paymentBank === 'bml'}
+                        onChange={handleChange('paymentBank')}
+                        className="h-4 w-4 text-rose-500 focus:ring-rose-400"
+                      />
+                      Bank of Maldives
+                    </label>
+                    <label
+                      className={`inline-flex items-center gap-3 rounded-2xl border px-4 py-2 text-sm font-semibold transition ${
+                        form.paymentBank === 'mib'
+                          ? 'border-rose-300 bg-rose-50 text-rose-600'
+                          : 'border-slate-200 bg-white text-slate-500 hover:border-rose-200'
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name="paymentBank"
+                        value="mib"
+                        checked={form.paymentBank === 'mib'}
+                        onChange={handleChange('paymentBank')}
+                        className="h-4 w-4 text-rose-500 focus:ring-rose-400"
+                      />
+                      Maldives Islamic Bank
+                    </label>
+                  </div>
+                  <p className="text-xs text-slate-400">
+                    Same exchange rate applies for both banks so you can choose the slip you have on hand.
+                  </p>
+                </div>
 
-            <div className="mt-4 grid gap-4 md:grid-cols-3">
-              <div>
-                <label className="mb-2 block text-sm font-semibold text-slate-700">Payment reference (optional)</label>
-                <input
-                  type="text"
-                  value={form.paymentReference}
-                  onChange={handleChange('paymentReference')}
-                  placeholder="Transaction ID"
-                  className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm shadow-sm focus:border-rose-400 focus:outline-none focus:ring-2 focus:ring-rose-200"
-                />
-              </div>
-              <div>
-                <label className="mb-2 block text-sm font-semibold text-slate-700">Payment date (optional)</label>
-                <input
-                  type="date"
-                  value={form.paymentDate}
-                  onChange={handleChange('paymentDate')}
-                  className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm shadow-sm focus:border-rose-400 focus:outline-none focus:ring-2 focus:ring-rose-200"
-                />
-              </div>
-              <div>
-                <label className="mb-2 block text-sm font-semibold text-slate-700">Payment slip (optional)</label>
-                <label className="flex cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed border-rose-200 bg-rose-50/40 px-4 py-6 text-center text-sm font-semibold text-rose-500 transition hover:border-rose-300">
-                  <FaCloudUploadAlt className="mb-2 text-2xl" aria-hidden="true" />
-                  <span>{form.paymentSlipName || 'Upload receipt (max 6MB)'}</span>
-                  <input type="file" accept="image/*,application/pdf" className="hidden" onChange={handleFileChange} />
-                </label>
-              </div>
-            </div>
-          </div>
-
-          <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="mt-4 grid gap-4 md:grid-cols-3">
+                  <div>
+                    <label className="mb-2 block text-sm font-semibold text-slate-700">
+                      {form.paymentType === 'qr_code' ? 'Transaction reference*' : 'Payment reference (optional)'}
+                    </label>
+                    <input
+                      type="text"
+                      value={form.paymentReference}
+                      onChange={handleChange('paymentReference')}
+                      required={form.paymentType === 'qr_code'}
+                      placeholder={form.paymentType === 'qr_code' ? 'Enter transaction ID from your app' : 'Transaction ID'}
+                      className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm shadow-sm focus:border-rose-400 focus:outline-none focus:ring-2 focus:ring-rose-200"
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-2 block text-sm font-semibold text-slate-700">Payment date (optional)</label>
+                    <input
+                      type="date"
+                      value={form.paymentDate}
+                      onChange={handleChange('paymentDate')}
+                      className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm shadow-sm focus:border-rose-400 focus:outline-none focus:ring-2 focus:ring-rose-200"
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-2 block text-sm font-semibold text-slate-700">
+                      {form.paymentType === 'bank_transfer' ? 'Payment slip (optional)' : 'Payment confirmation (optional)'}
+                    </label>
+                    <label className="flex cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed border-rose-200 bg-rose-50/40 px-4 py-6 text-center text-sm font-semibold text-rose-500 transition hover:border-rose-300">
+                      <FaCloudUploadAlt className="mb-2 text-2xl" aria-hidden="true" />
+                      <span>{form.paymentSlipName || `Upload ${form.paymentType === 'bank_transfer' ? 'receipt' : 'confirmation'} (max 6MB)`}</span>
+                      <input type="file" accept="image/*,application/pdf" className="hidden" onChange={handleFileChange} />
+                    </label>
+                  </div>
+                </div>
+              </>
+            )}
+          </div>          <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="text-xs text-slate-500">
               By submitting you agree to our{' '}
               <a href="/use" className="font-semibold text-rose-500 underline">

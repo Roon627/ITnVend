@@ -19,6 +19,8 @@ import Footer from "./components/Footer";
 import PublicNavbar from "./components/PublicNavbar";
 import VendorProfile from "./pages/VendorProfile";
 import VendorDirectory from "./pages/VendorDirectory";
+import ResetPassword from "./pages/ResetPassword";
+import VendorResetPassword from "./pages/VendorResetPassword";
 
 function PublicLayout({ children }) {
   return (
@@ -62,6 +64,8 @@ function App() {
         <Route path="/use/global" element={<PublicLayout><UseGlobal /></PublicLayout>} />
         <Route path="/use/mv" element={<PublicLayout><UseMV /></PublicLayout>} />
         <Route path="/settings/account-details" element={<PublicLayout><AccountDetails /></PublicLayout>} />
+        <Route path="/reset-password" element={<PublicLayout><ResetPassword /></PublicLayout>} />
+        <Route path="/vendor/reset-password" element={<PublicLayout><VendorResetPassword /></PublicLayout>} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </BrowserRouter>

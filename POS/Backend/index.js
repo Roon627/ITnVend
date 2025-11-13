@@ -16,9 +16,13 @@ import nodemailer from 'nodemailer';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
+import { sendMail } from './lib/mail.js';
 import validateSlipRouter from './routes/validateSlip.js';
 import validateSlipPublicRouter from './routes/validateSlipPublic.js';
 import slipsRouter from './routes/slips.js';
+import vendorPayoutRouter from './modules/vendor/payout.routes.js';
+import { listPayoutsForVendor } from './modules/vendor/payout.service.js';
+import reportsRouter from './modules/reports/report.routes.js';
 import cookieParser from 'cookie-parser';
 import { createSlipProcessingQueue } from './lib/slipProcessingQueue.js';
 
@@ -452,6 +456,11 @@ app.use('/uploads', express.static(uploadsRoot));
 // Slips persistence endpoints (authenticated)
 app.use('/api/slips', authMiddleware, requireRole(['accounts', 'manager', 'admin']), slipsRouter);
 
+// Vendor payouts (admin/manager only)
+app.use('/api/vendors/:id/payouts', authMiddleware, requireRole(['manager','admin']), vendorPayoutRouter);
+
+// Reports (admin/manager)
+app.use('/api/reports', authMiddleware, requireRole(['manager','admin']), reportsRouter);
 app.get('/', (req, res) => {
     res.send('ITnVend API is running...');
 });
@@ -1074,7 +1083,13 @@ function authMiddleware(req, res, next) {
     // otherwise try verifying JWT
     try {
         const payload = jwt.verify(token, JWT_SECRET);
-        req.user = { username: payload.username, role: payload.role, staffId: payload.staffId };
+        // Include vendorId for vendor tokens so vendor-specific routes can authorize properly
+        req.user = {
+            username: payload.username,
+            role: payload.role,
+            staffId: payload.staffId,
+            vendorId: payload.vendorId,
+        };
         return next();
     } catch (err) {
         return res.status(401).json({ error: 'Invalid token' });
@@ -1411,6 +1426,81 @@ app.post('/api/settings/upload-logo', authMiddleware, requireRole(['admin']), as
         res.json({ url: publicPath });
     } catch (err) {
         console.error('Logo upload failed', err);
+        res.status(500).json({ error: String(err) });
+    }
+});
+
+// Upload a payment QR code as a base64 data URL and persist URL in settings.payment_qr_code_url
+app.post('/api/settings/upload-qr-code', authMiddleware, requireRole(['admin']), async (req, res) => {
+    try {
+        const { filename, data } = req.body || {};
+        if (!data) return res.status(400).json({ error: 'Missing data URL' });
+
+        // parse data URL: data:[<mediatype>][;base64],<data>
+        const match = String(data).match(/^data:(.+);base64,(.*)$/);
+        if (!match) return res.status(400).json({ error: 'Invalid data URL' });
+        const mime = match[1];
+        const b64 = match[2];
+
+        // Validate it's an image
+        if (!mime.startsWith('image/')) {
+            return res.status(400).json({ error: 'QR code must be an image file' });
+        }
+
+        let ext = 'png';
+        if (/jpeg|jpg/i.test(mime)) ext = 'jpg';
+        else if (/gif/i.test(mime)) ext = 'gif';
+
+        const safeName = (filename || `qr-code`).replace(/[^a-z0-9\-_.]/gi, '_').replace(/\.[^.]+$/, '');
+        const name = `${Date.now()}-${safeName}.${ext}`;
+        const qrDir = path.join(imagesDir, 'qr-codes');
+        fs.mkdirSync(qrDir, { recursive: true });
+        const outPath = path.join(qrDir, name);
+        fs.writeFileSync(outPath, Buffer.from(b64, 'base64'));
+
+        // Ensure settings table has payment_qr_code_url column
+        try {
+            await ensureColumn(db, 'settings', 'payment_qr_code_url', 'TEXT');
+        } catch (err) {
+            console.warn('Failed to ensure payment_qr_code_url column exists', err?.message || err);
+        }
+
+        const publicPath = `/uploads/qr-codes/${name}`;
+        try {
+            await db.run('UPDATE settings SET payment_qr_code_url = ? WHERE id = 1', [publicPath]);
+            await cacheService.invalidateSettings();
+        } catch (err) {
+            console.warn('Failed to save payment_qr_code_url in settings', err?.message || err);
+        }
+
+        res.json({ url: publicPath });
+    } catch (err) {
+        console.error('QR code upload failed', err);
+        res.status(500).json({ error: String(err) });
+    }
+});
+
+// Update payment transfer details
+app.post('/api/settings/payment-transfer-details', authMiddleware, requireRole(['admin']), async (req, res) => {
+    try {
+        const { transfer_details } = req.body || {};
+        if (transfer_details === undefined) {
+            return res.status(400).json({ error: 'Missing transfer_details' });
+        }
+
+        // Ensure settings table has payment_transfer_details column
+        try {
+            await ensureColumn(db, 'settings', 'payment_transfer_details', 'TEXT');
+        } catch (err) {
+            console.warn('Failed to ensure payment_transfer_details column exists', err?.message || err);
+        }
+
+        await db.run('UPDATE settings SET payment_transfer_details = ? WHERE id = 1', [transfer_details]);
+        await cacheService.invalidateSettings();
+
+        res.json({ success: true });
+    } catch (err) {
+        console.error('Payment transfer details update failed', err);
         res.status(500).json({ error: String(err) });
     }
 });
@@ -1869,6 +1959,239 @@ app.post('/api/password-reset/confirm', async (req, res) => {
         return res.json({ status: 'ok' });
     } catch (err) {
         console.error('password reset confirm error', err?.message || err);
+        return res.status(500).json({ error: 'Internal error' });
+    }
+});
+
+// Vendor login (vendor users)
+app.post('/api/vendors/login', async (req, res) => {
+    const { username, email, password } = req.body || {};
+    if ((!username && !email) || !password) return res.status(400).json({ error: 'Missing credentials' });
+    try {
+        const identifier = username || email;
+        // find vendor user record joined with vendor to ensure vendor exists
+        const row = await db.get(
+            `SELECT vu.id AS vu_id, vu.username AS username, vu.password_hash AS password_hash, vu.vendor_id AS vendor_id, v.email AS vendor_email, v.legal_name
+             FROM vendor_users vu
+             JOIN vendors v ON v.id = vu.vendor_id
+             WHERE vu.username = ? OR v.email = ?`,
+            [identifier, identifier]
+        );
+        if (!row) return res.status(401).json({ error: 'Invalid credentials' });
+        const stored = row.password_hash || '';
+        const ok = await bcrypt.compare(password, stored);
+        if (!ok) return res.status(401).json({ error: 'Invalid credentials' });
+
+        const token = jwt.sign({ username: row.username, role: 'vendor', vendorId: row.vendor_id }, process.env.JWT_SECRET || JWT_SECRET || 'changeme', { expiresIn: '30d' });
+        return res.json({ token, vendor: { id: row.vendor_id, email: row.vendor_email, legal_name: row.legal_name } });
+    } catch (err) {
+        console.error('vendor login failed', err?.message || err);
+        return res.status(500).json({ error: 'Internal error' });
+    }
+});
+
+// Vendor password reset request
+app.post('/api/vendors/password-reset/request', async (req, res) => {
+    const { email } = req.body || {};
+    if (!email) return res.status(400).json({ error: 'Missing email' });
+    try {
+        const vendor = await db.get('SELECT id, legal_name, email FROM vendors WHERE email = ?', [email]);
+        if (!vendor) return res.json({ status: 'ok' }); // don't leak
+
+        // ensure vendor_users table exists
+        try {
+            await db.exec(`
+                CREATE TABLE IF NOT EXISTS vendor_users (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    vendor_id INTEGER UNIQUE,
+                    username TEXT UNIQUE,
+                    password_hash TEXT,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                );
+            `);
+        } catch (e) { /* ignore */ }
+
+        // create password reset tokens table if not exists
+        try {
+            await db.exec(`
+                CREATE TABLE IF NOT EXISTS vendor_password_reset_tokens (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    vendor_id INTEGER,
+                    token_hash TEXT,
+                    expires_at DATETIME,
+                    used INTEGER DEFAULT 0,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                );
+            `);
+        } catch (e) { /* ignore */ }
+
+        // Invalidate any previous unused tokens for this vendor so only the latest is usable
+        try {
+            await db.run('UPDATE vendor_password_reset_tokens SET used = 1 WHERE vendor_id = ? AND used = 0', [vendor.id]);
+        } catch (e) { /* ignore */ }
+
+        const token = crypto.randomBytes(32).toString('hex');
+        const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
+        const expiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString(); // 1 hour
+        await db.run('INSERT INTO vendor_password_reset_tokens (vendor_id, token_hash, expires_at) VALUES (?, ?, ?)', [vendor.id, tokenHash, expiresAt]);
+
+        const frontendBase = process.env.FRONTEND_URL || req.get('origin') || `${req.protocol}://${req.get('host')}`;
+        const resetLink = `${frontendBase.replace(/\/$/, '')}/vendor/reset-password?token=${token}`;
+
+        const html = `<p>Hello ${vendor.legal_name || ''},</p><p>Click the link below to reset your vendor account password:</p><p><a href="${resetLink}">${resetLink}</a></p>`;
+        const text = `Reset your vendor password: ${resetLink}`;
+        try {
+                        try {
+                            await sendNotificationEmail('Reset your vendor password', html, vendor.email);
+                        } catch (mailErr) {
+                            console.warn('Failed to send vendor password reset email via settings provider', mailErr?.message || mailErr);
+                            // fallback to environment SMTP helper if available
+                            try { await sendMail({ to: vendor.email, subject: 'Reset your vendor password', html, text }); } catch (e) { console.warn('Fallback sendMail failed', e?.message || e); }
+                        }
+        } catch (mailErr) {
+            console.warn('Failed to send vendor password reset email', mailErr?.message || mailErr);
+        }
+
+        await logActivity('vendor', vendor.id, 'password_reset_requested', null, `Password reset requested for ${vendor.email}`);
+        return res.json({ status: 'ok' });
+    } catch (err) {
+        console.error('vendor password reset request error', err);
+        return res.status(500).json({ error: 'Internal error' });
+    }
+});
+
+// Vendor password reset confirmation
+app.post('/api/vendors/password-reset/confirm', async (req, res) => {
+    const { token, password } = req.body || {};
+    if (!token || !password) return res.status(400).json({ error: 'Missing token or password' });
+    try {
+        const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
+        const row = await db.get('SELECT * FROM vendor_password_reset_tokens WHERE token_hash = ? AND used = 0', [tokenHash]);
+        if (!row) return res.status(400).json({ error: 'Invalid or used token' });
+        if (new Date(row.expires_at) < new Date()) return res.status(400).json({ error: 'Token expired' });
+
+        const hashed = await bcrypt.hash(password, 10);
+        // ensure vendor_users exists
+        try {
+            await db.exec(`
+                CREATE TABLE IF NOT EXISTS vendor_users (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    vendor_id INTEGER UNIQUE,
+                    username TEXT UNIQUE,
+                    password_hash TEXT,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                );
+            `);
+        } catch (e) { /* ignore */ }
+
+        // upsert vendor_users
+        try {
+            const existing = await db.get('SELECT id FROM vendor_users WHERE vendor_id = ?', [row.vendor_id]);
+            if (existing) {
+                await db.run('UPDATE vendor_users SET password_hash = ? WHERE vendor_id = ?', [hashed, row.vendor_id]);
+            } else {
+                // try to use vendor email as username
+                const vendor = await db.get('SELECT email FROM vendors WHERE id = ?', [row.vendor_id]);
+                const username = vendor?.email || `vendor${row.vendor_id}`;
+                await db.run('INSERT INTO vendor_users (vendor_id, username, password_hash) VALUES (?, ?, ?)', [row.vendor_id, username, hashed]);
+            }
+        } catch (e) {
+            console.warn('Failed to upsert vendor_users on password reset confirm', e?.message || e);
+            return res.status(500).json({ error: 'Failed to update password' });
+        }
+
+        // Mark this token used and invalidate any other tokens for this vendor
+        try {
+            await db.run('UPDATE vendor_password_reset_tokens SET used = 1 WHERE id = ?', [row.id]);
+            await db.run('UPDATE vendor_password_reset_tokens SET used = 1 WHERE vendor_id = ? AND id != ?', [row.vendor_id, row.id]);
+        } catch (e) { /* ignore */ }
+        await logActivity('vendor', row.vendor_id, 'password_reset', null, 'Vendor password reset via token');
+
+        // return an auth token so the vendor can be auto-signed-in after reset
+        const vendorRec = await db.get('SELECT id, email, legal_name FROM vendors WHERE id = ?', [row.vendor_id]);
+        const tokenSigned = jwt.sign({ username: vendorRec.email || `vendor${vendorRec.id}`, role: 'vendor', vendorId: vendorRec.id }, process.env.JWT_SECRET || JWT_SECRET || 'changeme', { expiresIn: '30d' });
+        return res.json({ status: 'ok', token: tokenSigned });
+    } catch (err) {
+        console.error('vendor password reset confirm error', err?.message || err);
+        return res.status(500).json({ error: 'Internal error' });
+    }
+});
+
+// Admin: impersonate vendor (generate vendor token)
+app.post('/api/vendors/:id/impersonate', authMiddleware, requireRole(['manager','admin']), async (req, res) => {
+    const { id } = req.params;
+    try {
+        const vendor = await db.get('SELECT id, legal_name, email FROM vendors WHERE id = ?', [id]);
+        if (!vendor) return res.status(404).json({ error: 'Vendor not found' });
+        const username = vendor.email || `vendor${vendor.id}`;
+        const token = jwt.sign({ username, role: 'vendor', vendorId: vendor.id }, process.env.JWT_SECRET || JWT_SECRET || 'changeme', { expiresIn: '7d' });
+        return res.json({ token, vendor: { id: vendor.id, email: vendor.email, legal_name: vendor.legal_name } });
+    } catch (err) {
+        console.error('impersonate vendor error', err);
+        return res.status(500).json({ error: 'Internal error' });
+    }
+});
+
+// Vendor self-service: get own vendor profile
+app.get('/api/vendor/me', authMiddleware, async (req, res) => {
+    try {
+        if (!req.user || req.user.role !== 'vendor' || !req.user.vendorId) return res.status(403).json({ error: 'Forbidden' });
+        const vendorId = req.user.vendorId;
+        const vendor = await db.get('SELECT id, slug, legal_name, contact_person, email, phone, address, website, tagline, public_description, logo_url, hero_image, attachments, commission_rate, bank_details FROM vendors WHERE id = ?', [vendorId]);
+        if (!vendor) return res.status(404).json({ error: 'Vendor not found' });
+        // attach product count
+        const productCount = await db.get('SELECT COUNT(*) AS c FROM products WHERE vendor_id = ?', [vendor.id]);
+        vendor.product_count = productCount?.c || 0;
+        try { vendor.attachments = vendor.attachments ? (typeof vendor.attachments === 'string' ? JSON.parse(vendor.attachments || '[]') : vendor.attachments) : []; } catch (e) { vendor.attachments = []; }
+        return res.json(vendor);
+    } catch (err) {
+        console.error('vendor/me error', err);
+        return res.status(500).json({ error: 'Internal error' });
+    }
+});
+
+// Vendor self-service: recent products
+app.get('/api/vendor/me/products', authMiddleware, async (req, res) => {
+    try {
+        if (!req.user || req.user.role !== 'vendor' || !req.user.vendorId) return res.status(403).json({ error: 'Forbidden' });
+        const vendorId = req.user.vendorId;
+        const rows = await db.all('SELECT id, name, price, image, stock, created_at FROM products WHERE vendor_id = ? ORDER BY created_at DESC LIMIT 20', [vendorId]);
+        return res.json(rows || []);
+    } catch (err) {
+        console.error('vendor/me/products error', err);
+        return res.status(500).json({ error: 'Internal error' });
+    }
+});
+
+// Vendor self-service: payouts listing
+app.get('/api/vendor/me/payouts', authMiddleware, async (req, res) => {
+    try {
+        if (!req.user || req.user.role !== 'vendor' || !req.user.vendorId) return res.status(403).json({ error: 'Forbidden' });
+        const vendorId = req.user.vendorId;
+        // Use payout service to ensure schema and list payouts
+        try {
+            const rows = await listPayoutsForVendor({ db, vendorId });
+            return res.json(rows || []);
+        } catch (e) {
+            console.warn('Failed to list payouts for vendor', e?.message || e);
+            return res.json([]);
+        }
+    } catch (err) {
+        console.error('vendor/me/payouts error', err);
+        return res.status(500).json({ error: 'Internal error' });
+    }
+});
+
+// Admin: view vendor password reset tokens (audit)
+app.get('/api/vendors/:id/password-reset-tokens', authMiddleware, requireRole(['manager','admin']), async (req, res) => {
+    const { id } = req.params;
+    try {
+        // Return token metadata only (do not expose raw tokens)
+        const rows = await db.all('SELECT id, token_hash, used, expires_at, created_at FROM vendor_password_reset_tokens WHERE vendor_id = ? ORDER BY created_at DESC', [id]);
+        const sanitized = (rows || []).map(r => ({ id: r.id, token_hash_preview: r.token_hash ? r.token_hash.slice(0,8) : null, used: !!r.used, expires_at: r.expires_at, created_at: r.created_at }));
+        return res.json(sanitized);
+    } catch (err) {
+        console.error('Failed to fetch vendor reset tokens', err);
         return res.status(500).json({ error: 'Internal error' });
     }
 });
@@ -3175,6 +3498,275 @@ app.post('/api/products/:id/adjust-stock', authMiddleware, requireRole(['manager
     }
 });
 
+// Vendor-scoped product management: vendors may create, update and archive their own products.
+// Staff routes remain unchanged. These endpoints enforce ownership by checking product.vendor_id
+// against the authenticated vendor's id.
+app.post('/api/vendor/products', authMiddleware, async (req, res) => {
+    try {
+        if (!req.user || req.user.role !== 'vendor') return res.status(403).json({ error: 'Forbidden' });
+        const vendorIdInt = Number(req.user.vendorId);
+
+        const {
+            name,
+            price,
+            stock,
+            categoryId,
+            subcategoryId,
+            subsubcategoryId,
+            brandId,
+            shortDescription,
+            description,
+            technicalDetails,
+            type,
+            image,
+            imageUrl,
+            sku,
+            autoSku = true,
+            barcode,
+            cost,
+            trackInventory = true,
+            availableForPreorder = false,
+            preorderReleaseDate,
+            preorderNotes,
+            preorderEta,
+            tags = [],
+            materialId,
+            colorId,
+            audience,
+            deliveryType,
+            warrantyTerm,
+            year,
+            category,
+            subcategory,
+            availabilityStatus,
+            highlightActive,
+            highlightLabel,
+            highlightPriority,
+            newArrival,
+            gallery
+        } = req.body || {};
+
+        if (!name || price == null) return res.status(400).json({ error: 'Missing fields' });
+        const normalizedPrice = parseFloat(price);
+        if (!Number.isFinite(normalizedPrice)) return res.status(400).json({ error: 'Invalid price value' });
+        const normalizedStock = Number.isFinite(stock) ? stock : parseInt(stock || '0', 10) || 0;
+        const normalizedCost = cost != null ? parseFloat(cost) || 0 : 0;
+        const normalizedTrack = trackInventory === false || trackInventory === 0 ? 0 : 1;
+        const storedImage = image?.trim() || null;
+        const storedImageSource = imageUrl?.trim() || null;
+        const technical = technicalDetails || null;
+        const normalizedType = type === 'digital' ? 'digital' : 'physical';
+        const normalizedAudience = normalizeEnum(audience, AUDIENCE_OPTIONS);
+        const normalizedDelivery = normalizeEnum(deliveryType, DELIVERY_TYPES);
+        const normalizedWarranty = normalizeEnum(warrantyTerm, WARRANTY_TERMS);
+        const normalizedEta = preorderEta && preorderEta.toString().trim() ? preorderEta.toString().trim() : null;
+        const normalizedYear = year != null && year !== '' ? parseInt(year, 10) : null;
+        const normalizedAutoSku = autoSku === false || autoSku === 0 ? 0 : 1;
+        const preorderEnabled = availableForPreorder ? 1 : 0;
+        const preorderDate = typeof preorderReleaseDate === 'string' && preorderReleaseDate.trim() ? preorderReleaseDate.trim() : null;
+        const preorderMessage = typeof preorderNotes === 'string' && preorderNotes.trim() ? preorderNotes.trim() : null;
+        const brandIdInt = brandId ? parseInt(brandId, 10) : null;
+        const materialIdInt = materialId ? parseInt(materialId, 10) : null;
+        const colorIdInt = colorId ? parseInt(colorId, 10) : null;
+        const rawAvailabilityStatus = availabilityStatus ?? req.body?.availability_status;
+        const normalizedAvailabilityStatus = normalizeEnum(rawAvailabilityStatus, AVAILABILITY_STATUSES, null) || (availableForPreorder ? 'preorder' : 'in_stock');
+
+        let resolvedCategoryId = categoryId ? parseInt(categoryId, 10) : null;
+        let resolvedSubcategoryId = subcategoryId ? parseInt(subcategoryId, 10) : null;
+        let resolvedSubsubcategoryId = subsubcategoryId ? parseInt(subsubcategoryId, 10) : null;
+
+        if (!resolvedCategoryId && category) {
+            const existingCategory = await db.get('SELECT id FROM product_categories WHERE name = ?', [category]);
+            if (existingCategory) resolvedCategoryId = existingCategory.id;
+        }
+        if (!resolvedSubcategoryId && subcategory) {
+            const existingSubcategory = await db.get('SELECT id, parent_id FROM product_categories WHERE name = ?', [subcategory]);
+            if (existingSubcategory) {
+                resolvedSubcategoryId = existingSubcategory.id;
+                if (!resolvedCategoryId) resolvedCategoryId = existingSubcategory.parent_id;
+            }
+        }
+
+        const { categoryName, subcategoryName, subsubcategoryName } = await fetchCategoryPath(
+            resolvedCategoryId,
+            resolvedSubcategoryId,
+            resolvedSubsubcategoryId
+        );
+
+        const trimmedBarcode = barcode?.trim() || null;
+        if (trimmedBarcode && !/^[0-9]{8,13}$/.test(trimmedBarcode)) {
+            return res.status(400).json({ error: 'Invalid barcode format (8-13 digits expected)' });
+        }
+
+        const brandName = await fetchBrandName(brandIdInt);
+        const galleryInput = normalizeGalleryInput(gallery || req.body?.gallery || req.body?.gallery_paths || req.body?.galleryPaths);
+        const galleryValue = galleryInput.length ? JSON.stringify(galleryInput) : null;
+        let finalSku = sku?.trim() || null;
+        if ((!finalSku || normalizedAutoSku) && name) {
+            const computedSku = computeAutoSku({ brandName: brandName || name, productName: name, year: normalizedYear || new Date().getFullYear() });
+            finalSku = await ensureUniqueSku(computedSku);
+        } else if (finalSku) {
+            const existingSku = await db.get('SELECT id FROM products WHERE sku = ?', [finalSku]);
+            if (existingSku) return res.status(409).json({ error: 'SKU already in use' });
+        }
+
+        const insert = await db.run(
+            `INSERT INTO products (
+                name, price, stock, category, subcategory,
+                image, image_source, description, technical_details,
+                sku, barcode, cost, track_inventory, preorder_enabled,
+                preorder_release_date, preorder_notes, short_description, type,
+                brand_id, category_id, subcategory_id, subsubcategory_id,
+                material_id, color_id, audience, delivery_type, warranty_term,
+                preorder_eta, year, auto_sku, availability_status, vendor_id,
+                highlight_active, highlight_label, highlight_priority, new_arrival, gallery
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            `,
+            [
+                name,
+                normalizedPrice,
+                normalizedStock,
+                categoryName || category || null,
+                subcategoryName || subcategory || null,
+                storedImage,
+                storedImageSource,
+                description || null,
+                technical,
+                finalSku || null,
+                trimmedBarcode,
+                normalizedCost,
+                normalizedTrack,
+                preorderEnabled,
+                preorderDate,
+                preorderMessage,
+                shortDescription ? shortDescription.trim() : null,
+                normalizedType,
+                brandIdInt,
+                resolvedCategoryId,
+                resolvedSubcategoryId,
+                resolvedSubsubcategoryId,
+                materialIdInt,
+                colorIdInt,
+                normalizedAudience,
+                normalizedDelivery,
+                normalizedWarranty,
+                normalizedEta,
+                normalizedYear,
+                normalizedAutoSku,
+                normalizedAvailabilityStatus,
+                vendorIdInt,
+                highlightActive === true || highlightActive === 1 ? 1 : 0,
+                typeof highlightLabel === 'string' && highlightLabel.trim() ? highlightLabel.trim().slice(0,60) : null,
+                Number.isFinite(parseInt(highlightPriority,10)) ? parseInt(highlightPriority,10) : 0,
+                newArrival === true || newArrival === 1 ? 1 : 0,
+                galleryValue
+            ]
+        );
+
+        const tagRows = await syncProductTags(insert.lastID, tags);
+        await cacheService.invalidateProducts();
+        await cacheService.invalidateProduct(insert.lastID);
+        await cacheService.invalidateCategories();
+        await cacheService.invalidateCategoriesTree();
+        await cacheService.invalidateLookups();
+
+        await logActivity('product', insert.lastID, 'create', req.user?.username, JSON.stringify({ vendorId: vendorIdInt }));
+
+        res.status(201).json({ id: insert.lastID, name, price: normalizedPrice, sku: finalSku, vendor_id: vendorIdInt, tags: tagRows });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.put('/api/vendor/products/:id', authMiddleware, async (req, res) => {
+    try {
+        if (!req.user || req.user.role !== 'vendor') return res.status(403).json({ error: 'Forbidden' });
+        const id = Number(req.params.id);
+        const product = await db.get('SELECT * FROM products WHERE id = ?', [id]);
+        if (!product) return res.status(404).json({ error: 'Product not found' });
+        if (Number(product.vendor_id) !== Number(req.user.vendorId)) return res.status(403).json({ error: 'Forbidden' });
+
+        const {
+            name,
+            price,
+            stock,
+            shortDescription,
+            description,
+            technicalDetails,
+            image,
+            imageUrl,
+            sku,
+            barcode,
+            cost,
+            trackInventory,
+            tags = [],
+            availabilityStatus,
+            gallery
+        } = req.body || {};
+
+        const updates = [];
+        const params = [];
+        if (name != null) { updates.push('name = ?'); params.push(name); }
+        if (price != null) { updates.push('price = ?'); params.push(parseFloat(price)); }
+        if (stock != null) { updates.push('stock = ?'); params.push(parseInt(stock,10) || 0); }
+        if (shortDescription != null) { updates.push('short_description = ?'); params.push(shortDescription ? shortDescription.trim() : null); }
+        if (description != null) { updates.push('description = ?'); params.push(description); }
+        if (technicalDetails != null) { updates.push('technical_details = ?'); params.push(technicalDetails); }
+        if (image != null) { updates.push('image = ?'); params.push(image ? image.trim() : null); }
+        if (imageUrl != null) { updates.push('image_source = ?'); params.push(imageUrl ? imageUrl.trim() : null); }
+        if (barcode != null) { const tb = barcode ? barcode.trim() : null; if (tb && !/^[0-9]{8,13}$/.test(tb)) return res.status(400).json({ error: 'Invalid barcode format' }); updates.push('barcode = ?'); params.push(tb); }
+        if (cost != null) { updates.push('cost = ?'); params.push(parseFloat(cost) || 0); }
+        if (trackInventory != null) { updates.push('track_inventory = ?'); params.push(trackInventory === false || trackInventory === 0 ? 0 : 1); }
+        if (availabilityStatus != null) { updates.push('availability_status = ?'); params.push(availabilityStatus); }
+        if (gallery != null) { const galleryInput = normalizeGalleryInput(gallery); updates.push('gallery = ?'); params.push(galleryInput.length ? JSON.stringify(galleryInput) : null); }
+
+        if (sku != null) {
+            const finalSku = sku.trim() || null;
+            if (finalSku && finalSku !== product.sku) {
+                const existingSku = await db.get('SELECT id FROM products WHERE sku = ? AND id != ?', [finalSku, id]);
+                if (existingSku) return res.status(409).json({ error: 'SKU already in use' });
+            }
+            updates.push('sku = ?'); params.push(finalSku);
+        }
+
+        if (updates.length) {
+            params.push(id);
+            await db.run(`UPDATE products SET ${updates.join(', ')} WHERE id = ?`, params);
+        }
+
+        await syncProductTags(id, tags);
+        await cacheService.invalidateProduct(id);
+        await cacheService.invalidateProducts();
+        await cacheService.invalidateCategories();
+
+        await logActivity('product', id, 'update', req.user?.username, JSON.stringify({ changes: updates }));
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.delete('/api/vendor/products/:id', authMiddleware, async (req, res) => {
+    try {
+        if (!req.user || req.user.role !== 'vendor') return res.status(403).json({ error: 'Forbidden' });
+        const id = Number(req.params.id);
+        const product = await db.get('SELECT * FROM products WHERE id = ?', [id]);
+        if (!product) return res.status(404).json({ error: 'Product not found' });
+        if (Number(product.vendor_id) !== Number(req.user.vendorId)) return res.status(403).json({ error: 'Forbidden' });
+
+        // Vendors may only perform a soft-delete (archive)
+        await db.run('UPDATE products SET availability_status = COALESCE(?, availability_status), stock = 0 WHERE id = ?', ['archived', id]);
+        await logActivity('product', id, 'archive', req.user?.username, JSON.stringify(product));
+        await queueNotification({ title: 'Product archived', message: `${product.name} has been archived by vendor`, type: 'info' });
+        await cacheService.invalidateProduct(id);
+        await cacheService.invalidateProducts();
+        await cacheService.invalidateCategories();
+        res.status(204).end();
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
 app.get('/api/me', authMiddleware, async (req, res) => {
     try {
         if (!req.user) return res.status(401).json({ error: 'Unauthenticated' });
@@ -3386,8 +3978,11 @@ app.post('/api/notifications/read-all', authMiddleware, async (req, res) => {
 app.post('/api/public/preorders', enforcePreorderRateLimit, async (req, res) => {
     try {
         if (STOREFRONT_API_KEY) {
-            const providedKey = (req.headers['x-storefront-key'] || '').toString().trim();
-            if (providedKey !== STOREFRONT_API_KEY) {
+            const providedKeyHeader = (req.headers['x-storefront-key'] || '').toString().trim();
+            const providedKeyBody = (req.body && (req.body.api_key || req.body.storefront_key)) || '';
+            const providedKeyQuery = (req.query && (req.query.api_key || req.query.storefront_key)) || '';
+            const providedKey = (providedKeyHeader || providedKeyBody || providedKeyQuery || '').toString().trim();
+            if (!providedKey || providedKey !== STOREFRONT_API_KEY) {
                 console.warn(`Preorder rejected: invalid API key from ${req.ip}`);
                 return res.status(401).json({ error: 'Invalid API key' });
             }
@@ -3475,16 +4070,32 @@ app.post('/api/public/preorders', enforcePreorderRateLimit, async (req, res) => 
                     .filter(Boolean)
                 : [];
 
+        // Validate cart links are required
+        if (normalizedLinks.length === 0) {
+            return res.status(400).json({ error: 'At least one cart link is required. Please provide the link to your shopping cart.' });
+        }
+
         const sanitizedNotes = notes ? notes.toString().trim() : null;
         if (sanitizedNotes && sanitizedNotes.length > MAX_PREORDER_NOTES_LENGTH) {
-            return res.status(400).json({ error: 'Notes are too long.' });
+            return res.status(400).json({ error: `Notes are too long. Maximum ${MAX_PREORDER_NOTES_LENGTH} characters allowed.` });
         }
         if (normalizedLinks.length > MAX_PREORDER_CART_LINKS) {
-            return res.status(400).json({ error: 'Too many cart links. Limit to 10.' });
+            return res.status(400).json({ error: `Too many cart links. Maximum ${MAX_PREORDER_CART_LINKS} links allowed.` });
         }
         const invalidLink = normalizedLinks.find((link) => !/^https?:\/\/[^\s]+$/i.test(link));
         if (invalidLink) {
-            return res.status(400).json({ error: 'Cart links must be valid URLs.' });
+            return res.status(400).json({ error: 'Cart links must be valid URLs starting with http:// or https://.' });
+        }
+
+        // Validate customer email format more thoroughly
+        if (!emailPattern.test(customerEmail)) {
+            return res.status(400).json({ error: 'Please enter a valid email address (e.g., name@example.com).' });
+        }
+
+        // Validate phone number format
+        const phonePattern = /^[\+]?[0-9\s\-\(\)]{7,15}$/;
+        if (!phonePattern.test(customerPhone)) {
+            return res.status(400).json({ error: 'Please enter a valid phone number.' });
         }
         const deliveryAddress = (body.deliveryAddress || '').toString().trim() || null;
         const usdNumeric = Number.isFinite(Number(usdTotal)) ? Number(usdTotal) : null;
@@ -3497,6 +4108,8 @@ app.post('/api/public/preorders', enforcePreorderRateLimit, async (req, res) => 
         const mvrTotal = Math.round(usdNumeric * exchangeNumeric * 100) / 100;
 
         const allowedBanks = ['bml', 'bank_of_maldives', 'maldives_islamic_bank', 'mib'];
+        const allowedPaymentTypes = ['bank_transfer', 'qr_code', 'cash'];
+
         let paymentBank = payment && payment.bank ? payment.bank.toString().trim().toLowerCase() : null;
         if (paymentBank && !allowedBanks.includes(paymentBank)) {
             paymentBank = null;
@@ -3504,11 +4117,47 @@ app.post('/api/public/preorders', enforcePreorderRateLimit, async (req, res) => 
         if (paymentBank === 'bank_of_maldives') paymentBank = 'bml';
         if (paymentBank === 'maldives_islamic_bank') paymentBank = 'mib';
 
+        const paymentType = payment && payment.type ? payment.type.toString().trim().toLowerCase() : 'bank_transfer';
+        if (!allowedPaymentTypes.includes(paymentType)) {
+            return res.status(400).json({ error: 'Invalid payment type. Must be bank_transfer, qr_code, or cash.' });
+        }
+
         const paymentReference = payment && payment.reference ? payment.reference.toString().trim() : null;
         const paymentDate = payment && payment.date ? payment.date.toString().trim() : null;
         const paymentSlip = payment && payment.slip ? payment.slip.toString().trim() : null;
+
+        // Validate payment slip for bank transfers
+        if (paymentType === 'bank_transfer' && !paymentSlip) {
+            return res.status(400).json({ error: 'Payment slip is required for bank transfers. Please upload your payment confirmation.' });
+        }
+
+        // Validate QR code reference for QR payments
+        if (paymentType === 'qr_code' && !paymentReference) {
+            return res.status(400).json({ error: 'Transaction reference is required for QR code payments. Please provide the reference number from your payment app.' });
+        }
+
         if (paymentSlip && paymentSlip.length > MAX_PAYMENT_SLIP_BASE64_LENGTH) {
-            return res.status(400).json({ error: 'Payment slip is too large. Please upload a smaller file.' });
+            return res.status(400).json({ error: `Payment slip is too large. Maximum ${Math.floor(MAX_PAYMENT_SLIP_BASE64_LENGTH / 1024)}KB allowed.` });
+        }
+
+        // Basic payment slip validation - check if it's valid base64
+        if (paymentSlip) {
+            try {
+                const buffer = Buffer.from(paymentSlip, 'base64');
+                if (buffer.length === 0) {
+                    return res.status(400).json({ error: 'Invalid payment slip. Please upload a valid image file.' });
+                }
+                // Check if it's a valid image format
+                const magicBytes = buffer.slice(0, 4);
+                const isValidImage = magicBytes[0] === 0xFF && magicBytes[1] === 0xD8 && magicBytes[2] === 0xFF && magicBytes[3] === 0xE0 || // JPEG
+                                   magicBytes[0] === 0x89 && magicBytes[1] === 0x50 && magicBytes[2] === 0x4E && magicBytes[3] === 0x47 || // PNG
+                                   magicBytes[0] === 0x47 && magicBytes[1] === 0x49 && magicBytes[2] === 0x46 && magicBytes[3] === 0x38;   // GIF
+                if (!isValidImage) {
+                    return res.status(400).json({ error: 'Payment slip must be a valid image file (JPEG, PNG, or GIF).' });
+                }
+            } catch (err) {
+                return res.status(400).json({ error: 'Invalid payment slip format. Please upload a valid image file.' });
+            }
         }
 
         const now = new Date().toISOString();
@@ -3532,13 +4181,14 @@ app.post('/api/public/preorders', enforcePreorderRateLimit, async (req, res) => 
                 usd_total,
                 exchange_rate,
                 mvr_total,
+                payment_type,
                 payment_reference,
                 payment_date,
                 payment_slip,
                 payment_bank,
                 status,
                 status_history
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             [
                 sourceStore ? sourceStore.toString().trim() : null,
                 JSON.stringify(normalizedLinks),
@@ -3550,6 +4200,7 @@ app.post('/api/public/preorders', enforcePreorderRateLimit, async (req, res) => 
                 usdNumeric,
                 exchangeNumeric,
                 mvrTotal,
+                paymentType,
                 paymentReference,
                 paymentDate,
                 paymentSlip,
@@ -4034,7 +4685,7 @@ app.post('/api/vendors/register', async (req, res) => {
 
     if (!legal_name || !email) return res.status(400).json({ error: 'legal_name and email required' });
 
-    const comm = Number.isFinite(Number(commission_rate)) ? Number(commission_rate) : 0.10;
+    const comm = Number.isFinite(Number(commission_rate)) ? Number(commission_rate) : 0.0;
     const status = approve ? 'active' : 'pending';
     const descriptionValue = public_description || notes || null;
 
@@ -4171,7 +4822,7 @@ app.put('/api/vendors/:id/status', authMiddleware, requireRole(['manager','admin
             return res.status(404).json({ error: 'Vendor not found' });
         }
 
-        // When vendor becomes active, create or link a customer record so vendors appear in Customers
+        // Ensure vendor slug and description are set
         const slugSource = vendor.legal_name || vendor.contact_person || vendor.email || `vendor-${id}`;
         await ensureVendorSlug(id, slugSource);
 
@@ -4179,18 +4830,49 @@ app.put('/api/vendors/:id/status', authMiddleware, requireRole(['manager','admin
             await db.run('UPDATE vendors SET public_description = ? WHERE id = ?', [vendor.notes, id]);
         }
 
+        // When vendor becomes active, we no longer create a customer record automatically.
+        // Vendors are managed separately from Customers. Continue ensuring vendor user credentials below.
         if (status === 'active') {
-            // If vendor already linked to customer, skip
-            if (!vendor.customer_id) {
-                // Create a business customer using vendor details
-                const custRes = await db.run(
-                    'INSERT INTO customers (name, email, phone, address, is_business, customer_type) VALUES (?, ?, ?, ?, ?, ?)',
-                    [vendor.legal_name || vendor.contact_person || `Vendor ${id}`, vendor.email || null, vendor.phone || null, vendor.address || null, 1, 'vendor']
+            // Ensure vendor user credential exists: create vendor_users table if needed and generate temporary password
+            try {
+                // Use db.exec for schema statements so the adapter can transform SQL for Postgres
+                await db.exec(`
+                CREATE TABLE IF NOT EXISTS vendor_users (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    vendor_id INTEGER UNIQUE,
+                    username TEXT UNIQUE,
+                    password_hash TEXT,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
                 );
-                const customerId = custRes.lastID;
-                await db.run('UPDATE vendors SET customer_id = ? WHERE id = ?', [customerId, id]);
-                // Invalidate customers cache if available
-                try { await cacheService.invalidateCustomers(); } catch {}
+                `);
+            } catch (e) { /* ignore */ }
+
+            try {
+                const existingUser = await db.get('SELECT id, username FROM vendor_users WHERE vendor_id = ?', [id]);
+                if (!existingUser && vendor.email) {
+                    const tempPassword = crypto.randomBytes(9).toString('base64').replace(/[^a-zA-Z0-9]/g, '').slice(0,12);
+                    const hash = await bcrypt.hash(tempPassword, 10);
+                    await db.run('INSERT INTO vendor_users (vendor_id, username, password_hash) VALUES (?, ?, ?)', [id, vendor.email, hash]);
+                    // Send email with credentials
+                    try {
+                        const loginUrl = (process.env.VENDOR_LOGIN_URL || `${req.protocol}://${req.get('host')}/vendor/login`).trim();
+                        const html = `<p>Hello ${vendor.legal_name || vendor.contact_person || ''},</p>
+                            <p>Your vendor account has been approved. You can sign in at <a href="${loginUrl}">${loginUrl}</a></p>
+                            <p><strong>Username:</strong> ${vendor.email}<br/><strong>Temporary password:</strong> ${tempPassword}</p>
+                            <p>Please change your password after first sign-in.</p>`;
+                        const text = `Hello ${vendor.legal_name || vendor.contact_person || ''},\n\nYour vendor account has been approved. Sign in: ${loginUrl}\nUsername: ${vendor.email}\nTemporary password: ${tempPassword}\n\nPlease change your password after first sign-in.`;
+                        try {
+                            await sendNotificationEmail('Vendor account approved — ITnVend', html, vendor.email);
+                        } catch (mailErr) {
+                            console.warn('Failed to send vendor approval email via settings provider', mailErr?.message || mailErr);
+                            try { await sendMail({ to: vendor.email, subject: 'Vendor account approved — ITnVend', html, text }); } catch (e) { console.warn('Fallback sendMail failed', e?.message || e); }
+                        }
+                    } catch (mailErr) {
+                        console.warn('Failed to email vendor credentials', mailErr?.message || mailErr);
+                    }
+                }
+            } catch (e) {
+                console.warn('vendor user creation failed', e?.message || e);
             }
         }
 
@@ -4223,6 +4905,80 @@ app.patch('/api/vendors/:id/logo', authMiddleware, requireRole(['manager','admin
         res.json(updated);
     } catch (err) {
         res.status(500).json({ error: err.message });
+    }
+});
+
+// Admin: resend vendor credentials (generate a new temporary password and email it)
+app.post('/api/vendors/:id/resend-credentials', authMiddleware, requireRole(['manager','admin']), async (req, res) => {
+    const { id } = req.params;
+    const revealReq = (req.body && req.body.reveal) || (req.query && req.query.reveal === 'true');
+    try {
+        const vendor = await db.get('SELECT id, legal_name, email FROM vendors WHERE id = ?', [id]);
+        if (!vendor) return res.status(404).json({ error: 'Vendor not found' });
+        if (!vendor.email) return res.status(400).json({ error: 'Vendor has no email address configured' });
+
+        // Ensure vendor_users table exists (schema-aware)
+        try {
+            await db.exec(`
+                CREATE TABLE IF NOT EXISTS vendor_users (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    vendor_id INTEGER UNIQUE,
+                    username TEXT UNIQUE,
+                    password_hash TEXT,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                );
+            `);
+        } catch (e) { /* ignore */ }
+
+        // generate temporary password
+        const tempPassword = crypto.randomBytes(9).toString('base64').replace(/[^a-zA-Z0-9]/g, '').slice(0,12);
+        const hash = await bcrypt.hash(tempPassword, 10);
+
+        // Upsert vendor_users record
+        try {
+            const existing = await db.get('SELECT id FROM vendor_users WHERE vendor_id = ?', [id]);
+            if (existing) {
+                await db.run('UPDATE vendor_users SET username = ?, password_hash = ? WHERE vendor_id = ?', [vendor.email, hash, id]);
+            } else {
+                await db.run('INSERT INTO vendor_users (vendor_id, username, password_hash) VALUES (?, ?, ?)', [id, vendor.email, hash]);
+            }
+        } catch (e) {
+            console.warn('Failed to upsert vendor_users', e?.message || e);
+            return res.status(500).json({ error: 'Failed to update vendor credentials' });
+        }
+
+        // send email
+        try {
+            const loginUrl = (process.env.VENDOR_LOGIN_URL || `${req.protocol}://${req.get('host')}/vendor/login`).trim();
+            const html = `<p>Hello ${vendor.legal_name || ''},</p>
+                <p>Your vendor account credentials have been (re)generated.</p>
+                <p><strong>Username:</strong> ${vendor.email}<br/><strong>Temporary password:</strong> ${tempPassword}</p>
+                <p>Please contact our support team at <a href="${loginUrl}">${loginUrl}</a> to complete your account setup and receive login instructions.</p>`;
+            const text = `Hello ${vendor.legal_name || ''},\n\nYour vendor account credentials have been (re)generated.\nUsername: ${vendor.email}\nTemporary password: ${tempPassword}\n\nPlease contact support at ${loginUrl} for login instructions.\n\nPlease change your password after first login.`;
+                        try {
+                            await sendNotificationEmail('Your vendor account credentials', html, vendor.email);
+                        } catch (mailErr) {
+                            console.warn('Failed to send vendor credentials email via settings provider', mailErr?.message || mailErr);
+                            try { await sendMail({ to: vendor.email, subject: 'Your vendor account credentials', html, text }); } catch (e) { console.warn('Fallback sendMail failed', e?.message || e); }
+                        }
+            const baseResp = { ok: true, emailed: true, message: 'Credentials regenerated and email attempted' };
+            if (revealReq) {
+                return res.json({ ...baseResp, revealed: { username: vendor.email, temporaryPassword: tempPassword, loginUrl } });
+            }
+            return res.json(baseResp);
+        } catch (mailErr) {
+            console.warn('Failed to send vendor credentials email', mailErr?.message || mailErr);
+            // If email failed, still return success because password is updated; admin can retrieve from logs
+            const baseResp = { ok: true, emailed: false, message: 'Credentials updated but email failed; check server logs for temporary password' };
+            if (revealReq) {
+                const loginUrl = (process.env.VENDOR_LOGIN_URL || `${req.protocol}://${req.get('host')}/vendor/login`).trim();
+                return res.json({ ...baseResp, revealed: { username: vendor.email, temporaryPassword: tempPassword, contactUrl: loginUrl } });
+            }
+            return res.json(baseResp);
+        }
+    } catch (err) {
+        console.error('resend credentials error', err);
+        return res.status(500).json({ error: err?.message || 'Unable to resend credentials' });
     }
 });
 
@@ -4389,6 +5145,8 @@ app.get('/api/submissions', authMiddleware, requireRole(['cashier','accounts','m
             `);
             // General/other submissions could be extended; for now return empty array
             const others = [];
+            // Prevent caching/proxy 304 responses so staff UI always gets fresh submissions after actions
+            res.set('Cache-Control', 'no-store, no-cache, must-revalidate, private');
             res.json({ vendors: pendingVendors || [], casual_items: pendingCasual || [], others });
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -5652,7 +6410,7 @@ app.post('/api/invoices', async (req, res) => {
 
             for (const [vendorId, data] of Object.entries(vendorTotals)) {
                 const vendorRow = await db.get('SELECT id, commission_rate FROM vendors WHERE id = ?', [vendorId]);
-                const commRate = vendorRow && vendorRow.commission_rate != null ? Number(vendorRow.commission_rate) : 0.10;
+                const commRate = vendorRow && vendorRow.commission_rate != null ? Number(vendorRow.commission_rate) : 0.0;
                 const gross = Number(data.gross || 0);
                 const commissionAmount = +(gross * (commRate));
                 const vendorNet = +(gross - commissionAmount);
@@ -5715,7 +6473,7 @@ app.post('/api/invoices', async (req, res) => {
                             const vendorGross = Number(data.gross || 0) || 0;
                             // re-fetch vendor commission rate (safe)
                             const vendorRow = await db.get('SELECT id, commission_rate FROM vendors WHERE id = ?', [vendorId]);
-                            const commRate = vendorRow && vendorRow.commission_rate != null ? Number(vendorRow.commission_rate) : 0.10;
+                            const commRate = vendorRow && vendorRow.commission_rate != null ? Number(vendorRow.commission_rate) : 0.0;
                             const commissionAmount = +(vendorGross * commRate);
                             const vendorNet = +(vendorGross - commissionAmount);
 

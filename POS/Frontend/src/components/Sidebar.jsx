@@ -77,6 +77,11 @@ export default function Sidebar() {
         <NavLink to="/customers" className={linkClass} onClick={handleNavClick}>
           <FaUsers /> {!collapsedLabelsHidden && 'Customers'}
         </NavLink>
+        {user && ['manager', 'admin'].includes(user.role) && (
+          <NavLink to="/vendors" className={linkClass} onClick={handleNavClick}>
+            <FaUserPlus /> {!collapsedLabelsHidden && 'Vendors'}
+          </NavLink>
+        )}
         {user && ['cashier', 'accounts', 'manager', 'admin'].includes(user.role) && (
           <NavLink to="/submissions" className={linkClass} onClick={handleNavClick}>
             <FaInbox /> {!collapsedLabelsHidden && 'Submissions'}

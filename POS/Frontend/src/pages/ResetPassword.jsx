@@ -29,7 +29,10 @@ export default function ResetPassword() {
     if (password !== confirm) return toast.push('Passwords do not match', 'error');
     setLoading(true);
     try {
-      await api.post('/password-reset/confirm', { token, password });
+      // Use vendor endpoint when reset token was issued for vendor flow
+      const isVendorPath = window.location.pathname.startsWith('/vendor');
+      const endpoint = isVendorPath ? '/vendors/password-reset/confirm' : '/password-reset/confirm';
+      const res = await api.post(endpoint, { token, password });
       toast.push('Password updated. You can now sign in.', 'success');
       navigate('/login');
     } catch (err) {
@@ -47,11 +50,23 @@ export default function ResetPassword() {
         <form onSubmit={submit} className="space-y-4">
           <div>
             <label className="block text-sm text-[var(--color-muted)] mb-1">New password</label>
-            <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required className="w-full px-3 py-2 border rounded" />
+            <input
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              required
+              className="mt-1 block w-full rounded-md border px-3 py-2 shadow-sm"
+            />
           </div>
           <div>
             <label className="block text-sm text-[var(--color-muted)] mb-1">Confirm password</label>
-            <input type="password" value={confirm} onChange={(e) => setConfirm(e.target.value)} required className="w-full px-3 py-2 border rounded" />
+            <input
+              type="password"
+              value={confirm}
+              onChange={(e) => setConfirm(e.target.value)}
+              required
+              className="mt-1 block w-full rounded-md border px-3 py-2 shadow-sm"
+            />
           </div>
           <div className="flex items-center justify-between">
             <button type="submit" className="btn-primary" disabled={loading}>{loading ? 'Saving…' : 'Save new password'}</button>

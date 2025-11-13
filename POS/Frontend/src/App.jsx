@@ -23,6 +23,9 @@ import Preorders from './pages/Preorders';
 import Profile from './pages/Profile';
 import Help from './pages/Help';
 import ContactOnly from './pages/ContactOnly';
+import VendorLogin from './modules/vendor/VendorLogin';
+import VendorDashboard from './modules/vendor/VendorDashboard';
+import VendorProducts from './pages/vendor/VendorProducts';
 import ManageLookups from './pages/ManageLookups';
 import ValidateSlip from './pages/ValidateSlip';
 import Slips from './pages/Slips';
@@ -104,6 +107,11 @@ function App() {
             <BrowserRouter>
               <Routes>
           <Route path="/login" element={<Login />} />
+          <Route path="/vendor/login" element={<VendorLogin />} />
+          <Route path="/vendor/dashboard" element={<VendorDashboard />} />
+          <Route path="/vendor/products" element={<VendorProducts />} />
+          <Route path="/vendor/reset-password" element={<ResetPassword />} />
+          <Route path="/vendor/forgot-password" element={<ForgotPassword />} />
           <Route path="/contact" element={<ContactOnly />} />
                 <Route path="/forgot-password" element={<ForgotPassword />} />
                 <Route path="/reset-password" element={<ResetPassword />} />
