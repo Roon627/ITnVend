@@ -51,7 +51,7 @@ export default function ProductCard({ product, onAdd = () => {}, formatCurrency:
             <div className="mb-3 text-left">
               <span className="text-xl font-bold text-rose-500">{fmt(product.price)}</span>
             </div>
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-2">
+            <div className={`grid gap-2 ${userListing ? 'grid-cols-1' : 'grid-cols-2'}`}>
               {userListing ? (
                 contactHasInfo ? (
                   <a
@@ -73,7 +73,7 @@ export default function ProductCard({ product, onAdd = () => {}, formatCurrency:
               ) : (
                 <button
                   onClick={() => onAdd(product)}
-                  className="btn-sm btn-sm-primary w-full sm:flex-1 inline-flex items-center justify-center gap-2 rounded-lg bg-rose-500 text-white shadow-sm transition-colors hover:bg-rose-600"
+                  className="btn-sm btn-sm-primary inline-flex items-center justify-center gap-2 rounded-lg bg-rose-500 text-white shadow-sm transition-colors hover:bg-rose-600"
                   aria-label={`${isPreorder ? 'Preorder' : 'Add'} ${product.name}`}
                 >
                   <FaShoppingCart />
@@ -83,7 +83,7 @@ export default function ProductCard({ product, onAdd = () => {}, formatCurrency:
               <Link
                 to={`/product/${product.id}`}
                 state={{ preloadedProduct: product }}
-                className="btn-sm btn-sm-outline w-full sm:flex-1 inline-flex items-center justify-center gap-2 rounded-lg border border-rose-200 bg-white/80 text-rose-600 shadow-sm transition-colors hover:bg-rose-50"
+                className="btn-sm btn-sm-outline inline-flex items-center justify-center gap-2 rounded-lg border border-rose-200 bg-white/80 text-rose-600 shadow-sm transition-colors hover:bg-rose-50"
                 aria-label={`View details for ${product.name}`}
               >
                 View

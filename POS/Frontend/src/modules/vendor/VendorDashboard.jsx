@@ -2,7 +2,6 @@ import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import api from '../../lib/api';
 import { useToast } from '../../components/ToastContext';
-import { useAuth } from '../../components/AuthContext';
 
 export default function VendorDashboard() {
   const [vendor, setVendor] = useState(null);
@@ -10,7 +9,6 @@ export default function VendorDashboard() {
   const [payouts, setPayouts] = useState([]);
   const [loading, setLoading] = useState(true);
   const toast = useToast();
-  const { user } = useAuth();
 
   useEffect(() => {
     let mounted = true;
@@ -53,18 +51,18 @@ export default function VendorDashboard() {
           <h2 className="text-3xl font-extrabold tracking-tight">{vendor?.legal_name || 'Vendor Dashboard'}</h2>
           <p className="mt-1 text-sm text-slate-500">{vendor?.tagline || vendor?.public_description || 'Manage your storefront, listings and payouts.'}</p>
         </div>
-        <div className="flex items-center gap-3">
-          <div className="inline-flex items-center gap-3 rounded-full bg-slate-50 px-3 py-2 text-sm text-slate-600">
+        <div className="flex flex-col items-stretch gap-3 sm:flex-row sm:items-center">
+          <div className="inline-flex items-center gap-3 rounded-full bg-slate-50 px-4 py-2 text-sm text-slate-600">
             <span className="text-xs text-slate-500">Currency</span>
-            <span className="font-medium">{vendor?.currency || 'USD'}</span>
-            {user && (user.role === 'manager' || user.role === 'admin' || user.role === 'owner') ? (
-              <Link to="/vendors" className="ml-3 text-xs text-indigo-600">Change</Link>
-            ) : (
-              <Link to="/vendors" className="ml-3 text-xs text-indigo-600">Admin</Link>
-            )}
+            <span className="font-semibold text-slate-900">{vendor?.currency || 'USD'}</span>
+            <span className="text-[11px] uppercase tracking-wide text-slate-400">Managed by ITnVend</span>
           </div>
-          <Link to="/vendor/products" className="inline-flex items-center gap-2 rounded bg-indigo-600 text-white px-4 py-2 shadow hover:bg-indigo-700">+ Manage products</Link>
-          <button onClick={() => window.location.href = '/vendor/products'} className="inline-flex items-center gap-2 rounded border px-4 py-2 text-sm">Quick add</button>
+          <Link to="/vendor/products" className="inline-flex items-center justify-center gap-2 rounded-full bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow hover:bg-indigo-700">
+            Manage products
+          </Link>
+          <button onClick={() => window.location.href = '/vendor/products'} className="inline-flex items-center justify-center gap-2 rounded-full border border-indigo-100 px-4 py-2 text-sm font-semibold text-indigo-600 hover:bg-indigo-50">
+            Quick add
+          </button>
         </div>
       </header>
 

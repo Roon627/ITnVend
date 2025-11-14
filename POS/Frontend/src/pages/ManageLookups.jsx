@@ -1,8 +1,40 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { FaTrademark, FaBoxOpen, FaPalette, FaTags, FaPlus, FaTrash, FaCheck, FaTimes, FaPencilAlt, FaSearch, FaChevronDown, FaChevronUp } from 'react-icons/fa';
+import {
+  FaTrademark,
+  FaBoxOpen,
+  FaPalette,
+  FaTags,
+  FaPlus,
+  FaTrash,
+  FaCheck,
+  FaTimes,
+  FaPencilAlt,
+  FaSearch,
+  FaChevronDown,
+  FaChevronUp,
+  FaUserFriends,
+  FaTruck,
+  FaShieldAlt,
+} from 'react-icons/fa';
 import api from '../lib/api';
 import { useToast } from '../components/ToastContext';
 import CategoryTree, { deriveBreadcrumb } from '../components/CategoryTree';
+
+const LOOKUP_KEYS = ['brands', 'materials', 'colors', 'tags', 'audiences', 'deliveryTypes', 'warrantyTerms'];
+
+const initialLookupState = LOOKUP_KEYS.reduce(
+  (acc, key) => ({
+    ...acc,
+    [key]: [],
+  }),
+  {}
+);
+
+const CUSTOM_LOOKUP_CONFIG = {
+  audiences: { route: '/audiences', label: 'Audience', icon: FaUserFriends },
+  deliveryTypes: { route: '/delivery-types', label: 'Delivery type', icon: FaTruck },
+  warrantyTerms: { route: '/warranty-terms', label: 'Warranty term', icon: FaShieldAlt },
+};
 
 const EditableList = ({
   title,
@@ -20,7 +52,15 @@ const EditableList = ({
   const [newItem, setNewItem] = useState('');
   const [editingId, setEditingId] = useState(null);
 
-  useEffect(() => setDrafts({}), [items]);
+  const getItemKey = useCallback((item) => {
+    if (!item) return '';
+    return item.lookupId ?? item.id ?? item.name ?? '';
+  }, []);
+
+  useEffect(() => {
+    setDrafts({});
+    setEditingId(null);
+  }, [items]);
 
   const themeBase = {
     gradient: 'from-sky-500 via-blue-500 to-indigo-500',
@@ -30,32 +70,23 @@ const EditableList = ({
   };
   const tone = { ...themeBase, ...accent };
 
-  const itemsSorted = Array.isArray(items) ? [...items].sort((a, b) => a.name.localeCompare(b.name)) : [];
+  const itemsSorted = Array.isArray(items) ? [...items].sort((a, b) => (a.name || '').localeCompare(b.name || '')) : [];
   const count = itemsSorted.length;
   const isEmpty = count === 0;
   const singular = title && title.endsWith('s') ? title.slice(0, -1) : title || 'item';
 
-  const clearDraft = (id) => setDrafts((prev) => {
-    if (!(id in prev)) return prev;
-    const next = { ...prev };
-    delete next[id];
-    return next;
-  });
-
-  const handleUpdate = (id) => {
-    const name = (drafts[id] ?? '').trim();
-    const current = itemsSorted.find((entry) => entry.id === id);
-    if (name && (!current || name !== current.name)) {
-      onUpdate(id, name);
-    }
-    clearDraft(id);
-    setEditingId(null);
-  };
+  const clearDraft = (key) =>
+    setDrafts((prev) => {
+      if (!(key in prev)) return prev;
+      const next = { ...prev };
+      delete next[key];
+      return next;
+    });
 
   const handleAdd = () => {
     const trimmed = newItem.trim();
     if (!trimmed) return;
-    onAdd(trimmed);
+    if (onAdd) onAdd(trimmed);
     setNewItem('');
   };
 
@@ -105,74 +136,112 @@ const EditableList = ({
                 <div className="pointer-events-none absolute inset-x-0 top-0 h-6 bg-gradient-to-b from-white via-white/60 to-transparent" aria-hidden="true" />
                 <div className="pointer-events-none absolute inset-x-0 bottom-0 h-6 bg-gradient-to-t from-white via-white/60 to-transparent" aria-hidden="true" />
                 <div className="max-h-72 overflow-y-auto overflow-x-hidden space-y-2 px-2 py-3">
-                  {itemsSorted.map((item) => (
-                    <div key={item.id} className="group/item flex items-center justify-between gap-2">
-                      {editingId === item.id ? (
-                        <>
-                          <input
-                            autoFocus
-                            type="text"
-                            value={drafts[item.id] ?? item.name}
-                            onChange={(event) => setDrafts((prev) => ({ ...prev, [item.id]: event.target.value }))}
-                            onKeyDown={(event) => {
-                              if (event.key === 'Enter') handleUpdate(item.id);
-                              if (event.key === 'Escape') {
-                                setEditingId(null);
-                                clearDraft(item.id);
-                              }
-                            }}
-                            className="w-full max-w-[220px] text-sm py-1.5 px-2 rounded-md border border-gray-200 bg-gray-50 text-slate-700 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-                          />
-                          <div className="flex items-center gap-1">
-                            <button
-                              type="button"
-                              onClick={() => handleUpdate(item.id)}
-                              className="inline-flex h-7 w-7 items-center justify-center rounded-md bg-green-100 text-green-700 transition hover:bg-green-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-green-400"
-                              title="Save"
-                            >
-                              <FaCheck size={12} />
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setEditingId(null);
-                                clearDraft(item.id);
+                  {itemsSorted.map((item) => {
+                    const itemKey = getItemKey(item);
+                    const readOnly = !!item.readOnly;
+                    const currentValue = drafts[itemKey] ?? item.name ?? '';
+                    return (
+                      <div key={itemKey || item.name} className="group/item flex items-center justify-between gap-2">
+                        {editingId === itemKey ? (
+                          <>
+                            <input
+                              autoFocus
+                              type="text"
+                              value={currentValue}
+                              onChange={(event) => setDrafts((prev) => ({ ...prev, [itemKey]: event.target.value }))}
+                              onKeyDown={(event) => {
+                                if (event.key === 'Enter') {
+                                  const nextName = (drafts[itemKey] ?? item.name ?? '').trim();
+                                  if (!nextName) return;
+                                  onUpdate?.(item.lookupId ?? item.id, nextName, item);
+                                  setEditingId(null);
+                                  clearDraft(itemKey);
+                                }
+                                if (event.key === 'Escape') {
+                                  setEditingId(null);
+                                  clearDraft(itemKey);
+                                }
                               }}
-                              className="inline-flex h-7 w-7 items-center justify-center rounded-md bg-slate-100 text-slate-500 transition hover:bg-slate-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-slate-300"
-                              title="Cancel"
-                            >
-                              <FaTimes size={12} />
-                            </button>
-                          </div>
-                        </>
-                      ) : (
-                        <>
-                          <span className="text-xs font-medium bg-gray-100 text-gray-700 px-2 py-1 rounded-md transition group-hover/item:bg-blue-50">{item.name}</span>
-                          <div className="flex items-center gap-1 opacity-0 transition group-hover/item:opacity-100">
-                            <button
-                              type="button"
-                              onClick={() => {
-                                clearDraft(item.id);
-                                setEditingId(item.id);
-                              }}
-                              className="inline-flex h-7 w-7 items-center justify-center rounded-md bg-slate-100 text-slate-500 hover:bg-slate-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-slate-300"
-                              title="Edit"
-                            >
-                              <FaPencilAlt size={12} />
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => onDelete(item.id)}
-                              className="inline-flex h-7 w-7 items-center justify-center rounded-md bg-red-100 text-red-600 hover:bg-red-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-red-300"
-                              title="Delete"
-                            >
-                              <FaTrash size={12} />
-                            </button>
-                          </div>
-                        </>
-                      )}
-                    </div>
-                  ))}
+                              className="w-full max-w-[220px] rounded-md border border-gray-200 bg-gray-50 px-2 py-1.5 text-sm text-slate-700 focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-100"
+                            />
+                            <div className="flex items-center gap-1">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const draftValue = (drafts[itemKey] ?? item.name ?? '').trim();
+                                  if (!draftValue) return;
+                                  onUpdate?.(item.lookupId ?? item.id, draftValue, item);
+                                  setEditingId(null);
+                                  clearDraft(itemKey);
+                                }}
+                                className="inline-flex h-7 w-7 items-center justify-center rounded-md bg-emerald-500 text-white transition hover:bg-emerald-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-emerald-300"
+                                title="Save"
+                              >
+                                <FaCheck size={12} />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setEditingId(null);
+                                  clearDraft(itemKey);
+                                }}
+                                className="inline-flex h-7 w-7 items-center justify-center rounded-md bg-slate-100 text-slate-500 transition hover:bg-slate-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-slate-300"
+                                title="Cancel"
+                              >
+                                <FaTimes size={12} />
+                              </button>
+                            </div>
+                          </>
+                        ) : (
+                          <>
+                            <span className="flex-1 truncate text-xs font-medium text-slate-700">
+                              {item.name}
+                              {readOnly && (
+                                <span className="ml-2 inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                                  Base
+                                </span>
+                              )}
+                            </span>
+                            <div className="flex items-center gap-1 opacity-0 transition group-hover/item:opacity-100">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (readOnly) return;
+                                  clearDraft(itemKey);
+                                  setEditingId(itemKey);
+                                }}
+                                disabled={readOnly}
+                                className={`inline-flex h-7 w-7 items-center justify-center rounded-md border px-0 text-slate-500 transition ${
+                                  readOnly
+                                    ? 'cursor-not-allowed border-slate-100 bg-slate-50 text-slate-300'
+                                    : 'border-slate-200 bg-white hover:border-blue-200 hover:text-blue-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-blue-300'
+                                }`}
+                                title={readOnly ? 'Built-in value' : 'Edit'}
+                              >
+                                <FaPencilAlt size={12} />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (readOnly) return;
+                                  onDelete?.(item.lookupId ?? item.id, item);
+                                }}
+                                disabled={readOnly}
+                                className={`inline-flex h-7 w-7 items-center justify-center rounded-md border px-0 transition ${
+                                  readOnly
+                                    ? 'cursor-not-allowed border-slate-100 bg-slate-50 text-slate-300'
+                                    : 'border-red-200 bg-red-50 text-red-600 hover:border-red-300 hover:bg-red-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-red-200'
+                                }`}
+                                title={readOnly ? 'Built-in value' : 'Delete'}
+                              >
+                                <FaTrash size={12} />
+                              </button>
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             )}
@@ -211,14 +280,18 @@ const EditableList = ({
 };
 
 export default function ManageLookups() {
-  const [lookups, setLookups] = useState({ brands: [], materials: [], colors: [], tags: [] });
+  const [lookups, setLookups] = useState(initialLookupState);
   const [categories, setCategories] = useState([]);
   const [loading, setLoading] = useState(true);
   const [categorySearch, setCategorySearch] = useState('');
   const [selectedCategoryId, setSelectedCategoryId] = useState(null);
   const [rootDraft, setRootDraft] = useState('');
-  const [collapsed, setCollapsed] = useState({ brands: false, materials: false, colors: false, tags: false });
-  const [pulse, setPulse] = useState({ brands: false, materials: false, colors: false, tags: false });
+  const [collapsed, setCollapsed] = useState(
+    LOOKUP_KEYS.reduce((acc, key) => ({ ...acc, [key]: false }), {})
+  );
+  const [pulse, setPulse] = useState(
+    LOOKUP_KEYS.reduce((acc, key) => ({ ...acc, [key]: false }), {})
+  );
   const categoryTreeRef = useRef(null);
   const rootInputRef = useRef(null);
   const toast = useToast();
@@ -256,21 +329,55 @@ export default function ManageLookups() {
       button: 'bg-rose-600 text-white hover:bg-rose-700 focus-visible:ring-2 focus-visible:ring-rose-500/40',
       pulse: 'ring-2 ring-rose-200/60 shadow-lg shadow-rose-100/40',
     },
+    audiences: {
+      gradient: 'from-amber-400 via-orange-400 to-rose-400',
+      icon: 'text-amber-600',
+      pill: 'bg-amber-100 text-amber-700',
+      focus: 'focus:ring-amber-500 focus:ring-2 focus:border-amber-400',
+      button: 'bg-amber-500 text-white hover:bg-amber-600 focus-visible:ring-2 focus-visible:ring-amber-400/40',
+      pulse: 'ring-2 ring-amber-200/60 shadow-lg shadow-amber-100/40',
+    },
+    deliveryTypes: {
+      gradient: 'from-emerald-400 via-green-500 to-lime-400',
+      icon: 'text-emerald-600',
+      pill: 'bg-emerald-100 text-emerald-700',
+      focus: 'focus:ring-emerald-500 focus:ring-2 focus:border-emerald-400',
+      button: 'bg-emerald-600 text-white hover:bg-emerald-700 focus-visible:ring-2 focus-visible:ring-emerald-400/40',
+      pulse: 'ring-2 ring-emerald-200/60 shadow-lg shadow-emerald-100/40',
+    },
+    warrantyTerms: {
+      gradient: 'from-slate-500 via-indigo-500 to-blue-500',
+      icon: 'text-indigo-600',
+      pill: 'bg-indigo-100 text-indigo-700',
+      focus: 'focus:ring-indigo-500 focus:ring-2 focus:border-indigo-400',
+      button: 'bg-indigo-600 text-white hover:bg-indigo-700 focus-visible:ring-2 focus-visible:ring-indigo-500/40',
+      pulse: 'ring-2 ring-indigo-200/60 shadow-lg shadow-indigo-100/40',
+    },
   }), []);
 
   // detect quick-attribute list changes to trigger a pulse animation
-  const prevCounts = useRef({ brands: 0, materials: 0, colors: 0, tags: 0 });
+  const prevCounts = useRef(
+    LOOKUP_KEYS.reduce((acc, key) => ({ ...acc, [key]: 0 }), {})
+  );
+  const lookupCounts = useMemo(
+    () =>
+      LOOKUP_KEYS.reduce(
+        (acc, key) => ({ ...acc, [key]: (lookups[key] || []).length }),
+        {}
+      ),
+    [lookups]
+  );
   useEffect(() => {
-    const checks = { brands: lookups.brands.length, materials: lookups.materials.length, colors: lookups.colors.length, tags: lookups.tags.length };
-    Object.keys(checks).forEach((k) => {
+    Object.keys(lookupCounts).forEach((k) => {
       const prev = prevCounts.current[k] || 0;
-      if (checks[k] !== prev) {
+      const next = lookupCounts[k] || 0;
+      if (next !== prev) {
         setPulse((p) => ({ ...p, [k]: true }));
         window.setTimeout(() => setPulse((p) => ({ ...p, [k]: false })), 700);
       }
-      prevCounts.current[k] = checks[k];
+      prevCounts.current[k] = next;
     });
-  }, [lookups.brands.length, lookups.materials.length, lookups.colors.length, lookups.tags.length]);
+  }, [lookupCounts]);
 
   const fetchLookups = useCallback(async () => {
     setLoading(true);
@@ -279,7 +386,11 @@ export default function ManageLookups() {
         api.get('/lookups'),
         api.get('/categories/tree', { params: { depth: 3 } })
       ]);
-      setLookups(lu || { brands: [], materials: [], colors: [], tags: [] });
+      const normalized = LOOKUP_KEYS.reduce(
+        (acc, key) => ({ ...acc, [key]: Array.isArray(lu?.[key]) ? lu[key] : [] }),
+        {}
+      );
+      setLookups(normalized);
       setCategories(Array.isArray(cats) ? cats : []);
     } catch (err) {
       console.error('Failed to load lookup data', err);
@@ -337,6 +448,63 @@ export default function ManageLookups() {
     } catch (err) {
       console.error(`Failed to add ${type.slice(0, -1)}`, err);
       toast.push(`Failed to add ${type.slice(0, -1)}`, 'error');
+    }
+  };
+
+  const handleCustomLookupAdd = async (key, name) => {
+    const trimmed = (name || '').trim();
+    const config = CUSTOM_LOOKUP_CONFIG[key];
+    if (!config) return;
+    if (!trimmed) {
+      toast.push(`Enter a ${config.label.toLowerCase()}`, 'warning');
+      return;
+    }
+    try {
+      await api.post(config.route, { name: trimmed });
+      toast.push(`${config.label} added`, 'success');
+      fetchLookups();
+    } catch (err) {
+      console.error(`Failed to add ${config.label}`, err);
+      toast.push(err?.data?.error || `Failed to add ${config.label}`, 'error');
+    }
+  };
+
+  const handleCustomLookupUpdate = async (key, id, name) => {
+    const config = CUSTOM_LOOKUP_CONFIG[key];
+    if (!config) return;
+    const lookupId = parseInt(id, 10);
+    if (!Number.isFinite(lookupId)) {
+      toast.push(`Invalid ${config.label.toLowerCase()} id`, 'error');
+      return;
+    }
+    const trimmed = (name || '').trim();
+    if (!trimmed) {
+      toast.push(`${config.label} name is required`, 'warning');
+      return;
+    }
+    try {
+      await api.put(`${config.route}/${lookupId}`, { name: trimmed });
+      toast.push(`${config.label} updated`, 'success');
+      fetchLookups();
+    } catch (err) {
+      console.error(`Failed to update ${config.label}`, err);
+      toast.push(err?.data?.error || `Failed to update ${config.label}`, 'error');
+    }
+  };
+
+  const handleCustomLookupDelete = async (key, id) => {
+    const config = CUSTOM_LOOKUP_CONFIG[key];
+    if (!config) return;
+    const lookupId = parseInt(id, 10);
+    if (!Number.isFinite(lookupId)) return;
+    if (!window.confirm(`Delete this ${config.label.toLowerCase()}?`)) return;
+    try {
+      await api.del(`${config.route}/${lookupId}`);
+      toast.push(`${config.label} removed`, 'success');
+      fetchLookups();
+    } catch (err) {
+      console.error(`Failed to delete ${config.label}`, err);
+      toast.push(err?.data?.error || `Failed to delete ${config.label}`, 'error');
     }
   };
 
@@ -632,6 +800,54 @@ export default function ManageLookups() {
               collapsed={collapsed.tags}
               onToggle={() => toggleCard('tags')}
               showPulse={pulse.tags}
+            />
+          </div>
+        </section>
+
+        <section className="flex flex-col gap-4 rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <h2 className="text-xl font-semibold text-slate-900">Experience lookups</h2>
+              <p className="text-sm text-slate-500">Audience, delivery, and warranty options – base values are locked, customs editable.</p>
+            </div>
+            <span className="text-xs font-semibold uppercase tracking-wide text-slate-400">Base entries marked as “Base”</span>
+          </div>
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+            <EditableList
+              Icon={FaUserFriends}
+              title="Audiences"
+              items={lookups.audiences}
+              onUpdate={(id, name) => handleCustomLookupUpdate('audiences', id, name)}
+              onDelete={(id) => handleCustomLookupDelete('audiences', id)}
+              onAdd={(name) => handleCustomLookupAdd('audiences', name)}
+              accent={accentThemes.audiences}
+              collapsed={collapsed.audiences}
+              onToggle={() => toggleCard('audiences')}
+              showPulse={pulse.audiences}
+            />
+            <EditableList
+              Icon={FaTruck}
+              title="Delivery types"
+              items={lookups.deliveryTypes}
+              onUpdate={(id, name) => handleCustomLookupUpdate('deliveryTypes', id, name)}
+              onDelete={(id) => handleCustomLookupDelete('deliveryTypes', id)}
+              onAdd={(name) => handleCustomLookupAdd('deliveryTypes', name)}
+              accent={accentThemes.deliveryTypes}
+              collapsed={collapsed.deliveryTypes}
+              onToggle={() => toggleCard('deliveryTypes')}
+              showPulse={pulse.deliveryTypes}
+            />
+            <EditableList
+              Icon={FaShieldAlt}
+              title="Warranty terms"
+              items={lookups.warrantyTerms}
+              onUpdate={(id, name) => handleCustomLookupUpdate('warrantyTerms', id, name)}
+              onDelete={(id) => handleCustomLookupDelete('warrantyTerms', id)}
+              onAdd={(name) => handleCustomLookupAdd('warrantyTerms', name)}
+              accent={accentThemes.warrantyTerms}
+              collapsed={collapsed.warrantyTerms}
+              onToggle={() => toggleCard('warrantyTerms')}
+              showPulse={pulse.warrantyTerms}
             />
           </div>
         </section>

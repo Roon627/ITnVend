@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, useCallback } from 'react';
 import { FaBuilding, FaEnvelope, FaGlobe, FaKey } from 'react-icons/fa';
-import api from '../lib/api';
+import api, { setAuthToken } from '../lib/api';
 import { useToast } from '../components/ToastContext';
 import Modal from '../components/Modal';
 
@@ -9,6 +9,11 @@ const STATUS_PILLS = [
   { id: 'active', label: 'Active', color: 'bg-emerald-50 text-emerald-700 border border-emerald-100' },
   { id: 'rejected', label: 'Rejected', color: 'bg-rose-50 text-rose-700 border border-rose-100' },
 ];
+
+const VENDOR_PORTAL_SOURCE =
+  (import.meta.env?.VITE_VENDOR_PORTAL_URL ||
+    import.meta.env?.VITE_POS_VENDOR_URL ||
+    '').trim();
 
 export default function Vendors() {
   const [vendors, setVendors] = useState([]);
@@ -22,6 +27,13 @@ export default function Vendors() {
   const [credModalOpen, setCredModalOpen] = useState(false);
   const [credLoading, setCredLoading] = useState(false);
   const [credData, setCredData] = useState(null);
+  const vendorPortalBase = useMemo(() => {
+    if (VENDOR_PORTAL_SOURCE) return VENDOR_PORTAL_SOURCE.replace(/\/$/, '');
+    if (typeof window !== 'undefined' && window.location?.origin) {
+      return window.location.origin.replace(/\/$/, '');
+    }
+    return '';
+  }, []);
 
   const fetchVendors = useCallback(async () => {
     try {
@@ -98,10 +110,18 @@ export default function Vendors() {
 
   async function impersonateVendor(id) {
     try {
+      const adminToken = typeof window !== 'undefined' ? localStorage.getItem('ITnvend_token') : null;
       const res = await api.post(`/vendors/${id}/impersonate`);
       if (res?.token) {
-        const url = `${window.location.origin}/vendor/dashboard?impersonation_token=${res.token}`;
-        window.open(url, '_blank');
+        const base = vendorPortalBase || (typeof window !== 'undefined' ? window.location.origin.replace(/\/$/, '') : '');
+        const dashboardUrl = base.endsWith('/vendor/dashboard') ? base : `${base}/vendor/dashboard`;
+        const url = `${dashboardUrl}?impersonation_token=${encodeURIComponent(res.token)}`;
+        window.open(url, '_blank', 'noopener,noreferrer');
+        if (adminToken) {
+          window.setTimeout(() => {
+            setAuthToken(adminToken);
+          }, 750);
+        }
         toast.push('Opened vendor dashboard in new tab (impersonation)', 'success');
       } else {
         toast.push('Failed to impersonate vendor', 'error');

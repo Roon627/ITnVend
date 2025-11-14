@@ -1,4 +1,9 @@
-import { FaArrowRight, FaShieldAlt, FaUser, FaEnvelope } from 'react-icons/fa';
+import { FaArrowRight, FaShieldAlt, FaUser, FaEnvelope, FaLock } from 'react-icons/fa';
+
+const vendorPortalUrl =
+  (import.meta.env?.VITE_VENDOR_PORTAL_URL ||
+    import.meta.env?.VITE_POS_VENDOR_URL ||
+    'https://pos.itnvend.com/vendor/login').trim();
 
 export default function VendorLogin() {
   return (
@@ -16,6 +21,24 @@ export default function VendorLogin() {
           </div>
 
           <div className="space-y-6">
+            <div className="rounded-2xl border border-slate-200 bg-white p-6 text-center shadow-sm">
+              <FaLock className="mx-auto mb-3 h-6 w-6 text-rose-500" />
+              <p className="text-sm text-slate-500 mb-3">
+                Vendor accounts live inside the secure POS console. Use the button below to launch the portal in a new tab.
+              </p>
+              <a
+                href={vendorPortalUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center justify-center gap-2 rounded-full bg-rose-500 px-5 py-2 text-sm font-semibold text-white shadow-sm shadow-rose-200 transition hover:-translate-y-0.5 hover:bg-rose-600"
+              >
+                Launch vendor login
+                <FaArrowRight className="h-4 w-4" />
+              </a>
+              <p className="mt-2 text-xs text-slate-400">
+                Tip: keep this tab open. Logging in no longer signs you out of the public store.
+              </p>
+            </div>
             <div className="p-6 bg-blue-50 rounded-xl border border-blue-200">
               <div className="flex items-start gap-3">
                 <FaShieldAlt className="w-5 h-5 text-blue-600 mt-0.5 flex-shrink-0" />

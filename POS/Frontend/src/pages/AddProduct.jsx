@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import ProductForm from '../components/ProductForm';
 import api from '../lib/api';
 import { useToast } from '../components/ToastContext';
@@ -56,10 +56,11 @@ export default function AddProduct() {
 
     try {
       setSaving(true);
+      const isDigital = (payload.productTypeLabel || payload.type || '').toLowerCase() === 'digital';
       const createdPayload = {
         name: payload.name,
         price: payload.price != null ? parseFloat(payload.price) : 0,
-        stock: payload.stock ? parseInt(payload.stock, 10) || 0 : 0,
+        stock: isDigital ? 0 : payload.stock ? parseInt(payload.stock, 10) || 0 : 0,
         category: payload.category || null,
         subcategory: payload.subcategory || null,
         image: payload.image || null,
@@ -70,7 +71,9 @@ export default function AddProduct() {
         barcode: payload.barcode || null,
         model: payload.model || null,
         cost: payload.cost ? parseFloat(payload.cost) : 0,
-        trackInventory: payload.trackInventory,
+        trackInventory: isDigital ? false : payload.trackInventory,
+        type: isDigital ? 'digital' : 'physical',
+        productTypeLabel: payload.productTypeLabel || payload.type || (isDigital ? 'digital' : 'physical'),
         availabilityStatus: normalizeAvailabilityStatus(payload.availabilityStatus),
         availableForPreorder: payload.availableForPreorder,
         preorderReleaseDate: payload.availableForPreorder ? payload.preorderReleaseDate || null : null,
@@ -81,6 +84,18 @@ export default function AddProduct() {
         highlightActive: payload.highlightActive ? 1 : 0,
         highlightLabel: payload.highlightLabel && payload.highlightLabel.trim() ? payload.highlightLabel.trim() : null,
         highlightPriority: payload.highlightPriority ? parseInt(payload.highlightPriority, 10) || 0 : 0,
+        clothingSizes: payload.clothingSizes || null,
+        clothingCare: payload.clothingCare || null,
+        digitalDownloadUrl: payload.digitalDownloadUrl || null,
+        digitalLicenseKey: payload.digitalLicenseKey || null,
+        digitalActivationLimit: payload.digitalActivationLimit
+          ? parseInt(payload.digitalActivationLimit, 10) || null
+          : null,
+        digitalExpiry: payload.digitalExpiry || null,
+        digitalSupportUrl: payload.digitalSupportUrl || null,
+        deliveryType: payload.deliveryType || (isDigital ? 'instant_download' : null),
+        audience: payload.audience || null,
+        warrantyTerm: payload.warrantyTerm || null,
       };
 
       await api.post('/products', createdPayload);
@@ -96,27 +111,94 @@ export default function AddProduct() {
   };
 
   return (
-    <div className="p-6">
-      <section className="rounded-2xl border border-slate-200/70 bg-white/80 p-6 shadow-sm shadow-blue-100/50">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-semibold">Add Product</h1>
-            <p className="text-sm text-slate-500">Create a new product listing. All fields are available in the product editor.</p>
+    <div className="min-h-screen p-6 pb-24" style={{ backgroundColor: 'var(--color-bg)' }}>
+      <div className="mx-auto max-w-6xl space-y-6">
+        <section
+          className="rounded-3xl border p-6 shadow-lg"
+          style={{
+            borderColor: 'var(--color-border)',
+            backgroundColor: 'var(--color-surface)',
+            boxShadow: '0 25px 55px var(--color-shadow)'
+          }}
+        >
+          <div className="flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
+            <div className="space-y-2">
+              <span
+                className="inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-[0.3em]"
+                style={{ backgroundColor: 'var(--color-primary-soft)', color: 'var(--color-primary)' }}
+              >
+                Product studio
+              </span>
+              <h1 className="text-3xl font-extrabold" style={{ color: 'var(--color-heading)' }}>
+                Add a new product
+              </h1>
+              <p className="text-sm" style={{ color: 'var(--color-muted)' }}>
+                Every field here mirrors the POS product modal. Use it for full-screen focus while maintaining the same payloads.
+              </p>
+              <div className="flex flex-wrap gap-2 pt-3">
+                <Link
+                  to="/manage-lookups"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center gap-2 rounded-full px-4 py-1.5 text-xs font-semibold transition"
+                  style={{
+                    border: `1px solid var(--color-border)`,
+                    color: 'var(--color-primary)'
+                  }}
+                >
+                  Manage lookups
+                </Link>
+                <button
+                  type="button"
+                  onClick={() => navigate('/products')}
+                  className="inline-flex items-center gap-2 rounded-full px-4 py-1.5 text-xs font-semibold transition"
+                  style={{
+                    border: `1px solid var(--color-border)`,
+                    color: 'var(--color-muted)'
+                  }}
+                >
+                  Back to catalog
+                </button>
+              </div>
+            </div>
+            <div
+              className="rounded-2xl border p-4 shadow-inner"
+              style={{
+                borderColor: 'var(--color-border)',
+                backgroundColor: 'var(--color-surface-muted)'
+              }}
+            >
+              <p className="text-xs font-semibold uppercase tracking-wide" style={{ color: 'var(--color-muted)' }}>
+                Sync status
+              </p>
+              <ul className="mt-2 space-y-1 text-sm" style={{ color: 'var(--color-text)' }}>
+                <li>• POS & vendor dashboards update instantly</li>
+                <li>• eStore highlight badges stay in sync</li>
+                <li>• Lookup additions appear in this form immediately</li>
+              </ul>
+            </div>
           </div>
-        </div>
-      </section>
+        </section>
 
-      <section className="mt-6 bg-white p-6 rounded-lg shadow-sm">
-        <ProductForm
-          initial={{}}
-          onSave={handleSave}
-          onCancel={() => navigate('/products')}
-          saving={saving}
-          lookups={lookups}
-          categoryTree={categoryTree}
-          vendors={vendors}
-        />
-      </section>
+        <section
+          className="rounded-3xl border p-6 shadow-xl"
+          style={{
+            borderColor: 'var(--color-border)',
+            backgroundColor: 'var(--color-surface)',
+            boxShadow: '0 20px 40px var(--color-shadow)'
+          }}
+        >
+          <ProductForm
+            initial={{}}
+            onSave={handleSave}
+            onCancel={() => navigate('/products')}
+            saving={saving}
+            lookups={lookups}
+            categoryTree={categoryTree}
+            vendors={vendors}
+          />
+        </section>
+      </div>
     </div>
   );
 }

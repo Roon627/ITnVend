@@ -73,6 +73,8 @@ function transformSqlForDialect(sql, dialect, { isSchema = false } = {}) {
     if (isSchema) {
         transformed = transformed.replace(/INTEGER\s+PRIMARY\s+KEY\s+AUTOINCREMENT/gi, 'SERIAL PRIMARY KEY');
         transformed = transformed.replace(/\bDATETIME\b/gi, 'TIMESTAMP');
+        transformed = transformed.replace(/\bBOOLEAN\s+DEFAULT\s+0\b/gi, 'BOOLEAN DEFAULT FALSE');
+        transformed = transformed.replace(/\bBOOLEAN\s+DEFAULT\s+1\b/gi, 'BOOLEAN DEFAULT TRUE');
     }
 
     const usesInsertOrIgnore = /^\s*INSERT\s+OR\s+IGNORE/i.test(transformed);
@@ -83,6 +85,7 @@ function transformSqlForDialect(sql, dialect, { isSchema = false } = {}) {
         }
     }
 
+    transformed = transformed.replace(/DEFAULT\s*\(\s*datetime\('now'\)\s*\)/gi, 'DEFAULT CURRENT_TIMESTAMP');
     transformed = transformed.replace(/datetime\('now'\)/gi, 'CURRENT_TIMESTAMP');
 
     return transformed;
@@ -108,6 +111,7 @@ function createPreparedStatement(adapter, sql) {
 
 function createPostgresAdapter(connectionString) {
     const pool = new Pool({ connectionString });
+    const schemaStatementRegex = /^\s*(CREATE|ALTER|DROP)\s+/i;
 
     const adapter = {
         dialect: DIALECTS.POSTGRES,
@@ -121,7 +125,8 @@ function createPostgresAdapter(connectionString) {
             return rows[0] || null;
         },
         async run(sql, params = []) {
-            const { text, values } = prepareQuery(sql, params, this.dialect);
+            const treatAsSchema = schemaStatementRegex.test(sql);
+            const { text, values } = prepareQuery(sql, params, this.dialect, { isSchema: treatAsSchema });
             const isInsert = /^\s*insert/i.test(sql);
             const client = await pool.connect();
             try {

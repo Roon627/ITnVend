@@ -52,15 +52,15 @@ async function fetchWithRetry(path, options = {}, retries = 2, backoff = 200) {
   let url = null;
   while (attempt <= retries) {
     try {
-  if (!options.headers) options.headers = {};
-  if (authToken) options.headers['Authorization'] = `Bearer ${authToken}`;
-  // Attach storefront credentials when calling the configured API base (POS)
-  // POS expects the key in `x-storefront-key` (and the secret is used to sign requests server-side).
-  if (STOREFRONT_API_KEY) options.headers['x-storefront-key'] = STOREFRONT_API_KEY;
-      // include credentials so HttpOnly refresh cookie is sent
+      if (!options.headers) options.headers = {};
+      if (authToken) options.headers['Authorization'] = `Bearer ${authToken}`;
+      // Attach storefront credentials when calling the configured API base (POS)
+      // POS expects the key in `x-storefront-key` (and the secret is used to sign requests server-side).
+      if (STOREFRONT_API_KEY) options.headers['x-storefront-key'] = STOREFRONT_API_KEY;
+      // include credentials so Cloudflare Access cookies (and refresh tokens) travel with the request
       options.credentials = 'include';
-    // normalize path to backend API route
-    url = null;
+      // normalize path to backend API route
+      url = null;
       if (/^https?:\/\//.test(path)) {
         url = path;
       } else if (path.startsWith('/api')) {
@@ -100,6 +100,7 @@ async function fetchWithRetry(path, options = {}, retries = 2, backoff = 200) {
         const direct = `${API_DIRECT_FALLBACK}${url}`;
         if (!options.headers) options.headers = {};
         if (authToken) options.headers['Authorization'] = `Bearer ${authToken}`;
+        if (STOREFRONT_API_KEY) options.headers['x-storefront-key'] = STOREFRONT_API_KEY;
         options.credentials = 'include';
         const directRes = await fetch(direct, options);
         if (!directRes.ok) {

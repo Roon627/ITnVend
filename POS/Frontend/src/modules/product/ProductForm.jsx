@@ -3,7 +3,31 @@ import { Link } from 'react-router-dom';
 import { FaTimes } from 'react-icons/fa';
 import SharedProductForm from '../../components/ProductForm';
 
-export default function ProductForm({ open, draft, onClose, onSave, saving, onChange, onUploadImage, onUploadGallery, onRemoveGalleryItem, onMoveGalleryItem, galleryUploading, uploading, categoryTree, lookups, vendors, onTagsChanged, createBrand, createMaterial, stockChanged }) {
+export default function ProductForm({
+  open,
+  draft,
+  onClose,
+  onSave,
+  saving,
+  onChange,
+  onUploadImage,
+  onUploadGallery,
+  onRemoveGalleryItem,
+  onMoveGalleryItem,
+  galleryUploading,
+  uploading,
+  categoryTree,
+  lookups,
+  vendors,
+  onTagsChanged,
+  createBrand,
+  createMaterial,
+  createColor,
+  createAudience,
+  createDeliveryType,
+  createWarrantyTerm,
+  stockChanged,
+}) {
   const modalRef = useRef(null);
   const [modalVisible, setModalVisible] = useState(false);
 
@@ -94,6 +118,10 @@ export default function ProductForm({ open, draft, onClose, onSave, saving, onCh
             onTagsChanged={onTagsChanged}
             createBrand={createBrand}
             createMaterial={createMaterial}
+            createColor={createColor}
+            createAudience={createAudience}
+            createDeliveryType={createDeliveryType}
+            createWarrantyTerm={createWarrantyTerm}
             extraFields={() => (
               <div className="space-y-4">
                 {/* Stock change reason if stock changed */}

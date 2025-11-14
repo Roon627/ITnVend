@@ -5,17 +5,26 @@ import { createVendorPayoutAccountingEntry } from '../accounts/accounting.servic
 // Lightweight payout service. Creates a vendor_payouts table if missing and
 // returns a payout invoice object. Uses orders/order_items where order.status = 'paid'.
 
+function resolveSchemaFragments(db) {
+    const isPostgres = (db?.dialect || '').toLowerCase() === 'postgres';
+    return {
+        idColumn: isPostgres ? 'SERIAL PRIMARY KEY' : 'INTEGER PRIMARY KEY AUTOINCREMENT',
+        timestampType: isPostgres ? 'TIMESTAMP' : 'DATETIME'
+    };
+}
+
 export async function ensurePayoutSchema(db) {
+    const { idColumn, timestampType } = resolveSchemaFragments(db);
     await db.run(`
         CREATE TABLE IF NOT EXISTS vendor_payouts (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id ${idColumn},
             vendor_id INTEGER NOT NULL,
             gross_sales REAL NOT NULL,
             commission_rate REAL NOT NULL,
             commission_amount REAL NOT NULL,
             payable_amount REAL NOT NULL,
             created_by TEXT,
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            created_at ${timestampType} DEFAULT CURRENT_TIMESTAMP,
             metadata TEXT
         );
     `);

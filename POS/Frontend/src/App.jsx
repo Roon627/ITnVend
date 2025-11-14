@@ -36,17 +36,26 @@ import { NotificationsProvider } from './components/NotificationsContext';
 import { WebSocketProvider } from './components/WebSocketContext';
 
 function App() {
+  const INTERNAL_ROLES = new Set(['cashier', 'accounts', 'manager', 'admin', 'owner', 'staff']);
   function AdminOnly({ children }) {
     const { user } = useAuth();
-    if (!user) return <Navigate to="/login" replace />;
+    if (!user || user.role === 'vendor') return <Navigate to="/login" replace />;
+    if (user.role && !INTERNAL_ROLES.has(user.role)) return <Navigate to="/login" replace />;
     return children;
   }
 
   function RoleGuard({ minRole, children }) {
     const { user } = useAuth();
     const rank = (r) => ({ cashier: 1, accounts: 2, manager: 3, admin: 4 }[r] || 0);
-    if (!user) return <Navigate to="/login" replace />;
+    if (!user || user.role === 'vendor') return <Navigate to="/login" replace />;
     if (rank(user.role) < rank(minRole)) return <div className="p-6 text-red-600">Access denied</div>;
+    return children;
+  }
+
+  function VendorOnly({ children }) {
+    const { user } = useAuth();
+    if (!user) return <Navigate to="/vendor/login" replace />;
+    if (user.role !== 'vendor') return <Navigate to="/login" replace />;
     return children;
   }
 
@@ -110,8 +119,8 @@ function App() {
               <Routes>
           <Route path="/login" element={<Login />} />
           <Route path="/vendor/login" element={<VendorLogin />} />
-          <Route path="/vendor/dashboard" element={<VendorDashboard />} />
-          <Route path="/vendor/products" element={<VendorProducts />} />
+          <Route path="/vendor/dashboard" element={<VendorOnly><VendorDashboard /></VendorOnly>} />
+          <Route path="/vendor/products" element={<VendorOnly><VendorProducts /></VendorOnly>} />
           <Route path="/vendor/reset-password" element={<ResetPassword />} />
           <Route path="/vendor/forgot-password" element={<ForgotPassword />} />
           <Route path="/contact" element={<ContactOnly />} />

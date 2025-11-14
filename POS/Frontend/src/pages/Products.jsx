@@ -390,6 +390,7 @@ function ProductInsight({ product, formatCurrency, lookups }) {
   const availabilityStatus = normalizeAvailabilityStatus(product.availability_status || product.availabilityStatus || (product.preorder_enabled ? 'preorder' : null));
   const availabilityLabel = AVAILABILITY_STATUS_LABELS[availabilityStatus] || AVAILABILITY_STATUS_LABELS.in_stock;
   // Meta fields (exclude Availability/Brand/Type since those are shown in the main info grid)
+  const productTypeLabel = product.product_type_label || product.productTypeLabel || product.type || 'physical';
   const meta = [
     { label: 'Vendor', value: product.vendor_name || product.vendorName || (product.vendor_id ? `#${product.vendor_id}` : null) },
     { label: 'Material', value: product.material || product.materialName || product.materialId },
@@ -397,6 +398,18 @@ function ProductInsight({ product, formatCurrency, lookups }) {
     { label: 'Year', value: product.year },
     { label: 'Warranty', value: product.warranty_term || product.warrantyTerm },
     { label: 'Delivery', value: product.delivery_type || product.deliveryType },
+    { label: 'Sizes', value: product.clothing_sizes || product.clothingSizes },
+    { label: 'Care', value: product.clothing_care || product.clothingCare },
+    { label: 'Download URL', value: product.digital_download_url || product.digitalDownloadUrl },
+    { label: 'License key', value: product.digital_license_key || product.digitalLicenseKey },
+    {
+      label: 'Activation limit',
+      value:
+        product.digital_activation_limit != null
+          ? product.digital_activation_limit
+          : product.digitalActivationLimit,
+    },
+    { label: 'License expiry', value: product.digital_expiry || product.digitalExpiry },
   ].filter((m) => m.value || m.value === 0);
 
   const categoryPath = [product.category, product.subcategory, product.subsubcategory].filter(Boolean).join(' › ');
@@ -473,7 +486,7 @@ function ProductInsight({ product, formatCurrency, lookups }) {
             <div className="flex items-start gap-2">
               <div>
                 <div className="text-xs text-slate-500">Type</div>
-                <div className="font-semibold text-slate-800">{product.type || '—'}</div>
+                <div className="font-semibold text-slate-800 capitalize">{productTypeLabel || '—'}</div>
               </div>
             </div>
           </div>
@@ -1250,7 +1263,10 @@ export default function Products() {
       const newId = extractId(created);
       if (!newId) throw new Error('API did not return a valid ID for the new brand.');
       
-      setLookups(prev => ({ ...prev, brands: [...(prev?.brands || []), { id: newId, name }] }));
+      setLookups(prev => {
+        const base = prev || {};
+        return { ...base, brands: [...(base.brands || []), { id: newId, name }] };
+      });
       handleModalFieldChange('brandId', newId);
       toast.push('Brand added', 'info');
       return true;
@@ -1266,13 +1282,88 @@ export default function Products() {
       const newId = extractId(created);
       if (!newId) throw new Error('API did not return a valid ID for the new material.');
 
-      setLookups(prev => ({ ...prev, materials: [...(prev?.materials || []), { id: newId, name }] }));
+      setLookups(prev => {
+        const base = prev || {};
+        return { ...base, materials: [...(base.materials || []), { id: newId, name }] };
+      });
       handleModalFieldChange('materialId', newId);
       toast.push('Material added', 'info');
       return true;
     } catch (e) {
       toast.push(e?.message || 'Failed to add material', 'error');
       fetchLookupsAndTree(); // Fallback to refetch on error
+      return false;
+    }
+  };
+  const createColor = async (name) => {
+    try {
+      const created = await api.post('/colors', { name });
+      const newId = extractId(created);
+      if (!newId) throw new Error('API did not return a valid ID for the new color.');
+      setLookups(prev => {
+        const base = prev || {};
+        return { ...base, colors: [...(base.colors || []), { id: newId, name }] };
+      });
+      handleModalFieldChange('colorId', newId);
+      toast.push('Color added', 'info');
+      return true;
+    } catch (e) {
+      toast.push(e?.message || 'Failed to add color', 'error');
+      fetchLookupsAndTree();
+      return false;
+    }
+  };
+  const createAudience = async (name) => {
+    try {
+      const created = await api.post('/audiences', { name });
+      const value = created?.value || created?.id || created?.name || name;
+      if (!value) throw new Error('API did not return the new audience value.');
+      setLookups(prev => {
+        const base = prev || {};
+        return { ...base, audiences: [...(base.audiences || []), value] };
+      });
+      handleModalFieldChange('audience', value);
+      toast.push('Audience added', 'info');
+      return true;
+    } catch (e) {
+      toast.push(e?.message || 'Failed to add audience', 'error');
+      fetchLookupsAndTree();
+      return false;
+    }
+  };
+  const createDeliveryType = async (name) => {
+    try {
+      const created = await api.post('/delivery-types', { name });
+      const value = created?.value || created?.id || created?.name || name;
+      if (!value) throw new Error('API did not return the new delivery type.');
+      setLookups(prev => {
+        const base = prev || {};
+        return { ...base, deliveryTypes: [...(base.deliveryTypes || []), value] };
+      });
+      handleModalFieldChange('deliveryType', value);
+      toast.push('Delivery type added', 'info');
+      return true;
+    } catch (e) {
+      toast.push(e?.message || 'Failed to add delivery type', 'error');
+      fetchLookupsAndTree();
+      return false;
+    }
+  };
+  const createWarrantyTerm = async (name) => {
+    try {
+      const created = await api.post('/warranty-terms', { name });
+      const value = created?.value || created?.id || created?.name || name;
+      if (!value) throw new Error('API did not return the new warranty term.');
+      setLookups(prev => {
+        const base = prev || {};
+        return { ...base, warrantyTerms: [...(base.warrantyTerms || []), value] };
+      });
+      handleModalFieldChange('warrantyTerm', value);
+      toast.push('Warranty term added', 'info');
+      return true;
+    } catch (e) {
+      toast.push(e?.message || 'Failed to add warranty term', 'error');
+      fetchLookupsAndTree();
       return false;
     }
   };
@@ -1447,6 +1538,7 @@ export default function Products() {
       subsubcategoryId: product.subsubcategory_id || product.subsubcategoryId || '',
       description: product.description || '',
       technicalDetails: product.technical_details || product.technicalDetails || '',
+      type: product.product_type_label || product.productTypeLabel || product.type || 'physical',
       sku: product.sku || '',
       barcode: product.barcode || '',
       cost: product.cost != null ? product.cost.toString() : '',
@@ -1476,6 +1568,18 @@ export default function Products() {
       highlightPriority: product.highlight_priority != null ? String(product.highlight_priority) : '',
       newArrival: product.new_arrival ? true : false,
       gallery: formatGalleryEntries(product.gallery),
+      clothingSizes: product.clothing_sizes || product.clothingSizes || '',
+      clothingCare: product.clothing_care || product.clothingCare || '',
+      digitalDownloadUrl: product.digital_download_url || product.digitalDownloadUrl || '',
+      digitalLicenseKey: product.digital_license_key || product.digitalLicenseKey || '',
+      digitalActivationLimit:
+        product.digital_activation_limit != null
+          ? String(product.digital_activation_limit)
+          : product.digitalActivationLimit != null
+          ? String(product.digitalActivationLimit)
+          : '',
+      digitalExpiry: product.digital_expiry || product.digitalExpiry || '',
+      digitalSupportUrl: product.digital_support_url || product.digitalSupportUrl || '',
     });
     setModalOpen(true);
     setModalOriginalDraft({
@@ -1487,6 +1591,7 @@ export default function Products() {
       subcategory: product.subcategory || '',
       description: product.description || '',
       technicalDetails: product.technical_details || '',
+      type: product.product_type_label || product.productTypeLabel || product.type || 'physical',
       sku: product.sku || '',
       barcode: product.barcode || '',
       cost: product.cost != null ? String(product.cost) : '',
@@ -1515,6 +1620,18 @@ export default function Products() {
       highlightLabel: product.highlight_label || '',
       highlightPriority: product.highlight_priority != null ? String(product.highlight_priority) : '',
       gallery: formatGalleryEntries(product.gallery),
+      clothingSizes: product.clothing_sizes || product.clothingSizes || '',
+      clothingCare: product.clothing_care || product.clothingCare || '',
+      digitalDownloadUrl: product.digital_download_url || product.digitalDownloadUrl || '',
+      digitalLicenseKey: product.digital_license_key || product.digitalLicenseKey || '',
+      digitalActivationLimit:
+        product.digital_activation_limit != null
+          ? String(product.digital_activation_limit)
+          : product.digitalActivationLimit != null
+          ? String(product.digitalActivationLimit)
+          : '',
+      digitalExpiry: product.digital_expiry || product.digitalExpiry || '',
+      digitalSupportUrl: product.digital_support_url || product.digitalSupportUrl || '',
     });
     setModalStockReason('');
   };
@@ -1533,10 +1650,11 @@ export default function Products() {
     try {
       // If no id -> create new product
       if (!modalDraft.id) {
+        const isDigitalDraft = (modalDraft.type || '').toLowerCase() === 'digital';
         const payload = {
           name: modalDraft.name,
           price: parseFloat(modalDraft.price),
-          stock: modalDraft.stock ? parseInt(modalDraft.stock, 10) || 0 : 0,
+          stock: isDigitalDraft ? 0 : modalDraft.stock ? parseInt(modalDraft.stock, 10) || 0 : 0,
           category: modalDraft.category || null,
           subcategory: modalDraft.subcategory || null,
           image: modalDraft.image || null,
@@ -1547,7 +1665,9 @@ export default function Products() {
           barcode: modalDraft.barcode || null,
           model: modalDraft.model || null,
           cost: modalDraft.cost ? parseFloat(modalDraft.cost) : 0,
-          trackInventory: modalDraft.trackInventory,
+          trackInventory: isDigitalDraft ? false : modalDraft.trackInventory,
+          type: isDigitalDraft ? 'digital' : 'physical',
+          productTypeLabel: modalDraft.type || (isDigitalDraft ? 'digital' : 'physical'),
           availabilityStatus: normalizeAvailabilityStatus(modalDraft.availabilityStatus),
           availableForPreorder: modalDraft.availableForPreorder,
           preorderReleaseDate: modalDraft.availableForPreorder ? modalDraft.preorderReleaseDate || null : null,
@@ -1558,6 +1678,18 @@ export default function Products() {
           highlightActive: modalDraft.highlightActive ? 1 : 0,
           highlightLabel: modalDraft.highlightLabel && modalDraft.highlightLabel.trim() ? modalDraft.highlightLabel.trim() : null,
           highlightPriority: modalDraft.highlightPriority ? parseInt(modalDraft.highlightPriority, 10) || 0 : 0,
+          clothingSizes: modalDraft.clothingSizes || null,
+          clothingCare: modalDraft.clothingCare || null,
+          digitalDownloadUrl: modalDraft.digitalDownloadUrl || null,
+          digitalLicenseKey: modalDraft.digitalLicenseKey || null,
+          digitalActivationLimit: modalDraft.digitalActivationLimit
+            ? parseInt(modalDraft.digitalActivationLimit, 10) || null
+            : null,
+          digitalExpiry: modalDraft.digitalExpiry || null,
+          digitalSupportUrl: modalDraft.digitalSupportUrl || null,
+          deliveryType: modalDraft.deliveryType || (isDigitalDraft ? 'instant_download' : null),
+          audience: modalDraft.audience || null,
+          warrantyTerm: modalDraft.warrantyTerm || null,
         };
         const created = await api.post('/products', payload);
         toast.push('Product added', 'info');
@@ -1570,10 +1702,11 @@ export default function Products() {
         setModalSaving(false);
         return;
       }
+      const isDigitalDraft = (modalDraft.type || '').toLowerCase() === 'digital';
       const payload = {
         name: modalDraft.name,
         price: parseFloat(modalDraft.price),
-        stock: modalDraft.stock ? parseInt(modalDraft.stock, 10) || 0 : 0,
+        stock: isDigitalDraft ? 0 : modalDraft.stock ? parseInt(modalDraft.stock, 10) || 0 : 0,
         // keep legacy strings for backward compatibility
         category: modalDraft.category || null,
         subcategory: modalDraft.subcategory || null,
@@ -1585,9 +1718,10 @@ export default function Products() {
         materialId: modalDraft.materialId || null,
         colorId: modalDraft.colorId || null,
         audience: modalDraft.audience || null,
-        deliveryType: modalDraft.deliveryType || null,
+        deliveryType: modalDraft.deliveryType || (isDigitalDraft ? 'instant_download' : null),
         warrantyTerm: modalDraft.warrantyTerm || null,
-        type: modalDraft.type || 'physical',
+        type: isDigitalDraft ? 'digital' : 'physical',
+        productTypeLabel: modalDraft.type || (isDigitalDraft ? 'digital' : 'physical'),
         shortDescription: modalDraft.shortDescription || null,
         year: modalDraft.year || null,
         tags: modalDraft.tags || [],
@@ -1600,7 +1734,7 @@ export default function Products() {
         sku: modalDraft.sku || null,
         barcode: modalDraft.barcode || null,
         cost: modalDraft.cost ? parseFloat(modalDraft.cost) : 0,
-        trackInventory: modalDraft.trackInventory,
+        trackInventory: isDigitalDraft ? false : modalDraft.trackInventory,
         availabilityStatus: normalizeAvailabilityStatus(modalDraft.availabilityStatus),
         availableForPreorder: modalDraft.availableForPreorder,
         preorderReleaseDate: modalDraft.availableForPreorder ? modalDraft.preorderReleaseDate || null : null,
@@ -1612,6 +1746,15 @@ export default function Products() {
         highlightLabel: modalDraft.highlightLabel && modalDraft.highlightLabel.trim() ? modalDraft.highlightLabel.trim() : null,
         highlightPriority: modalDraft.highlightPriority ? parseInt(modalDraft.highlightPriority, 10) || 0 : 0,
         newArrival: modalDraft.newArrival ? 1 : 0,
+        clothingSizes: modalDraft.clothingSizes || null,
+        clothingCare: modalDraft.clothingCare || null,
+        digitalDownloadUrl: modalDraft.digitalDownloadUrl || null,
+        digitalLicenseKey: modalDraft.digitalLicenseKey || null,
+        digitalActivationLimit: modalDraft.digitalActivationLimit
+          ? parseInt(modalDraft.digitalActivationLimit, 10) || null
+          : null,
+        digitalExpiry: modalDraft.digitalExpiry || null,
+        digitalSupportUrl: modalDraft.digitalSupportUrl || null,
       };
 
       // Detect if only stock changed compared to original draft
@@ -2085,6 +2228,10 @@ export default function Products() {
         onTagsChanged={fetchLookupsAndTree}
         createBrand={createBrand}
         createMaterial={createMaterial}
+        createColor={createColor}
+        createAudience={createAudience}
+        createDeliveryType={createDeliveryType}
+        createWarrantyTerm={createWarrantyTerm}
       />
       <Modal
         open={permDeleteOpen}

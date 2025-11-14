@@ -55,14 +55,16 @@ export default function TagChips({ options = [], value = [], onChange, onTagsCha
 
   return (
     <div className="space-y-3">
-      <div className="flex gap-2 flex-wrap p-2 rounded-md bg-slate-50 border min-h-[40px]">
-        {selected.length === 0 && <div className="text-xs text-slate-400 px-2 py-1">No tags selected</div>}
+      <div className="flex min-h-[40px] flex-wrap gap-2 rounded-2xl border border-slate-200 bg-white/80 p-3 shadow-sm">
+        {selected.length === 0 && (
+          <div className="rounded-full bg-slate-100 px-3 py-1 text-xs text-slate-400">No tags selected</div>
+        )}
         {selected.map((t) => (
           <button
             key={t.id}
             type="button"
             onClick={() => toggle(t.id)}
-            className="inline-flex items-center gap-2 rounded-full bg-rose-100 px-3 py-1 text-sm font-medium text-rose-800 hover:bg-rose-200 transition-colors"
+            className="inline-flex items-center gap-2 rounded-full bg-rose-100 px-3 py-1 text-sm font-medium text-rose-800 transition hover:bg-rose-200"
           >
             {t.name}
             <span className="text-rose-500 font-bold">×</span>
@@ -74,38 +76,42 @@ export default function TagChips({ options = [], value = [], onChange, onTagsCha
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Search or add tags..."
-          className="flex-1 rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500"
+          className="flex-1 rounded-2xl border border-slate-200 bg-white px-4 py-2 text-sm text-slate-700 shadow focus:border-rose-200 focus:outline-none focus:ring-2 focus:ring-rose-100"
         />
         <div className="relative">
           {query && (
-          <div className="absolute right-0 bottom-full mb-2 w-64 max-h-48 overflow-auto rounded-lg border bg-white p-2 shadow-lg z-10">
+          <div className="absolute right-0 bottom-full mb-2 w-64 max-h-60 overflow-auto rounded-2xl border border-rose-100 bg-white/95 p-3 text-sm shadow-xl shadow-rose-100">
             {filtered.map((opt) => (
-              <div key={opt.id} className="flex items-center justify-between py-1.5 px-2 rounded-md hover:bg-sky-50">
-                <div className="text-sm text-slate-800">{opt.name}</div>
+              <div key={opt.id} className="flex items-center justify-between rounded-xl px-2 py-1.5 hover:bg-rose-50">
+                <div className="text-slate-800">{opt.name}</div>
                 <button
                   type="button"
                   onClick={() => toggle(opt.id)}
-                  className={`text-xs px-3 py-1 rounded-full font-semibold ${value.includes(opt.id) ? 'bg-rose-100 text-rose-700' : 'bg-sky-100 text-sky-700'}`}
+                  className={`text-xs px-3 py-1 rounded-full font-semibold ${
+                    value.includes(opt.id)
+                      ? 'bg-rose-100 text-rose-700'
+                      : 'bg-slate-100 text-slate-600'
+                  }`}
                 >
                   {value.includes(opt.id) ? 'Remove' : 'Add'}
                 </button>
               </div>
             ))}
             {filtered.length === 0 && (
-              <div className="p-4 text-center">
-                <p className="text-sm text-slate-600 mb-2">No tag found for "{query}"</p>
+              <div className="rounded-2xl border border-dashed border-rose-100 bg-rose-50/60 p-4 text-center">
+                <p className="mb-2 text-sm text-rose-600">No tag found for "{query}"</p>
                 <input 
                   type="text"
                   value={newTagName}
                   onChange={(e) => setNewTagName(e.target.value)}
                   placeholder={`New tag: ${query}`}
-                  className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+                  className="w-full rounded-lg border border-white bg-white px-3 py-2 text-sm text-slate-700 shadow focus:border-rose-200 focus:outline-none focus:ring-2 focus:ring-rose-100"
                   onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleCreateTag(); }}}
                 />
                  <button 
                     onClick={handleCreateTag}
                     disabled={isCreating}
-                    className="mt-2 w-full text-sm px-3 py-2 rounded-md bg-emerald-500 text-white hover:bg-emerald-600 disabled:bg-emerald-300"
+                    className="mt-3 w-full rounded-full bg-emerald-500 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-600 disabled:bg-emerald-300"
                   >
                    {isCreating ? 'Creating...' : `Create "${newTagName || query}"`}
                   </button>

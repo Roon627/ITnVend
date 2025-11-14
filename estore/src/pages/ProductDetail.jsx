@@ -136,6 +136,38 @@ export default function ProductDetail() {
     (product.vendor_name
       ? `${product.vendor_name} is part of our curated marketplace network. ITnVend coordinates payment, fulfilment, and delivery for this item.`
       : 'Partner vendor item fulfilled through ITnVend. We coordinate payment, fulfilment, and delivery for this listing.');
+  const productTypeLabel = product.product_type_label || product.productTypeLabel || product.type || 'physical';
+  const clothingSizes = product.clothing_sizes || product.clothingSizes || '';
+  const clothingCare = product.clothing_care || product.clothingCare || '';
+  const digitalDownloadUrl = product.digital_download_url || product.digitalDownloadUrl || '';
+  const digitalLicenseKey = product.digital_license_key || product.digitalLicenseKey || '';
+  const digitalActivationLimit =
+    product.digital_activation_limit != null
+      ? product.digital_activation_limit
+      : product.digitalActivationLimit;
+  const digitalExpiry = product.digital_expiry || product.digitalExpiry || '';
+  const digitalSupportUrl = product.digital_support_url || product.digitalSupportUrl || '';
+  const brandName =
+    product.brand_name ||
+    product.brandName ||
+    product.brand?.name ||
+    '';
+  const materialName = product.material_name || product.materialName || '';
+  const colorName = product.color_name || product.colorName || product.color || '';
+  const deliveryType = product.delivery_type || product.deliveryType || '';
+  const warrantyTerm = product.warranty_term || product.warrantyTerm || '';
+  const audienceLabel = product.audience || product.target_audience || '';
+  const modelLabel = product.model || '';
+  const metadataEntries = [
+    { label: 'Brand', value: brandName },
+    { label: 'Model', value: modelLabel },
+    { label: 'Release year', value: product.year || product.model_year },
+    { label: 'Audience', value: audienceLabel },
+    { label: 'Delivery', value: deliveryType },
+    { label: 'Warranty', value: warrantyTerm },
+    { label: 'Material', value: materialName },
+    { label: 'Colorway', value: colorName },
+  ].filter((entry) => entry.value);
 
   const handlePreorder = () => {
     const params = new URLSearchParams();
@@ -248,6 +280,91 @@ export default function ProductDetail() {
               )}
             </section>
 
+            {metadataEntries.length > 0 && (
+              <section className="space-y-4 rounded-2xl border border-slate-200 bg-white/90 p-4 text-sm text-slate-700 shadow-sm">
+                <h3 className="text-base font-semibold text-slate-900">Product snapshot</h3>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  {metadataEntries.map((entry) => (
+                    <div
+                      key={entry.label}
+                      className="rounded-xl border border-slate-100 bg-slate-50/80 p-3 shadow-inner"
+                    >
+                      <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+                        {entry.label}
+                      </p>
+                      <p className="mt-1 text-sm text-slate-800">{entry.value}</p>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            )}
+
+            {productTypeLabel === 'clothing' && (
+              <section className="space-y-2 rounded-2xl border border-rose-100 bg-rose-50/70 p-4 text-sm text-rose-700">
+                <h3 className="text-base font-semibold text-rose-600">Clothing fit & care</h3>
+                {clothingSizes && (
+                  <div className="rounded-xl bg-white/80 p-3 text-rose-700 shadow-sm">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-rose-400">Available sizes</p>
+                    <p className="mt-1 text-sm">{clothingSizes}</p>
+                  </div>
+                )}
+                {clothingCare && (
+                  <div className="rounded-xl bg-white/80 p-3 text-rose-700 shadow-sm">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-rose-400">Care instructions</p>
+                    <p className="mt-1 text-sm">{clothingCare}</p>
+                  </div>
+                )}
+                {!clothingSizes && !clothingCare && (
+                  <p className="text-xs text-rose-500">Sizing and care information will be added soon.</p>
+                )}
+              </section>
+            )}
+
+            {productTypeLabel === 'digital' && (
+              <section className="space-y-3 rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
+                <h3 className="text-base font-semibold text-slate-900">Digital fulfillment</h3>
+                {digitalDownloadUrl ? (
+                  <a
+                    href={digitalDownloadUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center justify-center rounded-full bg-rose-500 px-4 py-2 text-xs font-semibold text-white shadow hover:bg-rose-600"
+                  >
+                    Download link
+                  </a>
+                ) : (
+                  <p className="text-xs text-slate-500">Download link will be shared after purchase.</p>
+                )}
+                <div className="grid gap-3 md:grid-cols-2">
+                  {digitalLicenseKey && (
+                    <div className="rounded-xl bg-white p-3 shadow-sm">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">License reference</p>
+                      <p className="mt-1 text-sm font-medium text-slate-800 break-all">{digitalLicenseKey}</p>
+                    </div>
+                  )}
+                  {(digitalActivationLimit || digitalExpiry) && (
+                    <div className="rounded-xl bg-white p-3 shadow-sm">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">License policy</p>
+                      {digitalActivationLimit != null && (
+                        <p className="mt-1 text-sm">Activations: {digitalActivationLimit || 'Unlimited'}</p>
+                      )}
+                      {digitalExpiry && <p className="text-sm">Expires: {digitalExpiry}</p>}
+                    </div>
+                  )}
+                </div>
+                {digitalSupportUrl && (
+                  <a
+                    href={digitalSupportUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-2 rounded-full border border-slate-200 px-3 py-1 text-xs font-semibold text-slate-600 hover:bg-white"
+                  >
+                    Need help? Contact support
+                  </a>
+                )}
+              </section>
+            )}
+
             {vendorListing && (
               <section className="space-y-3 rounded-2xl border border-emerald-100 bg-emerald-50/70 p-6 text-sm text-emerald-900 shadow-sm">
                 <h2 className="text-base font-semibold text-emerald-700">Marketplace partner</h2>
@@ -287,7 +404,7 @@ export default function ProductDetail() {
               </section>
             )}
 
-            <div className="flex flex-row flex-wrap items-center gap-2">
+            <div className="space-y-3">
               {userListing ? (
                 contactHasInfo ? (
                   <a
@@ -295,53 +412,57 @@ export default function ProductDetail() {
                     onClick={(e) => {
                       if (!contactLink) e.preventDefault();
                     }}
-                    className="btn-sm btn-sm-primary inline-flex items-center gap-2 rounded-full bg-amber-500 text-white shadow-lg shadow-amber-300 transition hover:-translate-y-0.5 hover:bg-amber-400 focus:outline-none focus:ring-2 focus:ring-amber-200"
+                    className="btn-sm btn-sm-primary inline-flex w-full items-center justify-center gap-2 rounded-full bg-amber-500 text-white shadow-lg shadow-amber-300 transition hover:-translate-y-0.5 hover:bg-amber-400 focus:outline-none focus:ring-2 focus:ring-amber-200"
                   >
                     Contact seller
                   </a>
                 ) : (
-                  <div className="btn-sm btn-sm-outline inline-flex items-center gap-2 rounded-full border border-amber-200 text-sm font-semibold text-amber-700">
+                  <div className="btn-sm btn-sm-outline inline-flex items-center justify-center gap-2 rounded-full border border-amber-200 text-sm font-semibold text-amber-700">
                     Awaiting seller contact
                   </div>
                 )
               ) : (
-                <>
-                  <button
-                    onClick={() => addToCart(product)}
-                    className="hidden sm:inline-flex btn-sm btn-sm-primary bg-rose-500 text-white shadow focus:outline-none focus:ring-2 focus:ring-rose-200"
-                    aria-label={`Add ${product.name} to cart`}
-                  >
-                    Add to cart
-                  </button>
-                  <button
-                    onClick={handleBuyNow}
-                    className="hidden sm:inline-flex btn-sm btn-sm-primary bg-rose-600 text-white focus:outline-none focus:ring-2 focus:ring-rose-200"
-                  >
-                    Buy now
-                  </button>
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                  <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:flex-1 sm:gap-3">
+                    <button
+                      onClick={() => addToCart(product)}
+                      className="inline-flex items-center justify-center rounded-full bg-rose-500 px-4 py-2 text-sm font-semibold text-white shadow focus:outline-none focus:ring-2 focus:ring-rose-200 hover:bg-rose-600 sm:flex-1"
+                      aria-label={`Add ${product.name} to cart`}
+                    >
+                      Add to cart
+                    </button>
+                    <button
+                      onClick={handleBuyNow}
+                      className="inline-flex items-center justify-center rounded-full bg-rose-600 px-4 py-2 text-sm font-semibold text-white shadow focus:outline-none focus:ring-2 focus:ring-rose-200 hover:bg-rose-700 sm:flex-1"
+                    >
+                      Buy now
+                    </button>
+                  </div>
                   {preorder ? (
                     <button
                       type="button"
                       onClick={handlePreorder}
-                      className="inline-flex btn-sm items-center gap-2 rounded-full border border-rose-200 text-rose-600 transition hover:bg-rose-100"
+                      className="inline-flex w-full items-center justify-center rounded-full border border-rose-200 px-4 py-2 text-sm font-semibold text-rose-600 transition hover:bg-rose-100 sm:w-auto"
                     >
                       Preorder via Shop &amp; Ship
                     </button>
                   ) : null}
-                </>
+                </div>
               )}
-              <Link
-                to="/market"
-                className="inline-flex items-center gap-2 rounded-full border border-rose-200 px-3 py-2 text-xs sm:px-3 sm:py-2 sm:text-sm font-semibold text-rose-600 transition hover:bg-rose-100"
-              >
-                Back to Market Hub
-              </Link>
-              <Link
-                to="/"
-                className="inline-flex items-center gap-2 rounded-full border border-rose-200 px-3 py-2 text-xs sm:px-3 sm:py-2 sm:text-sm font-semibold text-rose-600 transition hover:bg-rose-100"
-              >
-                Home
-              </Link>
+              <div className="flex flex-wrap gap-2">
+                <Link
+                  to="/market"
+                  className="inline-flex items-center gap-2 rounded-full border border-rose-200 px-3 py-2 text-xs font-semibold text-rose-600 transition hover:bg-rose-100 sm:text-sm"
+                >
+                  Back to Market Hub
+                </Link>
+                <Link
+                  to="/"
+                  className="inline-flex items-center gap-2 rounded-full border border-rose-200 px-3 py-2 text-xs font-semibold text-rose-600 transition hover:bg-rose-100 sm:text-sm"
+                >
+                  Home
+                </Link>
+              </div>
             </div>
             {userListing && (
               <p className="text-xs text-rose-500">
@@ -374,20 +495,20 @@ export default function ProductDetail() {
                       </div>
                     )
                   ) : (
-                    <>
+                    <div className="grid grid-cols-2 gap-2">
                       <button
                         onClick={() => addToCart(product)}
-                        className="inline-flex sm:hidden items-center gap-1 rounded-full bg-rose-500 px-3 py-2 text-white text-sm font-semibold"
+                        className="inline-flex items-center justify-center gap-1 rounded-full bg-rose-500 px-3 py-2 text-sm font-semibold text-white"
                       >
                         Add to cart
                       </button>
                       <button
                         onClick={handleBuyNow}
-                        className="inline-flex items-center gap-1 rounded-full bg-rose-600 px-3 py-2 text-white text-sm font-semibold"
+                        className="inline-flex items-center justify-center gap-1 rounded-full bg-rose-600 px-3 py-2 text-sm font-semibold text-white"
                       >
                         Buy now
                       </button>
-                    </>
+                    </div>
                   )}
                 </div>
               </div>

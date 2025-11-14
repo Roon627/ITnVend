@@ -131,6 +131,63 @@ function parseGalleryFromRow(value) {
     }
 }
 
+async function ensureCustomLookupTable() {
+    if (!db) return;
+    const columnDef = isPostgres()
+        ? 'id SERIAL PRIMARY KEY'
+        : 'id INTEGER PRIMARY KEY AUTOINCREMENT';
+    await db.run(`
+        CREATE TABLE IF NOT EXISTS custom_lookups (
+            ${columnDef},
+            type TEXT NOT NULL,
+            name TEXT NOT NULL,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+    `);
+    if (isPostgres()) {
+        await db.run(
+            'CREATE UNIQUE INDEX IF NOT EXISTS custom_lookups_unique_idx ON custom_lookups (type, LOWER(name))'
+        );
+    } else {
+        await db.run(
+            'CREATE UNIQUE INDEX IF NOT EXISTS custom_lookups_unique_idx ON custom_lookups (type, name COLLATE NOCASE)'
+        );
+    }
+}
+
+async function fetchCustomLookupMap() {
+    const rows = await db.all('SELECT id, type, name FROM custom_lookups ORDER BY name');
+    return rows.reduce((acc, row) => {
+        if (!acc[row.type]) acc[row.type] = [];
+        acc[row.type].push(row);
+        return acc;
+    }, {});
+}
+
+function baseLookupHasValue(typeKey, candidate) {
+    if (!candidate) return false;
+    const list = CUSTOM_LOOKUP_BASE[typeKey] || [];
+    const needle = candidate.trim().toLowerCase();
+    return list.some((entry) => String(entry).trim().toLowerCase() === needle);
+}
+
+function buildLookupList(baseList = [], customEntries = [], typeKey) {
+    const base = baseList.map((name) => ({
+        id: `${typeKey}:builtin:${name}`,
+        name,
+        value: name,
+        readOnly: true,
+    }));
+    const custom = customEntries.map((entry) => ({
+        id: `${typeKey}:custom:${entry.id}`,
+        lookupId: entry.id,
+        name: entry.name,
+        value: entry.name,
+        readOnly: false,
+    }));
+    return [...base, ...custom];
+}
+
 const PRODUCT_BASE_SELECT = `
             SELECT
                 p.*,
@@ -495,6 +552,16 @@ const AUDIENCE_OPTIONS = ['men', 'women', 'unisex'];
 const AVAILABILITY_STATUSES = ['in_stock', 'preorder', 'vendor', 'used'];
 const DELIVERY_TYPES = ['instant_download', 'shipping', 'pickup'];
 const WARRANTY_TERMS = ['none', '1_year', 'lifetime'];
+const CUSTOM_LOOKUP_BASE = {
+    audience: AUDIENCE_OPTIONS,
+    delivery: DELIVERY_TYPES,
+    warranty: WARRANTY_TERMS,
+};
+const CUSTOM_LOOKUP_ROUTES = {
+    audience: { route: 'audiences', label: 'Audience' },
+    delivery: { route: 'delivery-types', label: 'Delivery type' },
+    warranty: { route: 'warranty-terms', label: 'Warranty term' },
+};
 const PREORDER_STATUSES = ['pending', 'accepted', 'processing', 'received', 'ready', 'completed', 'cancelled'];
 const MAX_PAYMENT_SLIP_BASE64_LENGTH = 8 * 1024 * 1024; // ~6 MB payload after base64 expansion
 const PREORDER_RATE_LIMIT_WINDOW = 15 * 60 * 1000; // 15 minutes
@@ -1631,6 +1698,7 @@ async function startServer() {
     try {
     db = await setupDatabase();
     dbType = db?.dialect || resolveDbType();
+    await ensureCustomLookupTable();
     // expose db on the express app so routes can access it via req.app.get('db')
     try { app.set('db', db); } catch (e) { /* ignore */ }
         const slipProcessingQueue = createSlipProcessingQueue({
@@ -2438,11 +2506,12 @@ app.get('/api/lookups', authMiddleware, async (req, res) => {
             return res.json(cached);
         }
 
-        const [brands, materials, colors, tags] = await Promise.all([
+        const [brands, materials, colors, tags, customLookupMap] = await Promise.all([
             db.all('SELECT id, name FROM brands ORDER BY name'),
             db.all('SELECT id, name FROM materials ORDER BY name'),
             db.all('SELECT id, name, hex FROM colors ORDER BY name'),
             db.all('SELECT id, name, slug FROM tags ORDER BY name'),
+            fetchCustomLookupMap(),
         ]);
 
         const payload = {
@@ -2450,9 +2519,9 @@ app.get('/api/lookups', authMiddleware, async (req, res) => {
             materials,
             colors,
             tags,
-            audiences: AUDIENCE_OPTIONS,
-            deliveryTypes: DELIVERY_TYPES,
-            warrantyTerms: WARRANTY_TERMS,
+            audiences: buildLookupList(AUDIENCE_OPTIONS, customLookupMap.audience || [], 'audience'),
+            deliveryTypes: buildLookupList(DELIVERY_TYPES, customLookupMap.delivery || [], 'delivery'),
+            warrantyTerms: buildLookupList(WARRANTY_TERMS, customLookupMap.warranty || [], 'warranty'),
         };
 
         await cacheService.setLookups(payload, 600);
@@ -2462,6 +2531,94 @@ app.get('/api/lookups', authMiddleware, async (req, res) => {
         res.status(500).json({ error: err.message });
     }
 });
+
+function registerCustomLookupRoutes(routeName, typeKey, label) {
+    const routePath = `/api/${routeName}`;
+    app.post(routePath, authMiddleware, requireRole('manager'), async (req, res) => {
+        try {
+            const name = (req.body?.name || '').trim();
+            if (!name) return res.status(400).json({ error: 'Missing name' });
+            if (baseLookupHasValue(typeKey, name)) {
+                return res.status(409).json({ error: `${label} already exists` });
+            }
+            const existing = await db.get(
+                'SELECT id FROM custom_lookups WHERE type = ? AND LOWER(name) = LOWER(?)',
+                [typeKey, name]
+            );
+            if (existing) {
+                return res.status(409).json({ error: `${label} already exists` });
+            }
+            const result = await db.run('INSERT INTO custom_lookups (type, name) VALUES (?, ?)', [typeKey, name]);
+            await cacheService.invalidateLookups();
+            const id = result?.lastID || result?.insertId || result?.rows?.[0]?.id;
+            try {
+                getWebSocketService().broadcast('lookups:update', { type: routeName });
+            } catch (e) { /* ignore */ }
+            res.status(201).json({ id, name });
+        } catch (err) {
+            console.error(`Failed to add ${label}`, err);
+            res.status(500).json({ error: 'Failed to add lookup' });
+        }
+    });
+
+    app.put(`${routePath}/:id`, authMiddleware, requireRole('manager'), async (req, res) => {
+        try {
+            const id = parseInt(req.params.id, 10);
+            if (!Number.isFinite(id)) return res.status(400).json({ error: 'Invalid id' });
+            const name = (req.body?.name || '').trim();
+            if (!name) return res.status(400).json({ error: 'Missing name' });
+            if (baseLookupHasValue(typeKey, name)) {
+                return res.status(409).json({ error: `${label} already exists` });
+            }
+            const existing = await db.get(
+                'SELECT id FROM custom_lookups WHERE type = ? AND LOWER(name) = LOWER(?) AND id != ?',
+                [typeKey, name, id]
+            );
+            if (existing) {
+                return res.status(409).json({ error: `${label} already exists` });
+            }
+            const result = await db.run('UPDATE custom_lookups SET name = ? WHERE id = ? AND type = ?', [
+                name,
+                id,
+                typeKey,
+            ]);
+            if (result?.changes === 0) {
+                return res.status(404).json({ error: `${label} not found` });
+            }
+            await cacheService.invalidateLookups();
+            try {
+                getWebSocketService().broadcast('lookups:update', { type: routeName });
+            } catch (e) { /* ignore */ }
+            res.json({ id, name });
+        } catch (err) {
+            console.error(`Failed to update ${label}`, err);
+            res.status(500).json({ error: 'Failed to update lookup' });
+        }
+    });
+
+    app.delete(`${routePath}/:id`, authMiddleware, requireRole('manager'), async (req, res) => {
+        try {
+            const id = parseInt(req.params.id, 10);
+            if (!Number.isFinite(id)) return res.status(400).json({ error: 'Invalid id' });
+            const result = await db.run('DELETE FROM custom_lookups WHERE id = ? AND type = ?', [id, typeKey]);
+            if (result?.changes === 0) {
+                return res.status(404).json({ error: `${label} not found` });
+            }
+            await cacheService.invalidateLookups();
+            try {
+                getWebSocketService().broadcast('lookups:update', { type: routeName });
+            } catch (e) { /* ignore */ }
+            res.json({ status: 'ok' });
+        } catch (err) {
+            console.error(`Failed to delete ${label}`, err);
+            res.status(500).json({ error: 'Failed to delete lookup' });
+        }
+    });
+}
+
+registerCustomLookupRoutes('audiences', 'audience', 'Audience');
+registerCustomLookupRoutes('delivery-types', 'delivery', 'Delivery type');
+registerCustomLookupRoutes('warranty-terms', 'warranty', 'Warranty term');
 
 app.post('/api/brands', authMiddleware, requireRole('manager'), async (req, res) => {
     const { name } = req.body;
