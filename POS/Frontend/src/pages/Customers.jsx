@@ -66,17 +66,17 @@ function CustomerModal({ open, form, onClose, onChange, onSave, saving, mode = '
       // derive a friendly name from the URL
       try {
         const parts = (form.logo_url || '').split('/');
-        setLogoName(parts[parts.length - 1] || 'logo');
-      } catch (e) { setLogoName('logo'); }
+          setLogoName(parts[parts.length - 1] || 'logo');
+        } catch { setLogoName('logo'); }
     }
     if (form && form.documents) {
       try {
-        // form.documents may be an array or JSON string
-        const docs = Array.isArray(form.documents) ? form.documents : JSON.parse(form.documents || '[]');
-        setDocNames(docs.map(d => d.name || d));
-      } catch (err) {
-        setDocNames([]);
-      }
+      // form.documents may be an array or JSON string
+      const docs = Array.isArray(form.documents) ? form.documents : JSON.parse(form.documents || '[]');
+      setDocNames(docs.map(d => d.name || d));
+    } catch {
+      setDocNames([]);
+    }
     }
   }, [form]);
 
@@ -98,7 +98,7 @@ function CustomerModal({ open, form, onClose, onChange, onSave, saving, mode = '
           onChange('logo_name', f.name);
           return;
         }
-      } catch (err) {
+      } catch {
         // ignore and fallback to base64
       }
       const reader = new FileReader();
@@ -129,7 +129,7 @@ function CustomerModal({ open, form, onClose, onChange, onSave, saving, mode = '
             uploaded.push({ name: f.name, path });
             continue;
           }
-        } catch (err) {
+        } catch {
           // fall through to base64 fallback
         }
         // fallback to base64

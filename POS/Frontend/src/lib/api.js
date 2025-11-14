@@ -112,7 +112,7 @@ async function fetchWithRetry(path, options = {}, retries = 2, backoff = 200) {
         try {
           const etag = res.headers.get('etag') || res.headers.get('ETag');
           if (etag) responseCache.set(url, parsed);
-        } catch (e) {
+        } catch {
           // no-op on header read/cache errors
         }
         return parsed;

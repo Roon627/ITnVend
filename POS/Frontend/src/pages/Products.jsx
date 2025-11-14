@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import Modal from '../components/Modal';
-import ProductForm from '../components/ProductForm';
+import ProductForm from '../modules/product/ProductForm';
 import { Link } from 'react-router-dom';
 import { FaEdit, FaTrash, FaUpload, FaTimes, FaPlus, FaFileImport, FaExternalLinkAlt, FaArrowLeft, FaArrowRight, FaStar, FaBarcode, FaTags, FaBox, FaHashtag } from 'react-icons/fa';
 import api from '../lib/api';
@@ -12,7 +13,6 @@ import SelectField from '../components/SelectField';
 import TagChips from '../components/TagChips';
 import SpecPreview from '../components/SpecPreview';
 import AvailabilityTag from '../components/AvailabilityTag';
-import ProductInsight from '../components/ProductInsight';
 import { makeSku } from '../lib/sku';
 
 const EMPTY_FORM = {
@@ -205,13 +205,383 @@ function resolveCategoryLabelsFromDraft(draft = {}, categoryTree = []) {
   if ((!subsubcategoryName || !subcategoryName || !categoryName) && normalizedDraft.subsubcategoryId) {
     const found = findSubsubcategoryById(normalizedDraft.subsubcategoryId);
     if (found) {
-      subsubcategoryName = subsubcategoryName || (found.subsubcategory && found.subsubcategory.name) || '';
-      subcategoryName = subcategoryName || (found.subcategory && found.subcategory.name) || '';
-      categoryName = categoryName || (found.category && found.category.name) || '';
+      subsubcategoryName = subsubcategoryName || found.subsubcategory.name || '';
+      subcategoryName = subcategoryName || found.subcategory.name || '';
+      categoryName = categoryName || found.category.name || '';
     }
   }
 
-  return { categoryName, subcategoryName, subsubcategoryName };
+  return {
+    categoryName,
+    subcategoryName,
+    subsubcategoryName,
+  };
+}
+
+function buildUploadCategoryFromDraft(draft = {}, categoryTree = []) {
+  const { categoryName, subcategoryName, subsubcategoryName } = resolveCategoryLabelsFromDraft(draft, categoryTree);
+  const label =
+    draft.slug ||
+    draft.sku ||
+    (draft.id ? `product-${draft.id}` : '') ||
+    draft.name ||
+    draft.model ||
+    'new-product';
+  return buildProductUploadCategory(categoryName, subcategoryName, subsubcategoryName, label);
+}
+
+const formatGalleryEntries = (gallery) => {
+  if (!Array.isArray(gallery)) return [];
+  return gallery
+    .map((entry, index) => {
+      const path = typeof entry === 'string' ? entry.trim() : entry?.path?.trim?.() || '';
+      if (!path) return null;
+      return {
+        id: `${path}-${index}-${Date.now()}`,
+        path,
+        url: resolveMediaUrl(path),
+      };
+    })
+    .filter(Boolean);
+};
+
+const galleryPayloadFromState = (gallery) =>
+  (Array.isArray(gallery) ? gallery : [])
+    .map((entry) => {
+      if (typeof entry === 'string') return entry.trim();
+      return entry?.path || entry?.url || '';
+    })
+    .map((value) => value.trim())
+    .filter(Boolean);
+
+const buildGalleryEntry = (pathOrUrl, absoluteUrl) => {
+  const candidate = (pathOrUrl || absoluteUrl || '').trim();
+  if (!candidate) return null;
+  const resolved = resolveMediaUrl(absoluteUrl || pathOrUrl || '');
+  if (!resolved) return null;
+  const id = `${candidate}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+  return {
+    id,
+    path: pathOrUrl || absoluteUrl || '',
+    url: resolved,
+  };
+};
+
+const addGalleryEntry = (gallery = [], entry) => {
+  if (!entry) return gallery;
+  const exists = gallery.some((img) => (img.path || img.url) === (entry.path || entry.url));
+  if (exists) return gallery;
+  return [...gallery, entry];
+};
+
+function mapCsvRowToProduct(row) {
+  const get = createRowAccessor(row);
+  const name = get(['name', 'product', 'productname', 'title']);
+  const priceRaw = get(['price', 'unitprice', 'sellingprice', 'amount']);
+  const price = priceRaw !== '' ? parseFloat(priceRaw) : NaN;
+  const stockRaw = get(['stock', 'qty', 'quantity']);
+  const stock = stockRaw !== '' ? parseInt(stockRaw, 10) || 0 : 0;
+  const costRaw = get(['cost', 'costprice']);
+  const cost = costRaw !== '' ? parseFloat(costRaw) : undefined;
+  const technicalDetails = get(['technicaldetails', 'specs', 'specifications']);
+  const image = get(['image', 'imagepath']);
+  const imageUrl = get(['imageurl', 'url', 'imagelink']);
+  const trackRaw = get(['trackinventory', 'inventorytrack', 'track']);
+  let trackInventory = true;
+  if (trackRaw) {
+    const lowered = trackRaw.toLowerCase();
+    trackInventory = !['no', 'false', '0', 'n'].includes(lowered);
+  }
+  const product = {
+    name,
+    price,
+    stock,
+    category: get(['category']),
+    subcategory: get(['subcategory', 'subcat']),
+    sku: get(['sku', 'itemsku']),
+    barcode: get(['barcode', 'ean', 'upc']),
+    cost,
+    description: get(['description', 'summary']),
+    technicalDetails,
+    image,
+    imageUrl,
+    trackInventory,
+  };
+  const valid = Boolean(product.name && Number.isFinite(product.price));
+  const issues = [];
+  if (!product.name) issues.push('Missing name');
+  if (!Number.isFinite(product.price)) issues.push('Missing price');
+  return { product, valid, issues, source: row };
+}
+
+function _computeAutoSkuPreview(brandName = '', productName = '', year) {
+  const brandSegment = (brandName || 'GN')
+    .split(/\s+/)
+    .map((part) => part.charAt(0))
+    .join('')
+    .slice(0, 3)
+    .toUpperCase() || 'GN';
+  const nameSegment = (productName || 'Product')
+    .split(/\s+/)
+    .map((part) => part.charAt(0))
+    .join('')
+    .slice(0, 4)
+    .toUpperCase() || 'PRD';
+  const yearSegment = year && Number.isFinite(Number(year))
+    ? Number(year).toString().slice(-2).padStart(2, '0')
+    : new Date().getFullYear().toString().slice(-2);
+  return `${brandSegment}${nameSegment}-${yearSegment}`;
+}
+
+function TechnicalDetailsPreview({ value }) {
+  if (!value || !value.trim()) {
+    return <p className="text-sm text-slate-500">No technical details provided.</p>;
+  }
+  try {
+    const parsed = JSON.parse(value);
+    if (Array.isArray(parsed)) {
+      return (
+        <ul className="space-y-1 text-sm text-slate-600 list-disc list-inside">
+          {parsed.map((item, index) => (
+            <li key={index}>{typeof item === 'string' ? item : JSON.stringify(item)}</li>
+          ))}
+        </ul>
+      );
+    }
+    if (typeof parsed === 'object' && parsed !== null) {
+      return (
+        <dl className="divide-y divide-slate-200 text-sm">
+          {Object.entries(parsed).map(([key, val]) => (
+            <div key={key} className="py-1.5 flex justify-between gap-2">
+              <dt className="font-medium text-slate-600">{key}</dt>
+              <dd className="text-slate-700 text-right">
+                {typeof val === 'string' ? val : JSON.stringify(val)}
+              </dd>
+            </div>
+          ))}
+        </dl>
+      );
+    }
+  } catch {
+    // ignore parse errors
+  }
+  const lines = value.split(/\r?\n/).filter((line) => line.trim());
+  return (
+    <ul className="space-y-1 text-sm text-slate-600 list-disc list-inside">
+      {lines.map((line, index) => (
+        <li key={index}>{line}</li>
+      ))}
+    </ul>
+  );
+}
+
+function ProductInsight({ product, formatCurrency, lookups }) {
+  if (!product) {
+    return (
+      <div className="text-sm text-slate-500">Select a product to see stock levels, pricing, and technical notes.</div>
+    );
+  }
+  const previewSrc =
+    resolveMediaUrl(product.image_source || product.imageUrl || product.image) ||
+    (Array.isArray(product.gallery) && product.gallery.length
+      ? resolveMediaUrl(product.gallery[0])
+      : null);
+  // tags normalized on demand
+  const availabilityStatus = normalizeAvailabilityStatus(product.availability_status || product.availabilityStatus || (product.preorder_enabled ? 'preorder' : null));
+  const availabilityLabel = AVAILABILITY_STATUS_LABELS[availabilityStatus] || AVAILABILITY_STATUS_LABELS.in_stock;
+  // Meta fields (exclude Availability/Brand/Type since those are shown in the main info grid)
+  const meta = [
+    { label: 'Vendor', value: product.vendor_name || product.vendorName || (product.vendor_id ? `#${product.vendor_id}` : null) },
+    { label: 'Material', value: product.material || product.materialName || product.materialId },
+    { label: 'Color', value: product.color || product.colorName || product.colorId },
+    { label: 'Year', value: product.year },
+    { label: 'Warranty', value: product.warranty_term || product.warrantyTerm },
+    { label: 'Delivery', value: product.delivery_type || product.deliveryType },
+  ].filter((m) => m.value || m.value === 0);
+
+  const categoryPath = [product.category, product.subcategory, product.subsubcategory].filter(Boolean).join(' › ');
+  const brandDisplay =
+    product.brandName ||
+    (lookups?.brands || []).find((b) => b.id === (product.brand_id || product.brandId))?.name ||
+    product.brand ||
+    product.brand_id ||
+    '—';
+
+  return (
+    <div className="relative bg-white rounded-lg border border-slate-100 p-4 shadow-sm">
+      {/* Action buttons moved to the Product insight header (handled by parent) */}
+
+      <div className="grid grid-cols-1 gap-4">
+        <div className="flex items-center justify-center">
+          <div className="w-full max-w-md">
+            {previewSrc ? (
+              <img src={previewSrc} alt={product.name} className="w-full h-56 object-cover rounded-md shadow-sm border" />
+            ) : (
+              <div className="w-full h-56 rounded-md border border-dashed flex items-center justify-center text-slate-400 text-sm">No image</div>
+            )}
+          </div>
+        </div>
+
+        <div className="flex items-start justify-between gap-4">
+          <div className="flex-1 pr-2">
+            <h3 className="text-lg font-semibold text-slate-800 leading-tight">{product.name}</h3>
+            <p className="text-sm text-slate-500 mt-1">{product.short_description || product.shortDescription}</p>
+          </div>
+
+          <div className="text-right">
+            <div className="text-xl font-bold text-slate-800">{formatCurrency(product.price || 0)}</div>
+            <div className="text-sm text-slate-500">{product.stock ?? 0} in stock</div>
+          </div>
+        </div>
+
+        <div className="border-t border-slate-100 pt-3">
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-sm">
+            <div className="flex items-start gap-2">
+              <FaHashtag className="text-slate-400 mt-0.5" />
+              <div>
+                <div className="text-xs text-slate-500">SKU</div>
+                <div className="font-semibold text-slate-800 break-all">{product.sku || '—'}</div>
+              </div>
+            </div>
+            <div className="flex items-start gap-2">
+              <FaBarcode className="text-slate-400 mt-0.5" />
+              <div>
+                <div className="text-xs text-slate-500">Barcode</div>
+                <div className="font-semibold text-slate-800 break-all">{product.barcode || '—'}</div>
+              </div>
+            </div>
+            <div className="flex items-start gap-2">
+              <FaBox className="text-slate-400 mt-0.5" />
+              <div>
+                <div className="text-xs text-slate-500">Category</div>
+                <div className="font-semibold text-slate-800">{categoryPath || '—'}</div>
+              </div>
+            </div>
+            <div className="flex items-start gap-2">
+              <FaTags className="text-slate-400 mt-0.5" />
+              <div>
+                <div className="text-xs text-slate-500">Availability</div>
+                <div className="font-semibold text-slate-800">{availabilityLabel}</div>
+              </div>
+            </div>
+            <div className="flex items-start gap-2">
+              <div>
+                <div className="text-xs text-slate-500">Brand</div>
+                  <div className="font-semibold text-slate-800">{brandDisplay}</div>
+              </div>
+            </div>
+            <div className="flex items-start gap-2">
+              <div>
+                <div className="text-xs text-slate-500">Type</div>
+                <div className="font-semibold text-slate-800">{product.type || '—'}</div>
+              </div>
+            </div>
+          </div>
+
+            {meta.length > 0 && (
+              <div className="mt-3 grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs">
+                {meta.map((m) => (
+                  <div key={m.label} className="bg-slate-50 rounded px-2 py-1">
+                    <div className="text-slate-400 text-[11px]">{m.label}</div>
+                    <div className="font-medium text-slate-800 text-sm truncate">{m.value}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+        </div>
+
+        {product.description && (
+          <div className="mt-4">
+            <h4 className="text-sm font-semibold text-slate-700 mb-2">Description</h4>
+            <p className="text-sm text-slate-600 leading-relaxed whitespace-pre-line">{product.description}</p>
+          </div>
+        )}
+
+        <div className="mt-4">
+          <h4 className="text-sm font-semibold text-slate-700 mb-2">Technical details</h4>
+          <TechnicalDetailsPreview value={product.technical_details || product.technicalDetails || ''} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ProductModal({
+  open,
+  draft,
+  onClose,
+  onChange,
+  onSave,
+  onUploadImage,
+  onUploadGallery = () => {},
+  onRemoveGalleryItem = () => {},
+  onMoveGalleryItem = () => {},
+  galleryUploading = false,
+  uploading,
+  saving,
+  stockChanged,
+  stockReason,
+  onStockReasonChange,
+  categoryTree,
+  lookups,
+  onTagsChanged,
+  vendors = [],
+  createBrand = async () => false,
+  createMaterial = async () => false,
+}) {
+  const fileInputRef = useRef(null);
+  const galleryFileInputRef = useRef(null);
+  const modalRef = useRef(null);
+  const [modalVisible, setModalVisible] = useState(false);
+  // close on Escape for convenience
+  useEffect(() => {
+    if (!open) return undefined;
+    const onKey = (e) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [open, onClose]);
+
+  // manage enter/exit animation state
+  useEffect(() => {
+    if (open) {
+      // allow next tick to trigger CSS transition
+      const id = setTimeout(() => setModalVisible(true), 10);
+      return () => clearTimeout(id);
+    }
+    setModalVisible(false);
+  }, [open]);
+
+  // focus trap: keep focus within modal while open
+  useEffect(() => {
+    if (!open) return undefined;
+    const root = modalRef.current;
+    if (!root) return undefined;
+    const focusable = Array.from(
+      root.querySelectorAll('a[href], button:not([disabled]), textarea, input, select, [tabindex]:not([tabindex="-1"])')
+    ).filter((el) => !el.hasAttribute('disabled') && el.offsetParent !== null);
+    if (focusable.length) focusable[0].focus();
+
+    const onKey = (e) => {
+      if (e.key !== 'Tab') return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (e.shiftKey) {
+        if (document.activeElement === first) {
+          e.preventDefault();
+          last.focus();
+        }
+      } else {
+        if (document.activeElement === last) {
+          e.preventDefault();
+          first.focus();
+        }
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [open]);
   if (!open || !draft) return null;
   const previewSrc =
     resolveMediaUrl(draft.imagePreview || draft.imageUrl || draft.image) ||
@@ -747,6 +1117,7 @@ function resolveCategoryLabelsFromDraft(draft = {}, categoryTree = []) {
           <div className="flex-1 text-sm text-slate-500">{draft.id ? 'Editing product — changes saved to POS.' : 'Creating a new product.'}</div>
           <div className="flex gap-3 justify-end">
             <button onClick={onClose} className="px-4 py-2 rounded-md border text-sm hover:bg-slate-100" type="button">Cancel</button>
+            <button onClick={onSave} disabled={saving} className="inline-flex items-center gap-2 px-4 py-2 rounded-md bg-blue-600 text-white text-sm hover:bg-blue-700 disabled:bg-blue-400" type="button">{saving ? 'Saving...' : 'Save changes'}</button>
           </div>
         </footer>
       </div>
@@ -758,6 +1129,7 @@ export default function Products() {
   const toast = useToast();
   const { formatCurrency } = useSettings();
   const { user } = useAuth();
+  const navigate = useNavigate();
   // Allow staff, manager and admin to archive (soft-delete) from the UI
   const canDelete = user && ['staff', 'manager', 'admin'].includes(user.role);
 
@@ -790,10 +1162,10 @@ export default function Products() {
   const newImageInputRef = useRef(null);
 
   const [bulkRows, setBulkRows] = useState([]);
-  const [bulkResult, setBulkResult] = useState(null);
-  const [bulkError, setBulkError] = useState('');
-  const [bulkBusy, setBulkBusy] = useState(false);
-  const [bulkFileName, setBulkFileName] = useState('');
+  const [_bulkResult, setBulkResult] = useState(null);
+  const [_bulkError, setBulkError] = useState('');
+  const [_bulkBusy, setBulkBusy] = useState(false);
+  const [_bulkFileName, setBulkFileName] = useState('');
   const bulkFileInputRef = useRef(null);
 
   const fetchCategories = useCallback(async () => {
@@ -911,23 +1283,13 @@ export default function Products() {
     const brandName = (lookups?.brands || []).find((b) => b.id === modalDraft.brandId)?.name || '';
     const sku = makeSku({ brandName, productName: modalDraft.name, year: modalDraft.year });
     setModalDraft((prev) => (prev ? { ...prev, sku } : prev));
-  }, [modalDraft?.brandId, modalDraft?.name, modalDraft?.year, modalDraft?.autoSku, lookups]);
+  }, [modalDraft, lookups]);
 
   useEffect(() => {
     fetchProducts();
   }, [fetchProducts]);
 
-  const openCreateModal = async () => {
-    try {
-      await fetchLookupsAndTree();
-    } catch { /* ignore */ }
-    setModalDraft({
-      ...EMPTY_FORM,
-    });
-    setModalOriginalDraft(null);
-    setModalOpen(true);
-    setModalStockReason('');
-  };
+  // Note: Create modal is opened via dedicated Add Product page at `/products/add`.
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -936,7 +1298,7 @@ export default function Products() {
     return () => clearTimeout(timer);
   }, [searchValue]);
 
-  const availableSubcategories = useMemo(() => {
+  const _availableSubcategories = useMemo(() => {
     if (!filters.category) return [];
     return categories[filters.category] || [];
   }, [categories, filters.category]);
@@ -1056,7 +1418,7 @@ export default function Products() {
     }
   };
 
-  const handleQuickStockUpdate = async (productId, newStock, reason) => {
+  const _handleQuickStockUpdate = async (productId, newStock, reason) => {
     try {
       await api.post(`/products/${productId}/adjust-stock`, { new_stock: newStock, reason });
       toast.push('Stock updated successfully', 'success');
@@ -1161,44 +1523,41 @@ export default function Products() {
     setFilters((prev) => ({ ...prev, tag, search: '' }));
   };
 
-  const handleModalSave = async (incomingPayload = null, opts = {}) => {
-    const hasIncoming = incomingPayload != null;
-    const draftSrc = hasIncoming ? { ...(modalDraft || {}), ...incomingPayload } : modalDraft;
-    if (!draftSrc) return;
-    if (!draftSrc.name || !draftSrc.price) {
-      if (opts && opts.setFieldErrors) opts.setFieldErrors({ name: 'Name is required', price: 'Price is required' });
+  const handleModalSave = async () => {
+    if (!modalDraft) return;
+    if (!modalDraft.name || !modalDraft.price) {
       toast.push('Name and price are required', 'warning');
       return;
     }
     setModalSaving(true);
     try {
       // If no id -> create new product
-      if (!draftSrc.id) {
+      if (!modalDraft.id) {
         const payload = {
-          name: draftSrc.name,
-          price: parseFloat(draftSrc.price),
-          stock: draftSrc.stock ? parseInt(draftSrc.stock, 10) || 0 : 0,
-          category: draftSrc.category || null,
-          subcategory: draftSrc.subcategory || null,
-          image: draftSrc.image || null,
-          imageUrl: draftSrc.imageUrl || null,
-          description: draftSrc.description || null,
-          technicalDetails: draftSrc.technicalDetails || null,
-          sku: draftSrc.sku || null,
-          barcode: draftSrc.barcode || null,
-          model: draftSrc.model || null,
-          cost: draftSrc.cost ? parseFloat(draftSrc.cost) : 0,
-          trackInventory: draftSrc.trackInventory,
-          availabilityStatus: normalizeAvailabilityStatus(draftSrc.availabilityStatus),
-          availableForPreorder: draftSrc.availableForPreorder,
-          preorderReleaseDate: draftSrc.availableForPreorder ? draftSrc.preorderReleaseDate || null : null,
-          preorderNotes: draftSrc.availableForPreorder ? draftSrc.preorderNotes || null : null,
-          preorderEta: draftSrc.availableForPreorder ? draftSrc.preorderEta || null : null,
-          vendorId: normalizeVendorId(draftSrc.vendorId),
-          gallery: galleryPayloadFromState(draftSrc.gallery),
-          highlightActive: draftSrc.highlightActive ? 1 : 0,
-          highlightLabel: draftSrc.highlightLabel && draftSrc.highlightLabel.trim() ? draftSrc.highlightLabel.trim() : null,
-          highlightPriority: draftSrc.highlightPriority ? parseInt(draftSrc.highlightPriority, 10) || 0 : 0,
+          name: modalDraft.name,
+          price: parseFloat(modalDraft.price),
+          stock: modalDraft.stock ? parseInt(modalDraft.stock, 10) || 0 : 0,
+          category: modalDraft.category || null,
+          subcategory: modalDraft.subcategory || null,
+          image: modalDraft.image || null,
+          imageUrl: modalDraft.imageUrl || null,
+          description: modalDraft.description || null,
+          technicalDetails: modalDraft.technicalDetails || null,
+          sku: modalDraft.sku || null,
+          barcode: modalDraft.barcode || null,
+          model: modalDraft.model || null,
+          cost: modalDraft.cost ? parseFloat(modalDraft.cost) : 0,
+          trackInventory: modalDraft.trackInventory,
+          availabilityStatus: normalizeAvailabilityStatus(modalDraft.availabilityStatus),
+          availableForPreorder: modalDraft.availableForPreorder,
+          preorderReleaseDate: modalDraft.availableForPreorder ? modalDraft.preorderReleaseDate || null : null,
+          preorderNotes: modalDraft.availableForPreorder ? modalDraft.preorderNotes || null : null,
+          preorderEta: modalDraft.availableForPreorder ? modalDraft.preorderEta || null : null,
+          vendorId: normalizeVendorId(modalDraft.vendorId),
+          gallery: galleryPayloadFromState(modalDraft.gallery),
+          highlightActive: modalDraft.highlightActive ? 1 : 0,
+          highlightLabel: modalDraft.highlightLabel && modalDraft.highlightLabel.trim() ? modalDraft.highlightLabel.trim() : null,
+          highlightPriority: modalDraft.highlightPriority ? parseInt(modalDraft.highlightPriority, 10) || 0 : 0,
         };
         const created = await api.post('/products', payload);
         toast.push('Product added', 'info');
@@ -1212,47 +1571,47 @@ export default function Products() {
         return;
       }
       const payload = {
-        name: draftSrc.name,
-        price: parseFloat(draftSrc.price),
-        stock: draftSrc.stock ? parseInt(draftSrc.stock, 10) || 0 : 0,
+        name: modalDraft.name,
+        price: parseFloat(modalDraft.price),
+        stock: modalDraft.stock ? parseInt(modalDraft.stock, 10) || 0 : 0,
         // keep legacy strings for backward compatibility
-        category: draftSrc.category || null,
-        subcategory: draftSrc.subcategory || null,
+        category: modalDraft.category || null,
+        subcategory: modalDraft.subcategory || null,
         // new lookup ids
-        brandId: draftSrc.brandId || null,
-        categoryId: draftSrc.categoryId || null,
-        subcategoryId: draftSrc.subcategoryId || null,
-        subsubcategoryId: draftSrc.subsubcategoryId || null,
-        materialId: draftSrc.materialId || null,
-        colorId: draftSrc.colorId || null,
-        audience: draftSrc.audience || null,
-        deliveryType: draftSrc.deliveryType || null,
-        warrantyTerm: draftSrc.warrantyTerm || null,
-        type: draftSrc.type || 'physical',
-        shortDescription: draftSrc.shortDescription || null,
-        year: draftSrc.year || null,
-        tags: draftSrc.tags || [],
-        autoSku: draftSrc.autoSku === false ? false : true,
-        model: draftSrc.model || null,
-        image: draftSrc.image || null,
-        imageUrl: draftSrc.imageUrl || null,
-        description: draftSrc.description || null,
-        technicalDetails: draftSrc.technicalDetails || null,
-        sku: draftSrc.sku || null,
-        barcode: draftSrc.barcode || null,
-        cost: draftSrc.cost ? parseFloat(draftSrc.cost) : 0,
-        trackInventory: draftSrc.trackInventory,
-        availabilityStatus: normalizeAvailabilityStatus(draftSrc.availabilityStatus),
-        availableForPreorder: draftSrc.availableForPreorder,
-        preorderReleaseDate: draftSrc.availableForPreorder ? draftSrc.preorderReleaseDate || null : null,
-        preorderNotes: draftSrc.availableForPreorder ? draftSrc.preorderNotes || null : null,
-        preorderEta: draftSrc.availableForPreorder ? draftSrc.preorderEta || null : null,
-        vendorId: normalizeVendorId(draftSrc.vendorId),
-        gallery: galleryPayloadFromState(draftSrc.gallery),
-        highlightActive: draftSrc.highlightActive ? 1 : 0,
-        highlightLabel: draftSrc.highlightLabel && draftSrc.highlightLabel.trim() ? draftSrc.highlightLabel.trim() : null,
-        highlightPriority: draftSrc.highlightPriority ? parseInt(draftSrc.highlightPriority, 10) || 0 : 0,
-        newArrival: draftSrc.newArrival ? 1 : 0,
+        brandId: modalDraft.brandId || null,
+        categoryId: modalDraft.categoryId || null,
+        subcategoryId: modalDraft.subcategoryId || null,
+        subsubcategoryId: modalDraft.subsubcategoryId || null,
+        materialId: modalDraft.materialId || null,
+        colorId: modalDraft.colorId || null,
+        audience: modalDraft.audience || null,
+        deliveryType: modalDraft.deliveryType || null,
+        warrantyTerm: modalDraft.warrantyTerm || null,
+        type: modalDraft.type || 'physical',
+        shortDescription: modalDraft.shortDescription || null,
+        year: modalDraft.year || null,
+        tags: modalDraft.tags || [],
+        	autoSku: modalDraft.autoSku === false ? false : true,
+        	model: modalDraft.model || null,
+        image: modalDraft.image || null,
+        imageUrl: modalDraft.imageUrl || null,
+        description: modalDraft.description || null,
+        technicalDetails: modalDraft.technicalDetails || null,
+        sku: modalDraft.sku || null,
+        barcode: modalDraft.barcode || null,
+        cost: modalDraft.cost ? parseFloat(modalDraft.cost) : 0,
+        trackInventory: modalDraft.trackInventory,
+        availabilityStatus: normalizeAvailabilityStatus(modalDraft.availabilityStatus),
+        availableForPreorder: modalDraft.availableForPreorder,
+        preorderReleaseDate: modalDraft.availableForPreorder ? modalDraft.preorderReleaseDate || null : null,
+        preorderNotes: modalDraft.availableForPreorder ? modalDraft.preorderNotes || null : null,
+        preorderEta: modalDraft.availableForPreorder ? modalDraft.preorderEta || null : null,
+        vendorId: normalizeVendorId(modalDraft.vendorId),
+        gallery: galleryPayloadFromState(modalDraft.gallery),
+        highlightActive: modalDraft.highlightActive ? 1 : 0,
+        highlightLabel: modalDraft.highlightLabel && modalDraft.highlightLabel.trim() ? modalDraft.highlightLabel.trim() : null,
+        highlightPriority: modalDraft.highlightPriority ? parseInt(modalDraft.highlightPriority, 10) || 0 : 0,
+        newArrival: modalDraft.newArrival ? 1 : 0,
       };
 
       // Detect if only stock changed compared to original draft
@@ -1306,7 +1665,7 @@ export default function Products() {
 
       if (onlyStockChanged) {
         // Use the dedicated adjust-stock endpoint for purely stock edits
-        await api.post(`/products/${draftSrc.id}/adjust-stock`, { new_stock: payload.stock, reason: String(modalStockReason).trim() });
+        await api.post(`/products/${modalDraft.id}/adjust-stock`, { new_stock: payload.stock, reason: String(modalStockReason).trim() });
         toast.push('Stock adjusted', 'info');
         setModalOpen(false);
         setModalDraft(null);
@@ -1319,7 +1678,7 @@ export default function Products() {
 
       // Include the reason in the generic product update so backend can use it if supported
       if (stockChanged) payload.reason = String(modalStockReason).trim();
-      const updated = await api.put(`/products/${draftSrc.id}`, payload);
+      const updated = await api.put(`/products/${modalDraft.id}`, payload);
       toast.push('Product updated', 'info');
       setModalOpen(false);
       setModalDraft(null);
@@ -1328,9 +1687,6 @@ export default function Products() {
       setSelectedProduct(updated);
       await fetchProducts();
     } catch (err) {
-      if (opts && opts.setFieldErrors && err && err.fieldErrors) {
-        opts.setFieldErrors(err.fieldErrors);
-      }
       toast.push(err?.message || 'Failed to update product', 'error');
     } finally {
       setModalSaving(false);
@@ -1503,20 +1859,20 @@ export default function Products() {
     }
   };
 
-  const handleBulkFileInput = async (event) => {
+  const _handleBulkFileInput = async (event) => {
     const file = event.target.files?.[0];
     if (!file) return;
     await handleBulkFile(file);
     if (bulkFileInputRef.current) bulkFileInputRef.current.value = '';
   };
 
-  const bulkStats = useMemo(() => {
+  const _bulkStats = useMemo(() => {
     const total = bulkRows.length;
     const valid = bulkRows.filter((row) => row.valid).length;
     return { total, valid, invalid: total - valid };
   }, [bulkRows]);
 
-  const handleBulkImport = async () => {
+  const _handleBulkImport = async () => {
     if (!bulkRows.length) {
       setBulkError('Upload a CSV file first.');
       return;
@@ -1555,7 +1911,7 @@ export default function Products() {
     }
   };
 
-  const clearBulkPreview = () => {
+  const _clearBulkPreview = () => {
     setBulkRows([]);
     setBulkResult(null);
     setBulkError('');
@@ -1566,8 +1922,8 @@ export default function Products() {
     () => Object.keys(categories || {}).sort((a, b) => a.localeCompare(b)),
     [categories]
   );
-  const bulkPreviewRows = useMemo(() => bulkRows.slice(0, 8), [bulkRows]);
-  const noProducts = !loading && products.length === 0;
+  const _bulkPreviewRows = useMemo(() => bulkRows.slice(0, 8), [bulkRows]);
+  const _noProducts = !loading && products.length === 0;
 
   return (
     <div className="p-6 space-y-6">
@@ -1585,7 +1941,7 @@ export default function Products() {
           <div>
             <button
               type="button"
-              onClick={openCreateModal}
+              onClick={() => navigate('/products/add')}
               className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-md font-semibold shadow hover:bg-blue-700"
             >
               <FaPlus /> Add product
@@ -1707,7 +2063,7 @@ export default function Products() {
         </div>
       </section>
 
-      <ProductModal
+      <ProductForm
         open={modalOpen}
         draft={modalDraft}
         onClose={closeModal}

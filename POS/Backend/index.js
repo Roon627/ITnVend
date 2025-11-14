@@ -461,6 +461,13 @@ app.use('/api/vendors/:id/payouts', authMiddleware, requireRole(['manager','admi
 
 // Reports (admin/manager)
 app.use('/api/reports', authMiddleware, requireRole(['manager','admin']), reportsRouter);
+
+// Redirect vendor login to estore domain to avoid exposing POS domain
+app.get('/vendor/login', (req, res) => {
+    const loginUrl = (process.env.VENDOR_LOGIN_URL || `https://${req.get('host').replace('pos.', 'estore.')}/vendor/login`).trim();
+    res.redirect(302, loginUrl);
+});
+
 app.get('/', (req, res) => {
     res.send('ITnVend API is running...');
 });
@@ -4953,8 +4960,8 @@ app.post('/api/vendors/:id/resend-credentials', authMiddleware, requireRole(['ma
             const html = `<p>Hello ${vendor.legal_name || ''},</p>
                 <p>Your vendor account credentials have been (re)generated.</p>
                 <p><strong>Username:</strong> ${vendor.email}<br/><strong>Temporary password:</strong> ${tempPassword}</p>
-                <p>Please contact our support team at <a href="${loginUrl}">${loginUrl}</a> to complete your account setup and receive login instructions.</p>`;
-            const text = `Hello ${vendor.legal_name || ''},\n\nYour vendor account credentials have been (re)generated.\nUsername: ${vendor.email}\nTemporary password: ${tempPassword}\n\nPlease contact support at ${loginUrl} for login instructions.\n\nPlease change your password after first login.`;
+                <p>Please visit our <a href="${loginUrl}">vendor portal</a> and use these credentials to sign in.</p>`;
+            const text = `Hello ${vendor.legal_name || ''},\n\nYour vendor account credentials have been (re)generated.\nUsername: ${vendor.email}\nTemporary password: ${tempPassword}\n\nPlease visit our vendor portal: ${loginUrl}\n\nPlease change your password after first login.`;
                         try {
                             await sendNotificationEmail('Your vendor account credentials', html, vendor.email);
                         } catch (mailErr) {
@@ -4972,7 +4979,7 @@ app.post('/api/vendors/:id/resend-credentials', authMiddleware, requireRole(['ma
             const baseResp = { ok: true, emailed: false, message: 'Credentials updated but email failed; check server logs for temporary password' };
             if (revealReq) {
                 const loginUrl = (process.env.VENDOR_LOGIN_URL || `${req.protocol}://${req.get('host')}/vendor/login`).trim();
-                return res.json({ ...baseResp, revealed: { username: vendor.email, temporaryPassword: tempPassword, contactUrl: loginUrl } });
+                return res.json({ ...baseResp, revealed: { username: vendor.email, temporaryPassword: tempPassword, portalUrl: loginUrl } });
             }
             return res.json(baseResp);
         }

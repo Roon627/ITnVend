@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, useCallback } from 'react';
 import { FaEnvelopeOpenText, FaExternalLinkAlt, FaHistory, FaSync, FaTimes } from 'react-icons/fa';
 import { api } from '../lib/api';
 import Modal from '../components/Modal';
@@ -85,7 +85,7 @@ export default function Preorders() {
 
   useEffect(() => {
     loadPreorders(statusFilter);
-  }, [statusFilter]);
+  }, [statusFilter, loadPreorders]);
 
   useEffect(() => {
     if (selectedId == null && preorders.length > 0) {
@@ -99,7 +99,7 @@ export default function Preorders() {
     } else {
       setDetail(null);
     }
-  }, [selectedId]);
+  }, [selectedId, loadDetail]);
 
   useEffect(() => {
     if (!customerMessage.trim()) {
@@ -107,7 +107,7 @@ export default function Preorders() {
     }
   }, [customerMessage]);
 
-async function loadPreorders(status) {
+const loadPreorders = useCallback(async (status) => {
     setLoading(true);
     try {
       const params = status !== 'all' ? { status } : {};
@@ -119,9 +119,9 @@ async function loadPreorders(status) {
     } finally {
       setLoading(false);
     }
-  }
+  }, [toast]);
 
-  async function loadDetail(id) {
+  const loadDetail = useCallback(async (id) => {
     setDetailLoading(true);
     try {
       const data = await api.get(`/api/preorders/${id}`);
@@ -137,7 +137,7 @@ async function loadPreorders(status) {
     } finally {
       setDetailLoading(false);
     }
-  }
+  }, [toast]);
 
   async function handleUpdate(event) {
     event.preventDefault();

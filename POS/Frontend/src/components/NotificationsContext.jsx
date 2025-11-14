@@ -114,8 +114,8 @@ export function NotificationsProvider({ children }) {
         setLoading(false);
       }
     },
-    [user, attemptRefresh]
-  );
+      [user, attemptRefresh]
+    );
 
   const markRead = useCallback(
     async (id) => {
@@ -147,7 +147,7 @@ export function NotificationsProvider({ children }) {
       console.debug('Failed to mark notifications read', err?.message || err);
       fetchNotifications();
     }
-  }, [fetchNotifications]);
+  }, [fetchNotifications, notifications]);
 
   // Helper to create an array of [id, ts] for unread notifications
   const prevNotificationsToMap = (list, ts) => {

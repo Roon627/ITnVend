@@ -92,7 +92,7 @@ export default function Settings() {
     }
   }, [tabs, activeTab]);
 
-  const refreshSettings = async () => {
+  const refreshSettings = useCallback(async () => {
     try {
       const s = await api.get('/settings');
       setGlobalSettings(s);
@@ -102,7 +102,7 @@ export default function Settings() {
     } finally {
       setSettingsLoading(false);
     }
-  };
+  }, [push]);
 
   const fetchOutlets = useCallback(async () => {
     try {
@@ -117,7 +117,7 @@ export default function Settings() {
   useEffect(() => {
     fetchOutlets();
     refreshSettings();
-  }, [fetchOutlets]);
+  }, [fetchOutlets, refreshSettings]);
 
   const defaultSettings = useMemo(
     () => ({

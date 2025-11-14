@@ -3,7 +3,7 @@ import AvailabilityTag from './AvailabilityTag';
 import TagChips from './TagChips';
 import { resolveMediaUrl } from '../lib/media';
 
-export default function ProductInsight({ product = {}, formatCurrency = (v) => v, onTagClick, onEdit, onDelete, canDelete = false, userRole, lookups = {} }) {
+export default function ProductInsight({ product = {}, formatCurrency = (v) => v, onTagClick, onEdit, onDelete, canDelete = false }) {
   const image = resolveMediaUrl(product.imageUrl || product.image);
   return (
     <div className="p-4 border rounded bg-white">

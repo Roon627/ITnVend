@@ -76,7 +76,7 @@ export default function Slips() {
     return () => {
       cancelled = true;
     };
-  }, [activeView, selectedId]);
+  }, [activeView, selectedId, detail]);
 
   useEffect(() => {
     if (activeView !== 'review') return undefined;

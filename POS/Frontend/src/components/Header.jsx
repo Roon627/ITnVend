@@ -21,7 +21,7 @@ function formatAbsolute(date) {
   if (NOTIFICATION_TIMEZONE) options.timeZone = NOTIFICATION_TIMEZONE;
   try {
     return new Intl.DateTimeFormat(NOTIFICATION_LOCALE, options).format(date);
-  } catch (err) {
+  } catch {
     // Fallback if locale/timezone are invalid
     return date.toLocaleString();
   }

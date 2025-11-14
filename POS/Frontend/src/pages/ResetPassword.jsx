@@ -32,7 +32,7 @@ export default function ResetPassword() {
       // Use vendor endpoint when reset token was issued for vendor flow
       const isVendorPath = window.location.pathname.startsWith('/vendor');
       const endpoint = isVendorPath ? '/vendors/password-reset/confirm' : '/password-reset/confirm';
-      const res = await api.post(endpoint, { token, password });
+      await api.post(endpoint, { token, password });
       toast.push('Password updated. You can now sign in.', 'success');
       navigate('/login');
     } catch (err) {

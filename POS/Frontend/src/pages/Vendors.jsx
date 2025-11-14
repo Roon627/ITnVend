@@ -3,7 +3,6 @@ import { FaBuilding, FaEnvelope, FaGlobe, FaKey } from 'react-icons/fa';
 import api from '../lib/api';
 import { useToast } from '../components/ToastContext';
 import Modal from '../components/Modal';
-import { useAuth } from '../components/AuthContext';
 
 const STATUS_PILLS = [
   { id: 'pending', label: 'Pending', color: 'bg-amber-50 text-amber-700 border border-amber-100' },

@@ -152,7 +152,7 @@ export default function Submissions() {
       ]
     : [];
 
-  async function fetchSubmissions() {
+  const fetchSubmissions = useCallback(async () => {
     setLoading(true);
     try {
       const res = await api.get('/submissions');
@@ -163,9 +163,9 @@ export default function Submissions() {
     } finally {
       setLoading(false);
     }
-  }
+  }, [toast]);
 
-  useEffect(() => { fetchSubmissions(); }, []);
+  useEffect(() => { fetchSubmissions(); }, [fetchSubmissions]);
 
   async function approveVendor(id) {
     try {

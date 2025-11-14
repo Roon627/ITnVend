@@ -26,7 +26,7 @@ export default function SpecPreview({ value }) {
       );
     }
   } catch (e) {
-    if (process.env.NODE_ENV !== 'production') {
+    if (import.meta.env.DEV) {
       // keep a lightweight debug message during development only
       console.debug('SpecPreview JSON parse failed (falling back to plain text)', e?.message || e);
     }

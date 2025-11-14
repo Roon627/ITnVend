@@ -125,7 +125,7 @@ export default function VendorDashboard() {
                   </div>
                   <div className="flex items-center gap-2">
                     <Link to="/vendor/products" className="text-sm rounded border px-2 py-1">Edit</Link>
-                    <button onClick={() => { if (confirm(`Archive product \"${prod.name}\"?`)) { api.del(`/vendor/products/${prod.id}`).then(() => { setProducts(prev => prev.filter(x => x.id !== prod.id)); toast.push('Product archived', 'success'); }).catch(e => { toast.push('Archive failed', 'error'); console.error(e); }); } }} className="text-sm rounded bg-red-600 text-white px-2 py-1">Archive</button>
+                    <button onClick={() => { if (confirm(`Archive product "${prod.name}"?`)) { api.del(`/vendor/products/${prod.id}`).then(() => { setProducts(prev => prev.filter(x => x.id !== prod.id)); toast.push('Product archived', 'success'); }).catch(e => { toast.push('Archive failed', 'error'); console.error(e); }); } }} className="text-sm rounded bg-red-600 text-white px-2 py-1">Archive</button>
                   </div>
                 </div>
               ))}
