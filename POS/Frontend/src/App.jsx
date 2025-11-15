@@ -29,6 +29,7 @@ import VendorProducts from './pages/vendor/VendorProducts';
 import ManageLookups from './pages/ManageLookups';
 import AddProduct from './pages/AddProduct';
 import EditProduct from './pages/EditProduct';
+import NotFound from './pages/NotFound';
 import ValidateSlip from './pages/ValidateSlip';
 import Slips from './pages/Slips';
 import { AuthProvider, useAuth } from './components/AuthContext';
@@ -108,7 +109,7 @@ function App() {
   <Route path="/slips" element={<RoleGuard minRole="accounts"><Slips /></RoleGuard>} />
       <Route path="/settings" element={<RoleGuard minRole="manager"><Settings /></RoleGuard>} />
       <Route path="/manage-lookups" element={<RoleGuard minRole="admin"><ManageLookups /></RoleGuard>} />
-      <Route path="*" element={<Navigate to="/" replace />} />
+      <Route path="*" element={<NotFound />} />
     </Routes>
   );
 

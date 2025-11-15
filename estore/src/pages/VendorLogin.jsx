@@ -1,4 +1,6 @@
-import { FaArrowRight, FaShieldAlt, FaUser, FaEnvelope, FaLock } from 'react-icons/fa';
+import { FaArrowRight, FaShieldAlt, FaEnvelope, FaLock } from 'react-icons/fa';
+import { useSettings } from '../components/SettingsContext';
+import { resolveMediaUrl } from '../lib/media';
 
 const vendorPortalUrl =
   (import.meta.env?.VITE_VENDOR_PORTAL_URL ||
@@ -6,17 +8,30 @@ const vendorPortalUrl =
     'https://pos.itnvend.com/vendor/login').trim();
 
 export default function VendorLogin() {
+  const { settings, logoUrl } = useSettings() || {};
+  const brandLogo = resolveMediaUrl(logoUrl) || '/images/logo.png';
+  const brandName =
+    settings?.branding?.name ||
+    settings?.outlet?.name ||
+    settings?.brand?.name ||
+    'ITnVend';
+
   return (
     <section className="bg-gradient-to-br from-rose-50 via-white to-sky-50 py-16">
-      <div className="mx-auto max-w-2xl px-6">
-        <div className="rounded-3xl bg-white/80 p-8 shadow-xl shadow-rose-100/60 backdrop-blur">
-          <div className="mb-6 text-center">
-            <div className="mx-auto w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mb-4">
-              <FaUser className="w-8 h-8 text-blue-600" />
-            </div>
-            <h1 className="text-2xl font-bold text-slate-800">Vendor Portal Access</h1>
-            <p className="mt-2 text-slate-600">
-              Access your vendor account to manage products and track sales
+      <div className="mx-auto max-w-3xl px-6">
+        <div className="rounded-3xl bg-white/85 p-10 text-center shadow-xl shadow-rose-100/60 backdrop-blur">
+          <div className="mb-8 flex flex-col items-center gap-3 text-center">
+            <img
+              src={brandLogo}
+              alt={`${brandName} Logo`}
+              className="h-16 w-16 rounded-2xl border border-white/80 bg-white p-2 shadow-md shadow-rose-100"
+              loading="lazy"
+            />
+            <p className="text-[10px] font-semibold uppercase tracking-[0.45em] text-rose-300">Vendor console</p>
+            <h1 className="text-3xl font-black text-slate-800">Secure partner access</h1>
+            <p className="mt-2 text-sm text-slate-600 max-w-xl">
+              Only approved ITnVend vendors can sign in here. Use the same credentials you received in your onboarding email.
+              Keep this tab open; the login opens in a new window and will not interrupt your shopping session.
             </p>
           </div>
 

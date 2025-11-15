@@ -46,12 +46,20 @@ export default function VendorDirectory() {
               Every vendor listed here is approved inside the POS, so inventory, carts, and fulfilment all stay perfectly in sync.
             </p>
           </div>
-          <Link
-            to="/vendor-onboarding"
-            className="inline-flex items-center gap-2 rounded-full border border-rose-200 bg-white px-5 py-2 text-sm font-semibold text-rose-500 shadow-sm transition hover:bg-rose-50"
-          >
-            Become a vendor
-          </Link>
+          <div className="flex flex-wrap items-center gap-3">
+            <Link
+              to="/vendor-onboarding"
+              className="inline-flex items-center gap-2 rounded-full border border-rose-200 bg-white px-5 py-2 text-sm font-semibold text-rose-500 shadow-sm transition hover:bg-rose-50"
+            >
+              Become a vendor
+            </Link>
+            <Link
+              to="/vendor/login"
+              className="inline-flex items-center gap-2 rounded-full border border-rose-200 bg-white px-5 py-2 text-sm font-semibold text-rose-500 shadow-sm transition hover:bg-rose-50"
+            >
+              Vendor login
+            </Link>
+          </div>
         </div>
 
         <div className="mb-8 flex flex-col gap-3 rounded-3xl border border-white/70 bg-white/90 p-6 shadow-lg shadow-rose-100/50 sm:flex-row sm:items-center sm:justify-between">

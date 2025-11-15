@@ -22,6 +22,7 @@ import VendorDirectory from "./pages/VendorDirectory";
 import ResetPassword from "./pages/ResetPassword";
 import VendorResetPassword from "./pages/VendorResetPassword";
 import VendorLogin from "./pages/VendorLogin";
+import NotFound from "./pages/NotFound";
 
 function PublicLayout({ children }) {
   return (
@@ -68,7 +69,7 @@ function App() {
         <Route path="/reset-password" element={<PublicLayout><ResetPassword /></PublicLayout>} />
         <Route path="/vendor/login" element={<PublicLayout><VendorLogin /></PublicLayout>} />
         <Route path="/vendor/reset-password" element={<PublicLayout><VendorResetPassword /></PublicLayout>} />
-        <Route path="*" element={<Navigate to="/" replace />} />
+        <Route path="*" element={<PublicLayout><NotFound /></PublicLayout>} />
       </Routes>
     </BrowserRouter>
   );

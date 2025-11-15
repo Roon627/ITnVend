@@ -2,8 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { FaBoxOpen, FaCube, FaExclamationTriangle } from 'react-icons/fa';
 import api from '../../lib/api';
 import { useToast } from '../../components/ToastContext';
-import Modal from '../../components/Modal';
-import ProductForm from '../../components/ProductForm';
+import ProductForm from '../../modules/product/ProductForm';
 
 export default function VendorProducts() {
   const [products, setProducts] = useState([]);
@@ -241,44 +240,15 @@ export default function VendorProducts() {
           </section>
         )}
 
-        <Modal
+        <ProductForm
           open={modalOpen}
+          draft={editing || {}}
           onClose={() => setModalOpen(false)}
-          labelledBy="vendor-product-modal"
-          align="start"
-          className="w-full max-w-3xl"
-        >
-          <div className="flex h-full max-h-[90vh] flex-col overflow-hidden rounded-3xl bg-white shadow-2xl">
-            <header className="flex items-center justify-between border-b border-slate-100 px-5 py-3">
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.3em] text-indigo-300">
-                  Vendor workspace
-                </p>
-                <h3 id="vendor-product-modal" className="text-lg font-semibold text-slate-900">
-                  {editing ? 'Edit product' : 'Add product'}
-                </h3>
-              </div>
-              <button
-                type="button"
-                onClick={() => setModalOpen(false)}
-                className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 text-slate-500 transition hover:border-rose-200 hover:text-rose-600"
-                aria-label="Close product form"
-              >
-                ×
-              </button>
-            </header>
-            <div className="flex-1 overflow-y-auto px-5 py-4">
-              <ProductForm
-                initial={editing || {}}
-                onCancel={() => setModalOpen(false)}
-                onSave={handleSave}
-                saving={saving}
-                lookups={lookups}
-                categoryTree={categoryTree}
-              />
-            </div>
-          </div>
-        </Modal>
+          onSave={handleSave}
+          saving={saving}
+          lookups={lookups}
+          categoryTree={categoryTree}
+        />
       </div>
     </div>
   );
