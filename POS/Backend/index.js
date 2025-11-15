@@ -28,14 +28,13 @@ import { createSlipProcessingQueue } from './lib/slipProcessingQueue.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const backendRoot = path.dirname(__filename);
-const uploadsRoot = path.join(backendRoot, 'uploads');
-const imagesDir = path.join(backendRoot, 'public', 'images');
+const uploadsRoot = path.join(backendRoot, 'public', 'images');
+const imagesDir = uploadsRoot;
 const CERTS_DIR = path.join(backendRoot, 'certs');
 const HTTPS_CERT_PATH = path.join(CERTS_DIR, 'pos-itnvend-com.pem');
 const HTTPS_KEY_PATH = path.join(CERTS_DIR, 'pos-itnvend-com-key.pem');
 
 try { fs.mkdirSync(uploadsRoot, { recursive: true }); } catch (err) { /* ignore */ }
-try { fs.mkdirSync(imagesDir, { recursive: true }); } catch (err) { /* ignore */ }
 
 function loadHttpsOptions() {
     try {
@@ -508,7 +507,6 @@ app.use('/api/validate-slip-public', validateSlipPublicRouter);
 
 // serve uploaded files (slips/assets) from /uploads - local disk storage uses this path
 app.use('/uploads', express.static(imagesDir));
-app.use('/uploads', express.static(uploadsRoot));
 
 // Slips persistence endpoints (authenticated)
 app.use('/api/slips', authMiddleware, requireRole(['accounts', 'manager', 'admin']), slipsRouter);
@@ -1590,11 +1588,97 @@ function sanitizeSegments(input, fallback = 'uncategorized') {
     return segments;
 }
 
+const SMART_UPLOAD_TYPES = new Set(['products', 'product', 'vendors', 'vendor', 'categories', 'category', 'users', 'user', 'customers', 'customer']);
+
+function toCanonicalUploadType(type) {
+    if (!type) return 'misc';
+    const normalized = type.toString().trim().toLowerCase();
+    if (normalized.startsWith('product')) return 'products';
+    if (normalized.startsWith('vendor')) return 'vendors';
+    if (normalized.startsWith('category')) return 'categories';
+    if (normalized.startsWith('customer')) return 'customers';
+    if (normalized.startsWith('user')) return 'users';
+    return normalized || 'misc';
+}
+
+function sanitizeUploadSegment(value, fallback = 'misc') {
+    if (value === undefined || value === null) return fallback;
+    const cleaned = String(value)
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-+|-+$/g, '');
+    return cleaned || fallback;
+}
+
 function ensureUploadDir(category, fallback = 'uncategorized') {
     const segments = sanitizeSegments(category, fallback);
     const dir = path.join(imagesDir, ...segments);
     fs.mkdirSync(dir, { recursive: true });
     return { dir, segments };
+}
+
+function ensureSmartUploadDir(type = 'misc', identifier = 'misc', fallbackType = 'misc') {
+    const typeSegment = sanitizeUploadSegment(type, fallbackType);
+    const identifierSegment = sanitizeUploadSegment(identifier, 'misc');
+    return ensureUploadDir([typeSegment, identifierSegment], fallbackType);
+}
+
+function guessUploadIdentifier(req, type) {
+    const body = req.body || {};
+    const query = req.query || {};
+    const getValue = (keys = []) => {
+        for (const key of keys) {
+            const value = body[key] ?? query[key];
+            if (value === undefined || value === null) continue;
+            const str = String(value).trim();
+            if (str) return str;
+        }
+        return null;
+    };
+    const normalized = (type || '').toLowerCase();
+    if (normalized.startsWith('product')) {
+        return getValue(['identifier', 'productId', 'product_id', 'product', 'productSlug', 'slug', 'sku', 'name']);
+    }
+    if (normalized.startsWith('vendor')) {
+        return getValue(['identifier', 'vendorId', 'vendor_id', 'vendor', 'company', 'name']);
+    }
+    if (normalized.startsWith('category')) {
+        return getValue(['identifier', 'categoryId', 'category_id', 'category', 'slug', 'name']);
+    }
+    if (normalized.startsWith('customer') || normalized.startsWith('user')) {
+        return getValue(['identifier', 'customerId', 'customer_id', 'userId', 'user_id', 'email', 'phone', 'name']);
+    }
+    return getValue(['identifier', 'id', 'slug', 'name']) || null;
+}
+
+function resolveUploadTarget(req) {
+    const query = req.query || {};
+    const body = req.body || {};
+    const rawType = query.type || body.type || '';
+    const rawCategory = query.category || body.category || '';
+    const candidateType = rawType || rawCategory;
+    const isSmart =
+        (candidateType && SMART_UPLOAD_TYPES.has(candidateType.toString().trim().toLowerCase())) ||
+        SMART_UPLOAD_TYPES.has((rawType || '').toString().trim().toLowerCase());
+
+    if (isSmart || rawType) {
+        const canonicalType = toCanonicalUploadType(candidateType || rawType || 'misc');
+        const identifier =
+            query.identifier ||
+            body.identifier ||
+            guessUploadIdentifier(req, canonicalType) ||
+            (canonicalType === 'products' ? 'misc-product' : 'misc');
+        return ensureSmartUploadDir(canonicalType, identifier, canonicalType);
+    }
+
+    if (rawCategory) {
+        return ensureUploadDir(rawCategory, 'uncategorized');
+    }
+
+    const fallbackIdentifier = guessUploadIdentifier(req, rawType) || 'misc';
+    const fallbackType = rawType || 'misc';
+    return ensureSmartUploadDir(fallbackType, fallbackIdentifier, fallbackType);
 }
 
 function normalizeUploadPath(raw) {
@@ -1654,9 +1738,8 @@ function buildUploadBreadcrumbs(relPath = '') {
         // configure multer storage
         const storage = multer.diskStorage({
             destination: function (req, file, cb) {
-                const category = (req.query && req.query.category) || (req.body && req.body.category) || 'uncategorized';
                 try {
-                    const { dir } = ensureUploadDir(category, 'uncategorized');
+                    const { dir } = resolveUploadTarget(req);
                     cb(null, dir);
                 } catch (err) {
                     cb(err);
@@ -1702,10 +1785,16 @@ function buildUploadBreadcrumbs(relPath = '') {
                     const parts = mime.split('/');
                     ext = parts[1] ? '.' + parts[1].split('+')[0] : '';
                 }
-                const cat = (req.query && req.query.category) || category || 'uncategorized';
-                const { dir } = ensureUploadDir(cat, 'uncategorized');
+                let target;
+                if (req.query?.type || req.body?.type || SMART_UPLOAD_TYPES.has((req.query?.category || req.body?.category || '').toLowerCase())) {
+                    // mimic smart destination when available
+                    target = resolveUploadTarget(req);
+                } else {
+                    const cat = (req.query && req.query.category) || category || 'uncategorized';
+                    target = ensureUploadDir(cat, 'uncategorized');
+                }
                 const safeName = `${Date.now()}-${(filename || 'upload').replace(/[^a-z0-9\.\-_]/gi, '_')}${ext}`;
-                const filePath = path.join(dir, safeName);
+                const filePath = path.join(target.dir, safeName);
                 const buffer = Buffer.from(base64, 'base64');
                 fs.writeFileSync(filePath, buffer);
                 const rel = path.relative(imagesDir, filePath).replace(/\\/g, '/');
