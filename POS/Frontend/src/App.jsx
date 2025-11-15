@@ -28,6 +28,7 @@ import VendorDashboard from './modules/vendor/VendorDashboard';
 import VendorProducts from './pages/vendor/VendorProducts';
 import ManageLookups from './pages/ManageLookups';
 import AddProduct from './pages/AddProduct';
+import EditProduct from './pages/EditProduct';
 import ValidateSlip from './pages/ValidateSlip';
 import Slips from './pages/Slips';
 import { AuthProvider, useAuth } from './components/AuthContext';
@@ -87,6 +88,7 @@ function App() {
       <Route path="/pos" element={<POS />} />
       <Route path="/products" element={<Products />} />
       <Route path="/products/add" element={<AddProduct />} />
+      <Route path="/products/:id/edit" element={<EditProduct />} />
       <Route path="/invoices" element={<Invoices />} />
   <Route path="/vendors" element={<RoleGuard minRole="manager"><Vendors /></RoleGuard>} />
   <Route path="/vendors/register" element={<RoleGuard minRole="manager"><VendorRegister /></RoleGuard>} />

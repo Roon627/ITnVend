@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import api from '../lib/api';
 import resolveMediaUrl from '../lib/media';
 import { useToast } from '../components/ToastContext';

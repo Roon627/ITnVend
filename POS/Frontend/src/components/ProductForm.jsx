@@ -66,6 +66,17 @@ const normalizeLookupList = (list = [], fallback = []) => {
   return source.map(normalizeLookupOption).filter(Boolean);
 };
 
+const safeParseGallery = (value) => {
+  if (!value) return [];
+  if (Array.isArray(value)) return value.filter(Boolean);
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed.filter(Boolean) : [];
+  } catch {
+    return [];
+  }
+};
+
 const cleanNumberInput = (value, { fallback = '', allowFloat = true } = {}) => {
   if (value === undefined || value === null) return fallback;
   const text = String(value).trim();
@@ -141,6 +152,7 @@ const buildInitialForm = (initial = {}) => {
     ? [initial.gallery]
     : [];
   return {
+    id: initial.id || null,
     name: initial.name || '',
     price: cleanNumberInput(initial.price, { fallback: '' }),
     stock: cleanNumberInput(initial.stock, { fallback: '0', allowFloat: false }),
@@ -176,9 +188,9 @@ const buildInitialForm = (initial = {}) => {
       ),
     newArrival: initial.newArrival ?? !!initial.new_arrival,
     image: initial.image || '',
-    imageUrl: initial.imageUrl || initial.image_source || '',
-    imagePreview: initial.imagePreview || initial.imageUrl || initial.image || '',
-    gallery: galleryValue,
+    imageUrl: initial.imageUrl || initial.image_source || initial.image || '',
+    imagePreview: initial.imagePreview || initial.image_source || initial.image || '',
+    gallery: safeParseGallery(initial.gallery || galleryValue),
     tags: tagValue,
     audience: initial.audience || '',
     deliveryType: initial.deliveryType || initial.delivery_type || '',
@@ -485,31 +497,45 @@ export default function ProductForm({
   const handleGalleryFiles = async (event) => {
     const files = Array.from(event.target.files || []);
     if (!files.length) return;
-    const previews = files.map((file) => URL.createObjectURL(file));
-    setForm((prev) => {
-      const nextGallery = [...(prev.gallery || []), ...previews];
-      const next = { ...prev, gallery: nextGallery };
-      notifyExternalChange('gallery', nextGallery, next);
-      return next;
-    });
+
+    const sanitizeGallery = (list = []) =>
+      (Array.isArray(list) ? list : [])
+        .map((entry) => {
+          if (!entry) return null;
+          if (typeof entry === 'string') return entry.trim();
+          if (typeof entry === 'object') {
+            return entry.path?.trim?.() || entry.url?.trim?.() || '';
+          }
+          return '';
+        })
+        .filter(Boolean);
+
     if (typeof externalOnUploadGallery === 'function') {
       try {
         externalOnUploadGallery(files);
       } catch (err) {
         console.debug('externalOnUploadGallery failed', err);
+      } finally {
+        if (galleryInputRef.current) galleryInputRef.current.value = '';
       }
-    } else {
-      for (const file of files) {
-        const uploaded = await uploadFile(file);
-        if (uploaded) {
-          setForm((prev) => {
-            const nextGallery = [...(prev.gallery || []).filter(Boolean), uploaded];
-            notifyExternalChange('gallery', nextGallery, { ...prev, gallery: nextGallery });
-            return { ...prev, gallery: nextGallery };
-          });
-        }
-      }
+      return;
     }
+
+    const uploadedPaths = [];
+    for (const file of files) {
+      const uploaded = await uploadFile(file);
+      if (uploaded) uploadedPaths.push(uploaded);
+    }
+
+    if (uploadedPaths.length) {
+      setForm((prev) => {
+        const nextGallery = sanitizeGallery([...(prev.gallery || []), ...uploadedPaths]);
+        const next = { ...prev, gallery: nextGallery };
+        notifyExternalChange('gallery', nextGallery, next);
+        return next;
+      });
+    }
+
     if (galleryInputRef.current) galleryInputRef.current.value = '';
   };
 
@@ -550,6 +576,7 @@ export default function ProductForm({
     if (Object.keys(validationErrors).length) return;
     const normalizedType = form.type === 'digital' ? 'digital' : 'physical';
     const payload = {
+      ...(form.id && { id: form.id }),
       name: form.name,
       price: Number(form.price),
       stock: form.type === 'digital' ? 0 : Number(form.stock) || 0,
@@ -567,7 +594,7 @@ export default function ProductForm({
       type: normalizedType,
       productTypeLabel: form.type || normalizedType,
       model: form.model,
-      year: form.year,
+      year: safeNumber(form.year),
       barcode: form.barcode,
       cost: form.cost ? parseFloat(form.cost) : 0,
       trackInventory: form.type === 'digital' ? false : !!form.trackInventory,
@@ -579,7 +606,7 @@ export default function ProductForm({
       vendorId: form.vendorId || '',
       highlightActive: !!form.highlightActive,
       highlightLabel: form.highlightLabel,
-      highlightPriority: form.highlightPriority,
+      highlightPriority: safeNumber(form.highlightPriority),
       newArrival: !!form.newArrival,
       image: form.image,
       imageUrl: form.imageUrl,
