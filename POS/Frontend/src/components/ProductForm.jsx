@@ -378,12 +378,6 @@ export default function ProductForm({
     });
   }, [form.autoSku, form.name, form.year, currentBrandName, notifyExternalChange]);
 
-  useEffect(() => {
-    if (form.type !== 'digital') return;
-    if (!form.trackInventory) return;
-    update('trackInventory', false);
-  }, [form.type, form.trackInventory, update]);
-
   const validate = useCallback(() => {
     const validationErrors = {};
     if (!form.name || !String(form.name).trim()) validationErrors.name = 'Name is required';
@@ -579,7 +573,7 @@ export default function ProductForm({
       ...(form.id && { id: form.id }),
       name: form.name,
       price: Number(form.price),
-      stock: form.type === 'digital' ? 0 : Number(form.stock) || 0,
+      stock: Number(form.stock) || 0,
       sku: form.sku,
       autoSku: form.autoSku,
       shortDescription: form.shortDescription,
@@ -597,7 +591,7 @@ export default function ProductForm({
       year: safeNumber(form.year),
       barcode: form.barcode,
       cost: form.cost ? parseFloat(form.cost) : 0,
-      trackInventory: form.type === 'digital' ? false : !!form.trackInventory,
+      trackInventory: !!form.trackInventory,
       availabilityStatus: form.availabilityStatus,
       availableForPreorder: !!form.availableForPreorder,
       preorderEta: form.availableForPreorder ? form.preorderEta : '',
@@ -929,7 +923,7 @@ export default function ProductForm({
                 const nextType = value || 'physical';
                 update('type', nextType);
                 if (nextType === 'digital') {
-                  updateMany({ trackInventory: false, deliveryType: 'instant_download' });
+                  updateMany({ deliveryType: form.deliveryType || 'instant_download' });
                 }
               }}
               options={PRODUCT_TYPES}
@@ -985,13 +979,10 @@ export default function ProductForm({
             <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">Stock</label>
             <input
               type="number"
-              value={form.type === 'digital' ? '' : safeNumber(form.stock)}
-              placeholder={form.type === 'digital' ? 'Unlimited' : undefined}
+              value={safeNumber(form.stock)}
               onChange={(event) => update('stock', event.target.value)}
               className="mt-1 w-full rounded-md border px-3 py-2 text-sm"
-              disabled={form.type === 'digital'}
             />
-            {form.type === 'digital' && <p className="mt-1 text-xs text-slate-500">Digital inventory is set to unlimited.</p>}
           </div>
           <div>
             <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">Track inventory</label>
@@ -1000,7 +991,6 @@ export default function ProductForm({
                 type="checkbox"
                 checked={!!form.trackInventory}
                 onChange={(event) => update('trackInventory', !!event.target.checked)}
-                disabled={form.type === 'digital'}
               />
               Enable stock tracking
             </label>

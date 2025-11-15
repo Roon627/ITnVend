@@ -25,10 +25,16 @@ export default function ProductCard({ product, onAdd = () => {}, formatCurrency:
   const { formatCurrency } = useSettings();
   const fmt = formatCurrencyProp || formatCurrency || ((n) => n);
 
+  const buttonBase =
+    'inline-flex items-center justify-center gap-1 rounded-lg px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide transition-colors duration-200';
+  const primaryButton = `${buttonBase} border border-rose-200 bg-rose-500 text-white shadow-sm hover:bg-rose-600`;
+  const outlineButton = `${buttonBase} border border-rose-200 bg-white/90 text-rose-600 hover:bg-rose-50`;
+  const neutralButton = `${buttonBase} border border-slate-200 bg-slate-100 text-slate-500`;
+
   return (
     <>
-      <article className="group flex flex-col overflow-hidden rounded-2xl border border-slate-200/40 bg-white text-slate-900 shadow-lg shadow-rose-100/40 transition-all duration-300 hover:shadow-xl hover:shadow-rose-200/60 hover:-translate-y-1">
-        <div className="relative h-48 sm:h-56 overflow-hidden">
+      <article className="group mx-auto flex w-full max-w-[340px] flex-col overflow-hidden rounded-2xl border border-slate-200/40 bg-white text-slate-900 shadow-lg shadow-rose-100/40 transition-all duration-300 hover:-translate-y-1 hover:shadow-xl hover:shadow-rose-200/60">
+        <div className="relative aspect-[4/5] w-full overflow-hidden sm:h-56 sm:aspect-auto">
           <AvailabilityTag availabilityStatus={availabilityStatus} />
           {image ? (
             <img
@@ -44,12 +50,12 @@ export default function ProductCard({ product, onAdd = () => {}, formatCurrency:
           )}
         </div>
 
-        <div className="flex flex-1 flex-col p-4">
-          <h3 className="text-base font-semibold text-slate-800 line-clamp-2">{product.name}</h3>
+        <div className="flex flex-1 flex-col p-3 sm:p-4">
+          <h3 className="text-sm font-semibold text-slate-800 line-clamp-2 sm:text-base">{product.name}</h3>
           
           <div className="mt-auto pt-4">
             <div className="mb-3 text-left">
-              <span className="text-xl font-bold text-rose-500">{fmt(product.price)}</span>
+              <span className="text-lg font-bold text-rose-500 sm:text-xl">{fmt(product.price)}</span>
             </div>
             <div className={`grid gap-2 ${userListing ? 'grid-cols-1' : 'grid-cols-2'}`}>
               {userListing ? (
@@ -59,21 +65,21 @@ export default function ProductCard({ product, onAdd = () => {}, formatCurrency:
                     onClick={(e) => {
                       if (!contactLink) e.preventDefault();
                     }}
-                    className="btn-sm btn-sm-primary w-full sm:flex-1 inline-flex items-center justify-center gap-2 rounded-lg bg-amber-500 text-white shadow-sm transition-colors hover:bg-amber-600"
+                    className={`${buttonBase} border border-amber-200 bg-amber-500 text-white shadow-sm hover:bg-amber-600`}
                     aria-label="Contact seller"
                   >
                     <FaPhone />
                     Contact Seller
                   </a>
                 ) : (
-                  <div className="btn-sm btn-sm-outline w-full sm:flex-1 inline-flex items-center justify-center gap-2 rounded-lg bg-slate-200 text-slate-500">
+                  <div className={neutralButton}>
                     Contact Pending
                   </div>
                 )
               ) : (
                 <button
                   onClick={() => onAdd(product)}
-                  className="btn-sm btn-sm-primary inline-flex items-center justify-center gap-2 rounded-lg bg-rose-500 text-white shadow-sm transition-colors hover:bg-rose-600"
+                  className={primaryButton}
                   aria-label={`${isPreorder ? 'Preorder' : 'Add'} ${product.name}`}
                 >
                   <FaShoppingCart />
@@ -83,7 +89,7 @@ export default function ProductCard({ product, onAdd = () => {}, formatCurrency:
               <Link
                 to={`/product/${product.id}`}
                 state={{ preloadedProduct: product }}
-                className="btn-sm btn-sm-outline inline-flex items-center justify-center gap-2 rounded-lg border border-rose-200 bg-white/80 text-rose-600 shadow-sm transition-colors hover:bg-rose-50"
+                className={outlineButton}
                 aria-label={`View details for ${product.name}`}
               >
                 View

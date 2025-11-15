@@ -26,12 +26,6 @@ const normalizeAvailabilityStatus = (value, fallback = 'in_stock') => {
   return AVAILABILITY_STATUS_LABELS[normalized] ? normalized : fallback;
 };
 
-const normalizeVendorId = (value) => {
-  if (value === undefined || value === null || value === '') return null;
-  const parsed = parseInt(value, 10);
-  return Number.isFinite(parsed) ? parsed : null;
-};
-
 function normalizeKey(key) {
   return key.toLowerCase().replace(/[^a-z0-9]/g, '');
 }
@@ -90,140 +84,6 @@ function parseCsv(text) {
   });
   return { headers, rows };
 }
-
-const slugifySegment = (value = '') =>
-  (value || '')
-    .toString()
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/(^-|-$)+/g, '');
-
-function buildProductUploadCategory(category, subcategory, subsubcategory, productLabel) {
-  const segments = [category, subcategory, subsubcategory]
-    .map((value) => slugifySegment(value))
-    .filter(Boolean);
-  const productSegment = slugifySegment(productLabel);
-  if (productSegment) segments.push(productSegment);
-  return ['products', ...segments].join('/');
-}
-
-function idsMatch(a, b) {
-  if (a == null || b == null) return false;
-  return String(a) === String(b);
-}
-
-function resolveCategoryLabelsFromDraft(draft = {}, categoryTree = []) {
-  const normalizedDraft = draft || {};
-  const tree = Array.isArray(categoryTree) ? categoryTree : [];
-
-  let categoryName = (normalizedDraft.category || '').toString().trim();
-  let subcategoryName = (normalizedDraft.subcategory || '').toString().trim();
-  let subsubcategoryName = (normalizedDraft.subsubcategory || '').toString().trim();
-
-  const findCategoryById = (id) => tree.find((cat) => idsMatch(cat.id, id));
-  const findSubcategoryById = (id) => {
-    for (const category of tree) {
-      if (!Array.isArray(category.children)) continue;
-      const hit = category.children.find((child) => idsMatch(child.id, id));
-      if (hit) return { category, subcategory: hit };
-    }
-    return null;
-  };
-  const findSubsubcategoryById = (id) => {
-    for (const category of tree) {
-      if (!Array.isArray(category.children)) continue;
-      for (const subcategory of category.children) {
-        if (!Array.isArray(subcategory.children)) continue;
-        const hit = subcategory.children.find((child) => idsMatch(child.id, id));
-        if (hit) return { category, subcategory, subsubcategory: hit };
-      }
-    }
-    return null;
-  };
-
-  if (!categoryName && normalizedDraft.categoryId) {
-    const found = findCategoryById(normalizedDraft.categoryId);
-    if (found) categoryName = found.name || '';
-  }
-  if ((!subcategoryName || !categoryName) && normalizedDraft.subcategoryId) {
-    const found = findSubcategoryById(normalizedDraft.subcategoryId);
-    if (found) {
-      subcategoryName = subcategoryName || found.subcategory.name || '';
-      categoryName = categoryName || found.category.name || '';
-    }
-  }
-  if ((!subsubcategoryName || !subcategoryName || !categoryName) && normalizedDraft.subsubcategoryId) {
-    const found = findSubsubcategoryById(normalizedDraft.subsubcategoryId);
-    if (found) {
-      subsubcategoryName = subsubcategoryName || found.subsubcategory.name || '';
-      subcategoryName = subcategoryName || found.subcategory.name || '';
-      categoryName = categoryName || found.category.name || '';
-    }
-  }
-
-  return {
-    categoryName,
-    subcategoryName,
-    subsubcategoryName,
-  };
-}
-
-function buildUploadCategoryFromDraft(draft = {}, categoryTree = []) {
-  const { categoryName, subcategoryName, subsubcategoryName } = resolveCategoryLabelsFromDraft(draft, categoryTree);
-  const label =
-    draft.slug ||
-    draft.sku ||
-    (draft.id ? `product-${draft.id}` : '') ||
-    draft.name ||
-    draft.model ||
-    'new-product';
-  return buildProductUploadCategory(categoryName, subcategoryName, subsubcategoryName, label);
-}
-
-const formatGalleryEntries = (gallery) => {
-  if (!Array.isArray(gallery)) return [];
-  return gallery
-    .map((entry, index) => {
-      const path = typeof entry === 'string' ? entry.trim() : entry?.path?.trim?.() || '';
-      if (!path) return null;
-      return {
-        id: `${path}-${index}-${Date.now()}`,
-        path,
-        url: resolveMediaUrl(path),
-      };
-    })
-    .filter(Boolean);
-};
-
-const galleryPayloadFromState = (gallery) =>
-  (Array.isArray(gallery) ? gallery : [])
-    .map((entry) => {
-      if (typeof entry === 'string') return entry.trim();
-      return entry?.path || entry?.url || '';
-    })
-    .map((value) => value.trim())
-    .filter(Boolean);
-
-const buildGalleryEntry = (pathOrUrl, absoluteUrl) => {
-  const candidate = (pathOrUrl || absoluteUrl || '').trim();
-  if (!candidate) return null;
-  const resolved = resolveMediaUrl(absoluteUrl || pathOrUrl || '');
-  if (!resolved) return null;
-  const id = `${candidate}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
-  return {
-    id,
-    path: pathOrUrl || absoluteUrl || '',
-    url: resolved,
-  };
-};
-
-const addGalleryEntry = (gallery = [], entry) => {
-  if (!entry) return gallery;
-  const exists = gallery.some((img) => (img.path || img.url) === (entry.path || entry.url));
-  if (exists) return gallery;
-  return [...gallery, entry];
-};
 
 function mapCsvRowToProduct(row) {
   const get = createRowAccessor(row);
@@ -485,14 +345,12 @@ export default function Products() {
   const [searchValue, setSearchValue] = useState('');
   const [loading, setLoading] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState(null);
-  const [activeVendors, setActiveVendors] = useState([]);
 
   // Permanent delete dialog state (admin-only)
   const [permDeleteOpen, setPermDeleteOpen] = useState(false);
   const [permDeleteTarget, setPermDeleteTarget] = useState(null);
   const [permDeleteConfirm, setPermDeleteConfirm] = useState('');
   const [lookups, setLookups] = useState(null);
-  const [categoryTree, setCategoryTree] = useState([]);
 
   const [bulkRows, setBulkRows] = useState([]);
   const [_bulkResult, setBulkResult] = useState(null);
@@ -512,23 +370,10 @@ export default function Products() {
 
   const fetchLookupsAndTree = useCallback(async () => {
     try {
-      const [lu, tree] = await Promise.all([
-        api.get('/lookups'),
-        api.get('/categories/tree', { params: { depth: 3 } }),
-      ]);
+      const lu = await api.get('/lookups');
       setLookups(lu || {});
-      setCategoryTree(Array.isArray(tree) ? tree : []);
     } catch (err) {
-      console.debug('Failed to load lookups or category tree', err?.message || err);
-    }
-  }, []);
-
-  const fetchActiveVendors = useCallback(async () => {
-    try {
-      const list = await api.get('/vendors', { params: { status: 'active' } });
-      setActiveVendors(Array.isArray(list) ? list : []);
-    } catch (err) {
-      console.debug('Failed to load active vendors', err?.message || err);
+      console.debug('Failed to load lookups', err?.message || err);
     }
   }, []);
 
@@ -562,8 +407,7 @@ export default function Products() {
 
   useEffect(() => {
     fetchLookupsAndTree();
-    fetchActiveVendors();
-  }, [fetchLookupsAndTree, fetchActiveVendors]);
+  }, [fetchLookupsAndTree]);
 
   useEffect(() => {
     fetchProducts();
@@ -849,7 +693,18 @@ export default function Products() {
                               >
                                 <FaEdit /> Edit
                               </button>
-                              {user && user.role === 'admin' && <button type="button" onClick={(e) => { e.stopPropagation(); openPermanentDelete(product); }} className="inline-flex items-center gap-1 rounded-md border px-3 py-1.5 text-xs text-rose-700">🗑️ Permanently delete</button>}
+                              {user && user.role === 'admin' && (
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    openPermanentDelete(product);
+                                  }}
+                                  className="inline-flex items-center gap-1 rounded-md border px-3 py-1.5 text-xs text-rose-700"
+                                >
+                                  🗑️ Permanently delete
+                                </button>
+                              )}
                             </div>
                           </td>
                         </tr>
@@ -879,7 +734,13 @@ export default function Products() {
                         <FaEdit /> Edit
                       </button>
                       {canDelete && (
-                        <button type="button" onClick={() => handleDeleteProduct(selectedProduct.id)} className="inline-flex items-center gap-2 rounded-md border px-3 py-1.5 text-xs text-rose-600">Archive</button>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteProduct(selectedProduct.id)}
+                          className="inline-flex items-center gap-2 rounded-md border px-3 py-1.5 text-xs text-rose-600"
+                        >
+                          Archive
+                        </button>
                       )}
                     </>
                   )}

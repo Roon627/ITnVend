@@ -23,7 +23,15 @@ export default function PublicNavbar() {
     const { settings, logoUrl } = useSettings() || {};
     const [mobileOpen, setMobileOpen] = useState(false);
     const [elevated, setElevated] = useState(false);
-    const [showNotice, setShowNotice] = useState(true);
+    const NOTICE_KEY = 'itnvend_safety_notice_ack';
+    const [showNotice, setShowNotice] = useState(() => {
+      if (typeof window === 'undefined') return true;
+      try {
+        return localStorage.getItem(NOTICE_KEY) !== 'dismissed';
+      } catch {
+        return true;
+      }
+    });
 
     useEffect(() => {
       setMobileOpen(false);
@@ -35,6 +43,26 @@ export default function PublicNavbar() {
       window.addEventListener('scroll', handleScroll, { passive: true });
       return () => window.removeEventListener('scroll', handleScroll);
     }, []);
+
+    useEffect(() => {
+      if (typeof window === 'undefined') return;
+      try {
+        if (localStorage.getItem(NOTICE_KEY) === 'dismissed') {
+          setShowNotice(false);
+        }
+      } catch {
+        // ignore
+      }
+    }, []);
+
+    const handleDismissNotice = () => {
+      setShowNotice(false);
+      try {
+        localStorage.setItem(NOTICE_KEY, 'dismissed');
+      } catch {
+        // ignore storage errors
+      }
+    };
 
     const activeLabel = useMemo(() => {
       for (const item of NAV_LINKS) {
@@ -99,7 +127,7 @@ export default function PublicNavbar() {
               </Link>
               <button
                 type="button"
-                onClick={() => setShowNotice(false)}
+                onClick={handleDismissNotice}
                 className="rounded-full border border-white/40 px-2 py-1 text-white/80 transition hover:bg-white/20"
                 aria-label="Dismiss safety notice"
               >

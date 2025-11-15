@@ -1619,6 +1619,33 @@ function normalizeUploadPath(raw) {
     return normalized;
 }
 
+function resolveAdminUploadPath(raw = '') {
+    const normalized = raw ? normalizeUploadPath(raw) : '';
+    const base = path.resolve(imagesDir);
+    const candidate = normalized ? path.resolve(path.join(imagesDir, normalized.replace(/\//g, path.sep))) : base;
+    if (!candidate.startsWith(base)) {
+        throw new Error('Invalid path');
+    }
+    if (!fs.existsSync(candidate)) {
+        throw new Error('Path not found');
+    }
+    return {
+        absPath: candidate,
+        relPath: normalized || ''
+    };
+}
+
+function buildUploadBreadcrumbs(relPath = '') {
+    const crumbs = [{ label: 'uploads', path: '' }];
+    if (!relPath) return crumbs;
+    const segments = relPath.split('/').filter(Boolean);
+    segments.forEach((segment, index) => {
+        const pathValue = segments.slice(0, index + 1).join('/');
+        crumbs.push({ label: segment, path: pathValue });
+    });
+    return crumbs;
+}
+
 // Setup upload endpoint: prefer multer multipart handling if available, otherwise fall back to base64 JSON upload
 (async function setupUploadsRoute() {
     try {
@@ -1693,6 +1720,122 @@ function normalizeUploadPath(raw) {
         console.warn('multer not available — using base64 fallback for /api/uploads');
     }
 })();
+
+app.get('/api/uploads/admin', authMiddleware, requireRole('admin'), (req, res) => {
+    try {
+        const queryPath = Array.isArray(req.query.path) ? req.query.path[0] : (req.query.path || '');
+        const { absPath, relPath } = resolveAdminUploadPath(queryPath || '');
+        const entries = fs.readdirSync(absPath, { withFileTypes: true });
+        const directories = [];
+        const files = [];
+        entries.forEach((entry) => {
+            if (entry.name.startsWith('.')) return;
+            const entryAbs = path.join(absPath, entry.name);
+            const entryRel = relPath ? `${relPath}/${entry.name}` : entry.name;
+            const normalizedRel = entryRel.replace(/\\/g, '/');
+            let stats;
+            try {
+                stats = fs.statSync(entryAbs);
+            } catch (err) {
+                return;
+            }
+            if (entry.isDirectory()) {
+                let items = 0;
+                try {
+                    items = fs.readdirSync(entryAbs).filter((name) => !name.startsWith('.')).length;
+                } catch (err) {
+                    items = 0;
+                }
+                directories.push({
+                    name: entry.name,
+                    path: normalizedRel,
+                    modified: stats.mtimeMs,
+                    items,
+                });
+            } else {
+                files.push({
+                    name: entry.name,
+                    path: normalizedRel,
+                    size: stats.size,
+                    modified: stats.mtimeMs,
+                    url: `/uploads/${normalizedRel}`,
+                });
+            }
+        });
+        directories.sort((a, b) => a.name.localeCompare(b.name));
+        files.sort((a, b) => a.name.localeCompare(b.name));
+        const parent = relPath ? relPath.split('/').slice(0, -1).join('/') : '';
+        return res.json({
+            path: relPath,
+            parent,
+            breadcrumbs: buildUploadBreadcrumbs(relPath),
+            directories,
+            files,
+        });
+    } catch (err) {
+        return res.status(400).json({ error: err.message || 'Failed to load uploads' });
+    }
+});
+
+app.post('/api/uploads/admin/folder', authMiddleware, requireRole('admin'), (req, res) => {
+    const parent = (req.body && req.body.parent) || '';
+    const name = (req.body && req.body.name) || '';
+    const segments = sanitizeSegments(name, 'folder');
+    const safeName = segments.join('-').replace(/^-+|-+$/g, '');
+    if (!safeName) return res.status(400).json({ error: 'Folder name is required' });
+    try {
+        const { absPath, relPath } = resolveAdminUploadPath(parent || '');
+        const target = path.join(absPath, safeName);
+        if (fs.existsSync(target)) {
+            return res.status(409).json({ error: 'Folder already exists' });
+        }
+        fs.mkdirSync(target, { recursive: true });
+        const childRel = relPath ? `${relPath}/${safeName}` : safeName;
+        return res.json({ path: childRel });
+    } catch (err) {
+        return res.status(400).json({ error: err.message || 'Failed to create folder' });
+    }
+});
+
+app.post('/api/uploads/admin/rename', authMiddleware, requireRole('admin'), (req, res) => {
+    const targetPath = req.body?.path;
+    const newNameRaw = req.body?.newName;
+    if (!targetPath) return res.status(400).json({ error: 'Path is required' });
+    if (!newNameRaw || !String(newNameRaw).trim()) return res.status(400).json({ error: 'New name is required' });
+    const sanitized = String(newNameRaw).trim().replace(/[<>:"/\\|?*]+/g, '_');
+    if (!sanitized) return res.status(400).json({ error: 'Invalid name' });
+    try {
+        const { absPath, relPath } = resolveAdminUploadPath(targetPath);
+        if (!relPath) return res.status(400).json({ error: 'Cannot rename the root folder' });
+        const parentAbs = path.dirname(absPath);
+        const parentRel = relPath.includes('/') ? relPath.split('/').slice(0, -1).join('/') : '';
+        const nextAbs = path.join(parentAbs, sanitized);
+        if (fs.existsSync(nextAbs)) return res.status(409).json({ error: 'An item with that name already exists' });
+        fs.renameSync(absPath, nextAbs);
+        const nextRel = parentRel ? `${parentRel}/${sanitized}` : sanitized;
+        return res.json({ path: nextRel });
+    } catch (err) {
+        return res.status(400).json({ error: err.message || 'Failed to rename item' });
+    }
+});
+
+app.delete('/api/uploads/admin', authMiddleware, requireRole('admin'), (req, res) => {
+    const targetPath = Array.isArray(req.query.path) ? req.query.path[0] : (req.query.path || '');
+    if (!targetPath) return res.status(400).json({ error: 'Path is required' });
+    try {
+        const { absPath, relPath } = resolveAdminUploadPath(targetPath);
+        if (!relPath) return res.status(400).json({ error: 'Cannot delete the root folder' });
+        const stats = fs.statSync(absPath);
+        if (stats.isDirectory()) {
+            fs.rmSync(absPath, { recursive: true, force: true });
+        } else {
+            fs.unlinkSync(absPath);
+        }
+        return res.json({ success: true });
+    } catch (err) {
+        return res.status(400).json({ error: err.message || 'Failed to delete item' });
+    }
+});
 
 async function startServer() {
     try {

@@ -4,6 +4,11 @@ import ProductForm from '../components/ProductForm';
 import api from '../lib/api';
 import { useToast } from '../components/ToastContext';
 
+const outerContainerClasses = 'min-h-screen bg-[var(--color-bg)] px-3 py-6 sm:px-6 lg:px-10';
+const contentWrapperClasses = 'mx-auto w-full max-w-7xl space-y-6';
+const pillButtonClasses =
+  'inline-flex items-center gap-2 rounded-full border px-4 py-1.5 text-xs font-semibold transition-colors duration-200';
+
 export default function AddProduct() {
   const navigate = useNavigate();
   const toast = useToast();
@@ -120,10 +125,10 @@ export default function AddProduct() {
   };
 
   return (
-    <div className="min-h-screen p-6 pb-24" style={{ backgroundColor: 'var(--color-bg)' }}>
-      <div className="mx-auto max-w-6xl space-y-6">
+    <div className={outerContainerClasses}>
+      <div className={contentWrapperClasses}>
         <section
-          className="rounded-3xl border p-6 shadow-lg"
+          className="rounded-3xl border p-5 shadow-lg sm:p-6 lg:p-8"
           style={{
             borderColor: 'var(--color-border)',
             backgroundColor: 'var(--color-surface)',
@@ -138,7 +143,7 @@ export default function AddProduct() {
               >
                 Product studio
               </span>
-              <h1 className="text-3xl font-extrabold" style={{ color: 'var(--color-heading)' }}>
+              <h1 className="text-3xl font-extrabold leading-tight" style={{ color: 'var(--color-heading)' }}>
                 Add a new product
               </h1>
               <p className="text-sm" style={{ color: 'var(--color-muted)' }}>
@@ -149,22 +154,16 @@ export default function AddProduct() {
                   to="/manage-lookups"
                   target="_blank"
                   rel="noreferrer"
-                  className="inline-flex items-center gap-2 rounded-full px-4 py-1.5 text-xs font-semibold transition"
-                  style={{
-                    border: `1px solid var(--color-border)`,
-                    color: 'var(--color-primary)'
-                  }}
+                  className={`${pillButtonClasses} text-[var(--color-primary)]`}
+                  style={{ borderColor: 'var(--color-border)' }}
                 >
                   Manage lookups
                 </Link>
                 <button
                   type="button"
                   onClick={() => navigate('/products')}
-                  className="inline-flex items-center gap-2 rounded-full px-4 py-1.5 text-xs font-semibold transition"
-                  style={{
-                    border: `1px solid var(--color-border)`,
-                    color: 'var(--color-muted)'
-                  }}
+                  className={`${pillButtonClasses} text-[var(--color-muted)]`}
+                  style={{ borderColor: 'var(--color-border)' }}
                 >
                   Back to catalog
                 </button>
@@ -190,22 +189,24 @@ export default function AddProduct() {
         </section>
 
         <section
-          className="rounded-3xl border p-6 shadow-xl"
+          className="rounded-3xl border p-5 shadow-xl sm:p-6 lg:p-8"
           style={{
             borderColor: 'var(--color-border)',
             backgroundColor: 'var(--color-surface)',
             boxShadow: '0 20px 40px var(--color-shadow)'
           }}
         >
-          <ProductForm
-            initial={{}}
-            onSave={handleSave}
-            onCancel={() => navigate('/products')}
-            saving={saving}
-            lookups={lookups}
-            categoryTree={categoryTree}
-            vendors={vendors}
-          />
+          <div className="rounded-2xl border border-dashed border-slate-100/80 p-3 sm:p-4 lg:p-6">
+            <ProductForm
+              initial={{}}
+              onSave={handleSave}
+              onCancel={() => navigate('/products')}
+              saving={saving}
+              lookups={lookups}
+              categoryTree={categoryTree}
+              vendors={vendors}
+            />
+          </div>
         </section>
       </div>
     </div>

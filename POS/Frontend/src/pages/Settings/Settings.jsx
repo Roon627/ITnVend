@@ -11,6 +11,7 @@ import EmailSettings from './EmailSettings';
 import SocialLinksPanel from './SocialLinksPanel';
 import ContactPanel from './ContactPanel';
 import PaymentSettingsPanel from './PaymentSettingsPanel';
+import UploadsManagerPanel from './UploadsManagerPanel';
 import {
   FRIENDLY_INVOICE_NOTE,
   FRIENDLY_INVOICE_TEMPLATE,
@@ -122,6 +123,7 @@ export default function Settings() {
       { id: 'payment', label: 'Payment Settings', description: 'QR codes, transfer details, and payment instructions.' },
       { id: 'smtp', label: 'SMTP Settings', description: 'Email provider credentials and dispatch behaviour.' },
       { id: 'socials', label: 'Social Links', description: 'Storefront social links and customer touchpoints.', adminOnly: true },
+      { id: 'uploads', label: 'Uploads manager', description: 'Browse, rename, or delete uploaded media.', adminOnly: true },
       { id: 'templates', label: 'Templates', description: 'Transactional email templates for customers and staff.' },
       { id: 'themes', label: 'Themes', description: 'Switch UI themes and colours for the POS.' },
     ].filter((tab) => !tab.adminOnly || isAdmin),
@@ -449,6 +451,8 @@ export default function Settings() {
         );
       case 'themes':
         return <ThemePanel themeOptions={themeOptions} activeTheme={activeTheme} setTheme={setTheme} />;
+      case 'uploads':
+        return <UploadsManagerPanel />;
       default:
         return null;
     }
@@ -463,6 +467,7 @@ export default function Settings() {
     : activeTab === 'payment'
     ? 'Save Payment Settings'
     : 'Save Settings';
+  const showSaveControls = activeTab !== 'uploads';
 
   return (
     <div className="p-6" style={{ minHeight: 'calc(100vh - 72px)' }}>
@@ -473,18 +478,20 @@ export default function Settings() {
               <h2 className="text-2xl font-bold text-slate-800">Settings</h2>
               <p className="text-sm text-slate-500">Fine-tune how ITnVend operates across outlets, communications, and style.</p>
             </div>
-            <div className="flex items-center gap-3">
-              <button
-                onClick={save}
-                disabled={status === 'saving'}
-                className="rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow hover:bg-blue-500 disabled:bg-slate-400"
-                type="button"
-              >
-                {status === 'saving' ? 'Saving...' : saveLabel}
-              </button>
-              {status === 'saved' && <span className="text-sm text-emerald-600">✓ Saved</span>}
-              {status === 'error' && <span className="text-sm text-rose-500">Save failed</span>}
-            </div>
+            {showSaveControls && (
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={save}
+                  disabled={status === 'saving'}
+                  className="rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow hover:bg-blue-500 disabled:bg-slate-400"
+                  type="button"
+                >
+                  {status === 'saving' ? 'Saving...' : saveLabel}
+                </button>
+                {status === 'saved' && <span className="text-sm text-emerald-600">✓ Saved</span>}
+                {status === 'error' && <span className="text-sm text-rose-500">Save failed</span>}
+              </div>
+            )}
           </div>
           <nav className="mt-4 overflow-auto">
             <ul className="flex flex-wrap gap-2">
@@ -516,20 +523,26 @@ export default function Settings() {
           {renderActiveTab()}
         </section>
 
-        <footer className="flex items-center gap-4 border-t border-slate-200 pt-4">
-          <button
-            onClick={save}
-            disabled={status === 'saving'}
-            className="rounded-md bg-blue-600 px-5 py-2 text-sm font-semibold text-white shadow hover:bg-blue-500 disabled:bg-slate-400"
-            type="button"
-          >
-            {status === 'saving' ? 'Saving...' : saveLabel}
-          </button>
-          {status === 'saved' && <span className="text-sm text-emerald-600">✓ Saved</span>}
-          {status === 'error' && <span className="text-sm text-rose-500">Save failed. Try again.</span>}
-          {status === 'saving' && <span className="text-sm text-slate-500">Saving in progress...</span>}
-          <span className="ml-auto text-xs text-slate-400">Changes affect the live POS once saved.</span>
-        </footer>
+        {showSaveControls ? (
+          <footer className="flex items-center gap-4 border-t border-slate-200 pt-4">
+            <button
+              onClick={save}
+              disabled={status === 'saving'}
+              className="rounded-md bg-blue-600 px-5 py-2 text-sm font-semibold text-white shadow hover:bg-blue-500 disabled:bg-slate-400"
+              type="button"
+            >
+              {status === 'saving' ? 'Saving...' : saveLabel}
+            </button>
+            {status === 'saved' && <span className="text-sm text-emerald-600">✓ Saved</span>}
+            {status === 'error' && <span className="text-sm text-rose-500">Save failed. Try again.</span>}
+            {status === 'saving' && <span className="text-sm text-slate-500">Saving in progress...</span>}
+            <span className="ml-auto text-xs text-slate-400">Changes affect the live POS once saved.</span>
+          </footer>
+        ) : (
+          <footer className="border-t border-slate-200 pt-4 text-xs text-slate-500">
+            Upload deletions and renames take effect immediately. Use caution—changes impact all connected products.
+          </footer>
+        )}
       </div>
     </div>
   );

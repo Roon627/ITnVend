@@ -84,7 +84,7 @@ export default function ProductDetail() {
   if (!loading && !product) {
     return (
       <div className="flex min-h-[50vh] items-center justify-center bg-gradient-to-br from-rose-50 via-white to-sky-50">
-        <div className="rounded-2xl border border-rose-100 bg-white p-6 text-center">
+        <div className="rounded-2xl border border-rose-100 bg-white p-4 text-center sm:p-6">
           <p className="mb-4 text-lg font-semibold text-rose-600">{error === 'not-found' ? 'Item not found' : 'Something went wrong'}</p>
           <p className="mb-4 text-sm text-rose-500">{error === 'not-found' ? "We couldn't locate that product. It may have been removed or is unavailable." : 'An error occurred while fetching the product. Please try again later.'}</p>
           <div className="flex justify-center gap-3">
@@ -186,8 +186,8 @@ export default function ProductDetail() {
   };
 
   return (
-    <div className="bg-gradient-to-br from-rose-50 via-white to-sky-50 py-16 pb-24 sm:pb-0">
-      <div className="container mx-auto px-6">
+    <div className="bg-gradient-to-br from-rose-50 via-white to-sky-50 py-12 pb-20 sm:pb-0">
+      <div className="container mx-auto px-4 sm:px-6">
         <div className="mb-6 text-sm text-rose-500">
           <Link to="/" className="font-semibold hover:text-rose-600">
             ITnVend Home
@@ -200,8 +200,8 @@ export default function ProductDetail() {
           <span className="text-rose-400">{product.name}</span>
         </div>
 
-  <div className="grid gap-8 rounded-xl border border-white/60 bg-white/95 p-4 sm:p-6 lg:grid-cols-[1.05fr_0.95fr]">
-          <div className="relative flex items-center justify-center rounded-2xl bg-gradient-to-br from-white via-rose-50 to-sky-50 p-6 shadow-inner">
+        <div className="grid gap-6 rounded-xl border border-white/60 bg-white/95 p-3 sm:gap-8 sm:p-5 lg:grid-cols-[1.05fr_0.95fr]">
+          <div className="relative flex items-center justify-center rounded-2xl bg-gradient-to-br from-white via-rose-50 to-sky-50 p-4 shadow-inner sm:p-6">
             <AvailabilityTag availabilityStatus={availabilityStatus} className="top-4 left-4" />
             {gallery && gallery.length ? (
               <div className="w-full">
@@ -366,7 +366,7 @@ export default function ProductDetail() {
             )}
 
             {vendorListing && (
-              <section className="space-y-3 rounded-2xl border border-emerald-100 bg-emerald-50/70 p-6 text-sm text-emerald-900 shadow-sm">
+              <section className="space-y-3 rounded-2xl border border-emerald-100 bg-emerald-50/70 p-4 text-sm text-emerald-900 shadow-sm sm:p-6">
                 <h2 className="text-base font-semibold text-emerald-700">Marketplace partner</h2>
                 <p>{vendorIntro}</p>
                 {product.vendor_slug && (
@@ -382,7 +382,7 @@ export default function ProductDetail() {
             )}
 
             {userListing && (
-              <section className="space-y-3 rounded-2xl border border-amber-100 bg-white/90 p-6 text-slate-700 shadow-sm">
+              <section className="space-y-3 rounded-2xl border border-amber-100 bg-white/90 p-4 text-slate-700 shadow-sm sm:p-6">
                 <h2 className="text-lg font-semibold text-amber-600">Seller contact</h2>
                 <div className="font-semibold text-slate-900">{sellerContact.name || 'Seller'}</div>
                 <div className="flex flex-col gap-2 text-sm">
@@ -422,43 +422,43 @@ export default function ProductDetail() {
                   </div>
                 )
               ) : (
-                <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
                   <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:flex-1 sm:gap-3">
-                    <button
-                      onClick={() => addToCart(product)}
-                      className="inline-flex items-center justify-center rounded-full bg-rose-500 px-4 py-2 text-sm font-semibold text-white shadow focus:outline-none focus:ring-2 focus:ring-rose-200 hover:bg-rose-600 sm:flex-1"
-                      aria-label={`Add ${product.name} to cart`}
-                    >
-                      Add to cart
-                    </button>
-                    <button
-                      onClick={handleBuyNow}
-                      className="inline-flex items-center justify-center rounded-full bg-rose-600 px-4 py-2 text-sm font-semibold text-white shadow focus:outline-none focus:ring-2 focus:ring-rose-200 hover:bg-rose-700 sm:flex-1"
-                    >
-                      Buy now
-                    </button>
-                  </div>
+                  <button
+                    onClick={() => addToCart(product)}
+                    className="inline-flex items-center justify-center rounded-lg bg-rose-500 px-3.5 py-1.5 text-sm font-semibold text-white shadow focus:outline-none focus:ring-2 focus:ring-rose-200 hover:bg-rose-600 sm:flex-1"
+                    aria-label={`Add ${product.name} to cart`}
+                  >
+                    Add to cart
+                  </button>
+                  <button
+                    onClick={handleBuyNow}
+                    className="inline-flex items-center justify-center rounded-lg bg-rose-600 px-3.5 py-1.5 text-sm font-semibold text-white shadow focus:outline-none focus:ring-2 focus:ring-rose-200 hover:bg-rose-700 sm:flex-1"
+                  >
+                    Buy now
+                  </button>
+                </div>
                   {preorder ? (
                     <button
                       type="button"
                       onClick={handlePreorder}
-                      className="inline-flex w-full items-center justify-center rounded-full border border-rose-200 px-4 py-2 text-sm font-semibold text-rose-600 transition hover:bg-rose-100 sm:w-auto"
+                    className="inline-flex w-full items-center justify-center rounded-lg border border-rose-200 px-3.5 py-1.5 text-sm font-semibold text-rose-600 transition hover:bg-rose-100 sm:w-auto"
                     >
                       Preorder via Shop &amp; Ship
                     </button>
                   ) : null}
                 </div>
               )}
-              <div className="flex flex-wrap gap-2">
+              <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:gap-3">
                 <Link
                   to="/market"
-                  className="inline-flex items-center gap-2 rounded-full border border-rose-200 px-3 py-2 text-xs font-semibold text-rose-600 transition hover:bg-rose-100 sm:text-sm"
+                  className="inline-flex items-center justify-center gap-2 rounded-lg border border-rose-200 px-3 py-1.5 text-xs font-semibold text-rose-600 transition hover:bg-rose-100 sm:text-sm"
                 >
                   Back to Market Hub
                 </Link>
                 <Link
                   to="/"
-                  className="inline-flex items-center gap-2 rounded-full border border-rose-200 px-3 py-2 text-xs font-semibold text-rose-600 transition hover:bg-rose-100 sm:text-sm"
+                  className="inline-flex items-center justify-center gap-2 rounded-lg border border-rose-200 px-3 py-1.5 text-xs font-semibold text-rose-600 transition hover:bg-rose-100 sm:text-sm"
                 >
                   Home
                 </Link>
@@ -471,55 +471,8 @@ export default function ProductDetail() {
             )}
           </div>
         </div>
-        {/* Sticky buy bar for small screens */}
-        <div className="sm:hidden">
-          <div className="fixed bottom-0 left-0 right-0 z-50 border-t border-slate-200 bg-white/95 backdrop-blur-md p-3">
-            <div className="container mx-auto px-6">
-              <div className="flex items-center justify-between gap-4">
-                <div>
-                  <div className="text-sm text-slate-700">{product.name}</div>
-                  <div className="text-lg font-bold text-rose-600">{formatCurrency(product.price)}</div>
-                </div>
-                <div className="flex items-center gap-2">
-                  {userListing ? (
-                    contactHasInfo ? (
-                      <a
-                        href={contactLink || '#'}
-                        className="inline-flex items-center gap-1 rounded-full bg-amber-500 px-3 py-2 text-white text-sm font-semibold"
-                      >
-                        Contact
-                      </a>
-                    ) : (
-                      <div className="inline-flex items-center gap-2 rounded-full border border-amber-200 px-4 py-2 text-sm font-semibold text-amber-700">
-                        Contact pending
-                      </div>
-                    )
-                  ) : (
-                    <div className="grid grid-cols-2 gap-2">
-                      <button
-                        onClick={() => addToCart(product)}
-                        className="inline-flex items-center justify-center gap-1 rounded-full bg-rose-500 px-3 py-2 text-sm font-semibold text-white"
-                      >
-                        Add to cart
-                      </button>
-                      <button
-                        onClick={handleBuyNow}
-                        className="inline-flex items-center justify-center gap-1 rounded-full bg-rose-600 px-3 py-2 text-sm font-semibold text-white"
-                      >
-                        Buy now
-                      </button>
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-          </div>
-          {/* spacer so page content isn't hidden under the fixed bar */}
-          <div className="h-20" />
-        </div>
-
         {/* Related products */}
-        <div className="container mx-auto px-6 mt-10">
+        <div className="container mx-auto px-4 mt-10 sm:px-6">
           <h3 className="mb-4 text-2xl font-bold text-slate-900">You may also like</h3>
           <RelatedProducts category={product.category} excludeId={product.id} onAdd={addToCart} />
         </div>
@@ -551,7 +504,7 @@ function RelatedProducts({ category, excludeId, onAdd }) {
 
   if (!items || !items.length) return null;
   return (
-    <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6">
+    <div className="grid grid-cols-2 justify-items-center gap-4 sm:grid-cols-2 md:grid-cols-3">
       {items.map((p) => (
         <div key={p.id}>
           <ProductCard product={p} onAdd={onAdd} />

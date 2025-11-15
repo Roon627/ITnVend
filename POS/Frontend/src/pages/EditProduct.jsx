@@ -23,6 +23,11 @@ const galleryPayloadFromState = (gallery) =>
     .map((value) => (value || '').trim())
     .filter(Boolean);
 
+const outerContainerClasses = 'min-h-screen bg-[var(--color-bg)] px-3 py-6 sm:px-6 lg:px-10';
+const contentWrapperClasses = 'mx-auto w-full max-w-7xl space-y-6';
+const pillButtonClasses =
+  'inline-flex items-center gap-2 rounded-full border px-4 py-1.5 text-xs font-semibold transition-colors duration-200';
+
 export default function EditProduct() {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -138,10 +143,10 @@ export default function EditProduct() {
     : 'Load and update product details in a focused view.';
 
   return (
-    <div className="min-h-screen p-6 pb-24" style={{ backgroundColor: 'var(--color-bg)' }}>
-      <div className="mx-auto max-w-6xl space-y-6">
+    <div className={outerContainerClasses}>
+      <div className={contentWrapperClasses}>
         <section
-          className="rounded-3xl border p-6 shadow-lg"
+          className="rounded-3xl border p-5 shadow-lg sm:p-6 lg:p-8"
           style={{
             borderColor: 'var(--color-border)',
             backgroundColor: 'var(--color-surface)',
@@ -156,7 +161,7 @@ export default function EditProduct() {
               >
                 Product studio
               </span>
-              <h1 className="text-3xl font-extrabold" style={{ color: 'var(--color-heading)' }}>
+              <h1 className="text-3xl font-extrabold leading-tight" style={{ color: 'var(--color-heading)' }}>
                 Edit product
               </h1>
               <p className="text-sm" style={{ color: 'var(--color-muted)' }}>
@@ -167,22 +172,16 @@ export default function EditProduct() {
                   to="/manage-lookups"
                   target="_blank"
                   rel="noreferrer"
-                  className="inline-flex items-center gap-2 rounded-full px-4 py-1.5 text-xs font-semibold transition"
-                  style={{
-                    border: '1px solid var(--color-border)',
-                    color: 'var(--color-primary)',
-                  }}
+                  className={`${pillButtonClasses} text-[var(--color-primary)]`}
+                  style={{ borderColor: 'var(--color-border)' }}
                 >
                   Manage lookups
                 </Link>
                 <button
                   type="button"
                   onClick={() => navigate('/products')}
-                  className="inline-flex items-center gap-2 rounded-full px-4 py-1.5 text-xs font-semibold transition"
-                  style={{
-                    border: '1px solid var(--color-border)',
-                    color: 'var(--color-muted)',
-                  }}
+                  className={`${pillButtonClasses} text-[var(--color-muted)]`}
+                  style={{ borderColor: 'var(--color-border)' }}
                 >
                   Back to catalog
                 </button>
@@ -208,7 +207,7 @@ export default function EditProduct() {
         </section>
 
         <section
-          className="rounded-3xl border p-6 shadow-xl"
+          className="rounded-3xl border p-5 shadow-xl sm:p-6 lg:p-8"
           style={{
             borderColor: 'var(--color-border)',
             backgroundColor: 'var(--color-surface)',
@@ -216,33 +215,34 @@ export default function EditProduct() {
           }}
         >
           {loading ? (
-            <div className="flex items-center justify-center py-24 text-sm text-slate-500">Loading product…</div>
+            <div className="flex items-center justify-center rounded-2xl border border-dashed border-slate-100/80 py-24 text-sm text-slate-500">
+              Loading product…
+            </div>
           ) : error ? (
-            <div className="space-y-4 text-center">
+            <div className="space-y-4 rounded-2xl border border-dashed border-slate-100/80 p-6 text-center">
               <p className="text-sm text-rose-600">{error}</p>
               <button
                 type="button"
                 onClick={() => navigate('/products')}
-                className="inline-flex items-center gap-2 rounded-full px-4 py-1.5 text-xs font-semibold transition"
-                style={{
-                  border: '1px solid var(--color-border)',
-                  color: 'var(--color-muted)',
-                }}
+                className={`${pillButtonClasses} text-[var(--color-muted)] mx-auto`}
+                style={{ borderColor: 'var(--color-border)' }}
               >
                 Back to catalog
               </button>
             </div>
           ) : (
-            <ProductForm
-              mode="edit"
-              initial={product || {}}
-              onSave={handleSave}
-              onCancel={() => navigate('/products')}
-              lookups={lookups}
-              categoryTree={categoryTree}
-              vendors={vendors}
-              saving={saving}
-            />
+            <div className="rounded-2xl border border-dashed border-slate-100/80 p-3 sm:p-4 lg:p-6">
+              <ProductForm
+                mode="edit"
+                initial={product || {}}
+                onSave={handleSave}
+                onCancel={() => navigate('/products')}
+                lookups={lookups}
+                categoryTree={categoryTree}
+                vendors={vendors}
+                saving={saving}
+              />
+            </div>
           )}
         </section>
       </div>

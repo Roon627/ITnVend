@@ -1,10 +1,13 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useCart } from '../components/CartContext';
 import { useToast } from '../components/ToastContext';
 import { useSettings } from '../components/SettingsContext';
 import api from '../lib/api';
 import InlineValidationCard from '../components/InlineValidationCard';
+import RegularCustomerLookup from '../components/checkout/RegularCustomerLookup';
+import OrderSummaryDrawer from '../components/checkout/OrderSummaryDrawer';
+import PreorderPolicySnippet from '../components/checkout/PreorderPolicySnippet';
 
 const QUOTE_TYPES = [
   { value: 'individual', label: 'I am an individual', helper: 'We will treat this as a one-off quotation.' },
@@ -17,6 +20,14 @@ const PAYMENT_METHODS = [
   { value: 'transfer', label: 'Bank transfer (attach slip)' },
   { value: 'qr_code', label: 'QR Code Payment' },
 ];
+
+const DELIVERY_OPTIONS = [
+  { id: 'pickup', label: 'Store pickup', fee: 0, helper: 'Collect from our ITnVend retail desk.' },
+  { id: 'standard', label: 'Standard delivery (Male / Hulhumalé)', fee: 35, helper: 'Courier drop-off during working hours.' },
+  { id: 'shop_ship', label: 'Shop & Ship (sea freight)', fee: 150, helper: 'Inter-island freight via Shop & Ship partners.' },
+];
+
+const CHECKOUT_SESSION_KEY = 'estore_checkout_draft';
 
 export default function Checkout() {
   const { cart, clearCart, removeFromCart } = useCart();
@@ -44,6 +55,7 @@ export default function Checkout() {
     [displayCart]
   );
 
+  const defaultDeliveryOption = DELIVERY_OPTIONS.find((opt) => opt.id === 'standard') || DELIVERY_OPTIONS[0];
   const [form, setForm] = useState({
     name: '',
     email: '',
@@ -51,6 +63,10 @@ export default function Checkout() {
     companyName: '',
     registrationNumber: '',
     existingAccountRef: '',
+    shippingAddress: '',
+    billingAddress: '',
+    deliveryPreference: defaultDeliveryOption?.label || '',
+    deliveryInstructions: '',
   });
   const [quoteType, setQuoteType] = useState('individual');
   const [paymentMethod, setPaymentMethod] = useState('cod');
@@ -61,9 +77,38 @@ export default function Checkout() {
   const [paymentSlipPreview, setPaymentSlipPreview] = useState('');
   const [slipValidation, setSlipValidation] = useState(null);
   const [submitting, setSubmitting] = useState(false);
+  const [deliveryOption, setDeliveryOption] = useState(defaultDeliveryOption?.id || DELIVERY_OPTIONS[0].id);
+  const [deliveryFee, setDeliveryFee] = useState(defaultDeliveryOption?.fee || 0);
+  const [summaryOpen, setSummaryOpen] = useState(false);
+  const [useRegularLookup, setUseRegularLookup] = useState(false);
+  const [regularQuery, setRegularQuery] = useState('');
+  const [regularStatus, setRegularStatus] = useState('idle');
+  const [regularError, setRegularError] = useState('');
+  const [regularMatch, setRegularMatch] = useState(null);
   const paymentSlipInputRef = useRef(null);
 
   const requiresSlip = !isQuote && (paymentMethod === 'transfer' || paymentMethod === 'qr_code' || cartHasPreorder);
+  const selectedDeliveryOption = useMemo(
+    () => DELIVERY_OPTIONS.find((opt) => opt.id === deliveryOption) || defaultDeliveryOption,
+    [deliveryOption, defaultDeliveryOption]
+  );
+  const summaryItems = useMemo(
+    () =>
+      displayCart.map((item) => ({
+        ...item,
+        image: item.image || item.imageUrl || item.image_source || null,
+      })),
+    [displayCart]
+  );
+  const discountAmount = 0;
+  const clearSessionDraft = useCallback(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      sessionStorage.removeItem(CHECKOUT_SESSION_KEY);
+    } catch (err) {
+      console.warn('Failed to clear checkout draft', err);
+    }
+  }, []);
 
   const clearPaymentSlipState = (preserveError = false) => {
     setPaymentSlip(null);
@@ -82,6 +127,42 @@ export default function Checkout() {
       setPaymentMethod('transfer');
     }
   }, [cartHasPreorder, paymentMethod]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      const raw = sessionStorage.getItem(CHECKOUT_SESSION_KEY);
+      if (!raw) return;
+      const parsed = JSON.parse(raw);
+      if (parsed.form) {
+        setForm((prev) => ({ ...prev, ...parsed.form }));
+      }
+      if (parsed.quoteType) setQuoteType(parsed.quoteType);
+      if (parsed.paymentMethod) setPaymentMethod(parsed.paymentMethod);
+      if (parsed.deliveryOption) {
+        const option = DELIVERY_OPTIONS.find((opt) => opt.id === parsed.deliveryOption);
+        if (option) {
+          setDeliveryOption(option.id);
+          setDeliveryFee(option.fee);
+          setForm((prev) => ({ ...prev, deliveryPreference: option.label }));
+        }
+      }
+    } catch (err) {
+      console.warn('Failed to load checkout draft', err);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      sessionStorage.setItem(
+        CHECKOUT_SESSION_KEY,
+        JSON.stringify({ form, quoteType, paymentMethod, deliveryOption })
+      );
+    } catch (err) {
+      console.warn('Failed to persist checkout draft', err);
+    }
+  }, [form, quoteType, paymentMethod, deliveryOption]);
 
   const handleFieldChange = (event) => {
     const { name, value } = event.target;
@@ -105,6 +186,90 @@ export default function Checkout() {
       clearPaymentSlipState();
     }
   };
+
+  const clearRegularMatch = () => {
+    setRegularMatch(null);
+    setRegularStatus('idle');
+    setRegularError('');
+  };
+
+  const handleDeliveryOptionChange = (event) => {
+    const value = event.target.value;
+    const option = DELIVERY_OPTIONS.find((opt) => opt.id === value) || DELIVERY_OPTIONS[0];
+    setDeliveryOption(option.id);
+    setDeliveryFee(option.fee);
+    setForm((prev) => ({ ...prev, deliveryPreference: option.label }));
+  };
+
+  const handleRegularToggle = (value) => {
+    setUseRegularLookup(value);
+    if (!value) {
+      clearRegularMatch();
+    }
+  };
+
+  const applyCustomerProfile = useCallback(
+    (customerData) => {
+      if (!customerData) return;
+      setRegularMatch({
+        name: customerData.name,
+        email: customerData.email,
+        phone: customerData.phone,
+        delivery_preference: customerData.delivery_preference || customerData.deliveryPreference || '',
+      });
+      setForm((prev) => ({
+        ...prev,
+        name: customerData.name || prev.name,
+        email: customerData.email || prev.email,
+        phone: customerData.phone || prev.phone,
+        companyName: customerData.company || customerData.company_name || prev.companyName,
+        shippingAddress: customerData.address || customerData.shipping_address || prev.shippingAddress,
+        billingAddress: customerData.billing_address || prev.billingAddress,
+        deliveryPreference: customerData.delivery_preference || prev.deliveryPreference,
+        deliveryInstructions: customerData.delivery_notes || prev.deliveryInstructions,
+      }));
+      if (customerData.delivery_preference) {
+        const normalized = customerData.delivery_preference.toString().toLowerCase();
+        const optionMatch = DELIVERY_OPTIONS.find(
+          (opt) =>
+            opt.id === normalized ||
+            opt.label.toLowerCase() === normalized ||
+            normalized.includes(opt.id) ||
+            opt.label.toLowerCase().includes(normalized)
+        );
+        if (optionMatch) {
+          setDeliveryOption(optionMatch.id);
+          setDeliveryFee(optionMatch.fee);
+        }
+      }
+    },
+    [setDeliveryOption, setDeliveryFee]
+  );
+
+  const handleRegularLookup = useCallback(async () => {
+    const term = regularQuery.trim();
+    if (!term) {
+      setRegularError('Enter a name, email, or phone number to search.');
+      return;
+    }
+    setRegularStatus('searching');
+    setRegularError('');
+    try {
+      const result = await api.get('/customers', { params: { search: term, includeMetrics: 'false' } });
+      if (Array.isArray(result) && result.length) {
+        applyCustomerProfile(result[0]);
+        setRegularStatus('found');
+        toast.push('Customer profile loaded. Edit anything you wish to update.', 'info');
+      } else {
+        setRegularMatch(null);
+        setRegularStatus('not-found');
+        setRegularError("We couldn't find a match. You can continue manually.");
+      }
+    } catch (err) {
+      setRegularStatus('error');
+      setRegularError(err?.message || 'Lookup failed. Please try again.');
+    }
+  }, [regularQuery, applyCustomerProfile, toast]);
 
   const handleSlipChange = (event) => {
     const file = event.target.files?.[0];
@@ -202,11 +367,21 @@ export default function Checkout() {
       companyName: '',
       registrationNumber: '',
       existingAccountRef: '',
+      shippingAddress: '',
+      billingAddress: '',
+      deliveryPreference: defaultDeliveryOption?.label || '',
+      deliveryInstructions: '',
     });
     setQuoteType('individual');
     setPaymentMethod('cod');
     setPaymentReference('');
+    setDeliveryOption(defaultDeliveryOption?.id || DELIVERY_OPTIONS[0].id);
+    setDeliveryFee(defaultDeliveryOption?.fee || 0);
+    setRegularQuery('');
+    setUseRegularLookup(false);
+    clearRegularMatch();
     clearPaymentSlipState();
+    clearSessionDraft();
   };
 
   const handleSubmit = async (event) => {
@@ -235,6 +410,10 @@ export default function Checkout() {
         form.companyName ? `Company: ${form.companyName}` : null,
         quoteType === 'vendor' && form.registrationNumber ? `Registration number: ${form.registrationNumber}` : null,
         quoteType === 'existing' ? `Existing account reference: ${form.existingAccountRef || '-'}` : null,
+        form.shippingAddress ? `Shipping address: ${form.shippingAddress}` : null,
+        form.billingAddress ? `Billing address: ${form.billingAddress}` : null,
+        form.deliveryPreference ? `Delivery preference: ${form.deliveryPreference}` : null,
+        form.deliveryInstructions ? `Delivery notes: ${form.deliveryInstructions}` : null,
       ].filter(Boolean);
 
       try {
@@ -336,6 +515,10 @@ export default function Checkout() {
         email: form.email,
         phone: form.phone || null,
         company: form.companyName || null,
+        shipping_address: form.shippingAddress || null,
+        billing_address: form.billingAddress || null,
+        delivery_preference: form.deliveryPreference || selectedDeliveryOption?.label || null,
+        delivery_notes: form.deliveryInstructions || null,
       };
       const trimmedReference = paymentMethod === 'transfer' ? paymentReference.trim() : '';
       await api.post('/orders', {
@@ -350,6 +533,7 @@ export default function Checkout() {
         isPreorder: cartHasPreorder,
       });
       toast.push('Order placed successfully!', 'success');
+      clearSessionDraft();
       const orderSummary = {
         items: displayCart.map((item) => ({
           id: item.id,
@@ -419,6 +603,18 @@ export default function Checkout() {
                 </div>
               </fieldset>
             )}
+
+            <RegularCustomerLookup
+              enabled={useRegularLookup}
+              onToggle={handleRegularToggle}
+              query={regularQuery}
+              onQueryChange={setRegularQuery}
+              status={regularStatus}
+              error={regularError}
+              onSubmit={handleRegularLookup}
+              match={regularMatch}
+              onClearMatch={clearRegularMatch}
+            />
 
             <div className="space-y-4">
               <div>
@@ -508,11 +704,74 @@ export default function Checkout() {
                   />
                 </div>
               )}
+              <div>
+                <label htmlFor="shippingAddress" className="block text-gray-700 font-semibold mb-2">
+                  Shipping / delivery address
+                </label>
+                <textarea
+                  name="shippingAddress"
+                  id="shippingAddress"
+                  rows={2}
+                  value={form.shippingAddress}
+                  onChange={handleFieldChange}
+                  className="w-full rounded-md border p-2"
+                  placeholder="Apartment, island, street — especially for Shop & Ship deliveries"
+                />
+              </div>
+              <div>
+                <label htmlFor="billingAddress" className="block text-gray-700 font-semibold mb-2">
+                  Billing address (optional)
+                </label>
+                <textarea
+                  name="billingAddress"
+                  id="billingAddress"
+                  rows={2}
+                  value={form.billingAddress}
+                  onChange={handleFieldChange}
+                  className="w-full rounded-md border p-2"
+                  placeholder="Only if different from shipping"
+                />
+              </div>
+              <div>
+                <label htmlFor="deliveryOption" className="block text-gray-700 font-semibold mb-2">
+                  Delivery preference
+                </label>
+                <select
+                  id="deliveryOption"
+                  value={deliveryOption}
+                  onChange={handleDeliveryOptionChange}
+                  className="w-full rounded-md border p-2"
+                >
+                  {DELIVERY_OPTIONS.map((option) => (
+                    <option key={option.id} value={option.id}>
+                      {option.label} {option.fee ? `(+ ${formatCurrency(option.fee)})` : '(included)'}
+                    </option>
+                  ))}
+                </select>
+                {selectedDeliveryOption?.helper && (
+                  <p className="text-xs text-gray-500 mt-1">{selectedDeliveryOption.helper}</p>
+                )}
+              </div>
+              <div>
+                <label htmlFor="deliveryInstructions" className="block text-gray-700 font-semibold mb-2">
+                  Delivery instructions (optional)
+                </label>
+                <textarea
+                  name="deliveryInstructions"
+                  id="deliveryInstructions"
+                  rows={2}
+                  value={form.deliveryInstructions}
+                  onChange={handleFieldChange}
+                  className="w-full rounded-md border p-2"
+                  placeholder="Gate codes, preferred times, ferry contacts…"
+                />
+              </div>
             </div>
 
             {!isQuote && (
               <fieldset className="space-y-4">
                 <legend className="text-sm font-semibold text-gray-700">Payment method</legend>
+                {cartHasPreorder && <PreorderPolicySnippet />}
                 <div className="space-y-3">
                   {PAYMENT_METHODS.map((option) => {
                     const disabled = cartHasPreorder && option.value !== 'transfer' && option.value !== 'qr_code';
@@ -698,6 +957,15 @@ export default function Checkout() {
           </div>
         </div>
       </div>
+      <OrderSummaryDrawer
+        open={summaryOpen}
+        onClose={setSummaryOpen}
+        items={summaryItems}
+        formatCurrency={formatCurrency}
+        deliveryFee={deliveryFee}
+        discount={discountAmount}
+        deliveryLabel={selectedDeliveryOption?.label || 'Delivery'}
+      />
       {submitting && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm">
           <div className="relative flex flex-col items-center gap-4 rounded-2xl bg-white/95 px-8 py-6 shadow-2xl">
