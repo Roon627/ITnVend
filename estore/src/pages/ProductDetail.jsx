@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useParams, Link, useNavigate, useLocation } from 'react-router-dom';
-import { FaPhone, FaEnvelope } from 'react-icons/fa';
+import { FaPhone, FaEnvelope, FaHashtag, FaBarcode, FaBox, FaTags, FaIndustry, FaTruck, FaShieldAlt, FaWarehouse } from 'react-icons/fa';
 import api from '../lib/api';
 import { useCart } from '../components/CartContext';
 import { useSettings } from '../components/SettingsContext';
@@ -147,6 +147,16 @@ export default function ProductDetail() {
       : product.digitalActivationLimit;
   const digitalExpiry = product.digital_expiry || product.digitalExpiry || '';
   const digitalSupportUrl = product.digital_support_url || product.digitalSupportUrl || '';
+  const categoryPath = [product.category, product.subcategory, product.subsubcategory].filter(Boolean).join(' › ');
+  const availabilityLabel = availabilityStatus ? availabilityStatus.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()) : 'In stock';
+  const stockLabel = product.track_inventory === 0 ? 'On request' : `${product.stock ?? 0} units`;
+  const vendorName = product.vendor_name || product.vendorName || null;
+  const technicalDetails = product.technical_details || product.technicalDetails || '';
+  const tagList = Array.isArray(product.tags)
+    ? product.tags
+    : typeof product.tags === 'string'
+    ? product.tags.split(',').map((tag) => tag.trim()).filter(Boolean)
+    : [];
   const brandName =
     product.brand_name ||
     product.brandName ||
@@ -159,14 +169,21 @@ export default function ProductDetail() {
   const audienceLabel = product.audience || product.target_audience || '';
   const modelLabel = product.model || '';
   const metadataEntries = [
-    { label: 'Brand', value: brandName },
+    { label: 'SKU', value: product.sku || '—', icon: <FaHashtag className="text-rose-400" /> },
+    { label: 'Barcode', value: product.barcode || '—', icon: <FaBarcode className="text-rose-400" /> },
+    { label: 'Category', value: categoryPath || '—', icon: <FaBox className="text-rose-400" /> },
+    { label: 'Availability', value: availabilityLabel, icon: <FaTags className="text-rose-400" /> },
+    { label: 'Brand', value: brandName || '—', icon: <FaIndustry className="text-rose-400" /> },
+    { label: 'Stock level', value: stockLabel, icon: <FaWarehouse className="text-rose-400" /> },
+    { label: 'Delivery', value: deliveryType || '—', icon: <FaTruck className="text-rose-400" /> },
+    { label: 'Warranty', value: warrantyTerm || '—', icon: <FaShieldAlt className="text-rose-400" /> },
     { label: 'Model', value: modelLabel },
     { label: 'Release year', value: product.year || product.model_year },
     { label: 'Audience', value: audienceLabel },
-    { label: 'Delivery', value: deliveryType },
-    { label: 'Warranty', value: warrantyTerm },
     { label: 'Material', value: materialName },
     { label: 'Colorway', value: colorName },
+    { label: 'Vendor', value: vendorName },
+    { label: 'Tags', value: tagList.length ? tagList.join(', ') : '' },
   ].filter((entry) => entry.value);
 
   const handlePreorder = () => {
@@ -201,7 +218,7 @@ export default function ProductDetail() {
         </div>
 
         <div className="grid gap-6 rounded-xl border border-white/60 bg-white/95 p-3 sm:gap-8 sm:p-5 lg:grid-cols-[1.05fr_0.95fr]">
-          <div className="relative flex items-center justify-center rounded-2xl bg-gradient-to-br from-white via-rose-50 to-sky-50 p-4 shadow-inner sm:p-6">
+          <div className="relative flex flex-col rounded-2xl bg-gradient-to-br from-white via-rose-50 to-sky-50 p-4 shadow-inner sm:p-6">
             <AvailabilityTag availabilityStatus={availabilityStatus} className="top-4 left-4" />
             {gallery && gallery.length ? (
               <div className="w-full">
@@ -219,6 +236,31 @@ export default function ProductDetail() {
                 Image coming soon
               </div>
             )}
+            <div className="mt-4 w-full space-y-4">
+              {technicalDetails && (
+                <section className="space-y-2 rounded-2xl border border-slate-100 bg-white/95 p-4 text-sm text-slate-700 shadow-sm">
+                  <div className="flex items-center justify-between gap-2">
+                    <h3 className="text-base font-semibold text-slate-900">Technical details</h3>
+                    <span className="text-xs uppercase tracking-wide text-slate-400">Seller notes</span>
+                  </div>
+                  <pre className="max-h-64 overflow-auto whitespace-pre-wrap rounded-xl bg-slate-50 p-3 text-xs text-slate-600">
+                    {technicalDetails}
+                  </pre>
+                </section>
+              )}
+              {tagList.length > 0 && (
+                <section className="rounded-2xl border border-slate-100 bg-white p-4 shadow-sm">
+                  <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-400">Tags</h3>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {tagList.map((tag) => (
+                      <span key={tag} className="rounded-full bg-rose-50 px-2 py-0.5 text-xs font-semibold text-rose-600">
+                        #{tag}
+                      </span>
+                    ))}
+                  </div>
+                </section>
+              )}
+            </div>
           </div>
 
           <div className="flex flex-col gap-4">
@@ -287,12 +329,15 @@ export default function ProductDetail() {
                   {metadataEntries.map((entry) => (
                     <div
                       key={entry.label}
-                      className="rounded-xl border border-slate-100 bg-slate-50/80 p-3 shadow-inner"
+                      className="flex items-start gap-3 rounded-xl border border-slate-100 bg-slate-50/80 p-3 shadow-inner"
                     >
-                      <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
-                        {entry.label}
-                      </p>
-                      <p className="mt-1 text-sm text-slate-800">{entry.value}</p>
+                      {entry.icon && <div className="rounded-full bg-white p-2 text-xs">{entry.icon}</div>}
+                      <div>
+                        <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+                          {entry.label}
+                        </p>
+                        <p className="mt-1 text-sm text-slate-800 break-words">{entry.value}</p>
+                      </div>
                     </div>
                   ))}
                 </div>

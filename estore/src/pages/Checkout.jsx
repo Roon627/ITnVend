@@ -6,8 +6,8 @@ import { useSettings } from '../components/SettingsContext';
 import api from '../lib/api';
 import InlineValidationCard from '../components/InlineValidationCard';
 import RegularCustomerLookup from '../components/checkout/RegularCustomerLookup';
-import OrderSummaryDrawer from '../components/checkout/OrderSummaryDrawer';
 import PreorderPolicySnippet from '../components/checkout/PreorderPolicySnippet';
+import { useOrderSummaryControls } from '../components/checkout/OrderSummaryContext';
 
 const QUOTE_TYPES = [
   { value: 'individual', label: 'I am an individual', helper: 'We will treat this as a one-off quotation.' },
@@ -22,6 +22,7 @@ const PAYMENT_METHODS = [
 ];
 
 const DELIVERY_OPTIONS = [
+  { id: 'digital', label: 'Instant digital delivery', fee: 0, helper: 'No courier needed — we email download links & activation notes.' },
   { id: 'pickup', label: 'Store pickup', fee: 0, helper: 'Collect from our ITnVend retail desk.' },
   { id: 'standard', label: 'Standard delivery (Male / Hulhumalé)', fee: 35, helper: 'Courier drop-off during working hours.' },
   { id: 'shop_ship', label: 'Shop & Ship (sea freight)', fee: 150, helper: 'Inter-island freight via Shop & Ship partners.' },
@@ -49,12 +50,13 @@ export default function Checkout() {
   }, [cart, buyNowItem, buyNowItemId]);
 
   const displayTotal = useMemo(() => displayCart.reduce((sum, item) => sum + item.price * item.quantity, 0), [displayCart]);
-  const { formatCurrency, currencyCode, getAccountTransferDetails, getPaymentQrCodeUrl } = useSettings();
+  const { formatCurrency, getAccountTransferDetails, getPaymentQrCodeUrl } = useSettings();
   const cartHasPreorder = useMemo(
     () => displayCart.some((item) => item?.preorder || item?.availableForPreorder || item?.preorder_enabled === 1 || item?.preorder_enabled === '1'),
     [displayCart]
   );
 
+  const { setOverride: setSummaryOverride } = useOrderSummaryControls() || {};
   const defaultDeliveryOption = DELIVERY_OPTIONS.find((opt) => opt.id === 'standard') || DELIVERY_OPTIONS[0];
   const [form, setForm] = useState({
     name: '',
@@ -79,19 +81,32 @@ export default function Checkout() {
   const [submitting, setSubmitting] = useState(false);
   const [deliveryOption, setDeliveryOption] = useState(defaultDeliveryOption?.id || DELIVERY_OPTIONS[0].id);
   const [deliveryFee, setDeliveryFee] = useState(defaultDeliveryOption?.fee || 0);
-  const [summaryOpen, setSummaryOpen] = useState(false);
   const [useRegularLookup, setUseRegularLookup] = useState(false);
   const [regularQuery, setRegularQuery] = useState('');
   const [regularStatus, setRegularStatus] = useState('idle');
   const [regularError, setRegularError] = useState('');
   const [regularMatch, setRegularMatch] = useState(null);
+  const [activeStep, setActiveStep] = useState(1);
+  const totalSteps = 2;
   const paymentSlipInputRef = useRef(null);
 
   const requiresSlip = !isQuote && (paymentMethod === 'transfer' || paymentMethod === 'qr_code' || cartHasPreorder);
-  const selectedDeliveryOption = useMemo(
-    () => DELIVERY_OPTIONS.find((opt) => opt.id === deliveryOption) || defaultDeliveryOption,
-    [deliveryOption, defaultDeliveryOption]
+  const digitalOnly = useMemo(
+    () =>
+      displayCart.length > 0 &&
+      displayCart.every((item) => ((item.productTypeLabel || item.type || '') || '').toString().toLowerCase() === 'digital'),
+    [displayCart]
   );
+  const requiresAddress = !digitalOnly;
+  const visibleDeliveryOptions = useMemo(
+    () => (digitalOnly ? DELIVERY_OPTIONS.filter((opt) => opt.id === 'digital') : DELIVERY_OPTIONS.filter((opt) => opt.id !== 'digital')),
+    [digitalOnly]
+  );
+  const selectedDeliveryOption = useMemo(() => {
+    const match = visibleDeliveryOptions.find((opt) => opt.id === deliveryOption);
+    if (match) return match;
+    return visibleDeliveryOptions[0] || defaultDeliveryOption;
+  }, [visibleDeliveryOptions, deliveryOption, defaultDeliveryOption]);
   const summaryItems = useMemo(
     () =>
       displayCart.map((item) => ({
@@ -100,6 +115,16 @@ export default function Checkout() {
       })),
     [displayCart]
   );
+  const requiresVendorCompany = isQuote && quoteType === 'vendor';
+  const requiresExistingRef = isQuote && quoteType === 'existing';
+  const stepOneComplete = Boolean(
+    (form.name || '').trim() &&
+    (form.email || '').trim() &&
+    (form.phone || '').trim() &&
+    (!requiresVendorCompany || (form.companyName || '').trim()) &&
+    (!requiresExistingRef || (form.existingAccountRef || '').trim())
+  );
+  const summaryDeliveryLabel = digitalOnly ? 'Digital fulfillment' : selectedDeliveryOption?.label || 'Delivery';
   const discountAmount = 0;
   const clearSessionDraft = useCallback(() => {
     if (typeof window === 'undefined') return;
@@ -127,6 +152,30 @@ export default function Checkout() {
       setPaymentMethod('transfer');
     }
   }, [cartHasPreorder, paymentMethod]);
+
+  useEffect(() => {
+    if (digitalOnly) {
+      const digitalOption = DELIVERY_OPTIONS.find((opt) => opt.id === 'digital');
+      if (digitalOption && deliveryOption !== 'digital') {
+        setDeliveryOption('digital');
+        setDeliveryFee(digitalOption.fee || 0);
+        setForm((prev) => ({ ...prev, deliveryPreference: digitalOption.label }));
+      }
+    } else if (deliveryOption === 'digital') {
+      if (defaultDeliveryOption) {
+        setDeliveryOption(defaultDeliveryOption.id);
+        setDeliveryFee(defaultDeliveryOption.fee || 0);
+        setForm((prev) => ({ ...prev, deliveryPreference: defaultDeliveryOption.label }));
+      }
+    }
+  }, [digitalOnly, deliveryOption, defaultDeliveryOption, setForm]);
+
+  useEffect(() => {
+    const nextFee = selectedDeliveryOption?.fee || 0;
+    if (nextFee !== deliveryFee) {
+      setDeliveryFee(nextFee);
+    }
+  }, [selectedDeliveryOption, deliveryFee]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -163,6 +212,18 @@ export default function Checkout() {
       console.warn('Failed to persist checkout draft', err);
     }
   }, [form, quoteType, paymentMethod, deliveryOption]);
+
+  useEffect(() => {
+    if (typeof setSummaryOverride !== 'function') return undefined;
+    setSummaryOverride({
+      items: summaryItems,
+      deliveryFee,
+      deliveryLabel: summaryDeliveryLabel,
+      discount: discountAmount,
+      triggerLabel: 'View cart',
+    });
+    return () => setSummaryOverride(null);
+  }, [setSummaryOverride, summaryItems, deliveryFee, summaryDeliveryLabel, discountAmount]);
 
   const handleFieldChange = (event) => {
     const { name, value } = event.target;
@@ -375,61 +436,46 @@ export default function Checkout() {
     setQuoteType('individual');
     setPaymentMethod('cod');
     setPaymentReference('');
+    clearPaymentSlipState();
+    setUseRegularLookup(false);
+    setRegularQuery('');
+    setRegularStatus('idle');
+    setRegularError('');
+    setRegularMatch(null);
     setDeliveryOption(defaultDeliveryOption?.id || DELIVERY_OPTIONS[0].id);
     setDeliveryFee(defaultDeliveryOption?.fee || 0);
-    setRegularQuery('');
-    setUseRegularLookup(false);
-    clearRegularMatch();
-    clearPaymentSlipState();
-    clearSessionDraft();
   };
 
   const handleSubmit = async (event) => {
-    event.preventDefault();
-    if (!form.name || !form.email) {
-      toast.push('Please fill in your name and email.', 'error');
+    if (event?.preventDefault) event.preventDefault();
+    if (!displayCart.length) {
+      toast.push('Your cart is empty.', 'warning');
       return;
     }
-    if (!form.phone) {
-      toast.push('Please provide a contact phone number.', 'error');
+    if (!form.name || !form.email || !form.phone) {
+      toast.push('Please complete your contact details.', 'error');
       return;
     }
     if (isQuote) {
-      if (quoteType === 'vendor' && !form.companyName) {
-        toast.push('Company name is required for vendor registration.', 'error');
-        return;
-      }
-      if (quoteType === 'existing' && !form.existingAccountRef) {
-        toast.push('Please provide your existing account reference.', 'error');
-        return;
-      }
-  const cartLines = displayCart.map((item) => `${item.name} (Qty: ${item.quantity})`).join('\n');
-      const contextLines = [
-        `Request type: ${quoteType}`,
-        form.phone ? `Phone: ${form.phone}` : null,
-        form.companyName ? `Company: ${form.companyName}` : null,
-        quoteType === 'vendor' && form.registrationNumber ? `Registration number: ${form.registrationNumber}` : null,
-        quoteType === 'existing' ? `Existing account reference: ${form.existingAccountRef || '-'}` : null,
-        form.shippingAddress ? `Shipping address: ${form.shippingAddress}` : null,
-        form.billingAddress ? `Billing address: ${form.billingAddress}` : null,
-        form.deliveryPreference ? `Delivery preference: ${form.deliveryPreference}` : null,
-        form.deliveryInstructions ? `Delivery notes: ${form.deliveryInstructions}` : null,
-      ].filter(Boolean);
-
       try {
         setSubmitting(true);
-        await api.post('/quotes', {
-          company_name: form.companyName || null,
-          contact_name: form.name,
-          email: form.email,
-          phone: form.phone || null,
-          details: `${contextLines.join('\n')}\n\nItems:\n${cartLines || '(cart empty)'}\n\nEstimated total: ${formatCurrency(displayTotal)} ${currencyCode}`,
-          submission_type: quoteType,
-          existing_customer_ref: quoteType === 'existing' ? form.existingAccountRef || null : null,
-          registration_number: quoteType === 'vendor' ? form.registrationNumber || null : null,
-          cart: displayCart.map((item) => ({
+        await api.post('/quotes/request', {
+          quoteType,
+          contact: {
+            name: form.name,
+            email: form.email,
+            phone: form.phone,
+            company: form.companyName || null,
+            registrationNumber: quoteType === 'vendor' ? form.registrationNumber || null : null,
+            existingAccountRef: quoteType === 'existing' ? form.existingAccountRef || null : null,
+            shippingAddress: form.shippingAddress || null,
+            billingAddress: form.billingAddress || null,
+            deliveryPreference: form.deliveryPreference || selectedDeliveryOption?.label || null,
+            deliveryInstructions: form.deliveryInstructions || null,
+          },
+          items: displayCart.map((item) => ({
             id: item.id,
-            product_id: item.id,
+            name: item.name,
             quantity: item.quantity,
             price: item.price,
           })),
@@ -466,7 +512,6 @@ export default function Checkout() {
       return;
     }
 
-    // Direct checkout
     if (cartHasPreorder && paymentMethod !== 'transfer') {
       toast.push('Preorder items must be paid via bank transfer.', 'error');
       return;
@@ -479,33 +524,29 @@ export default function Checkout() {
       toast.push('Please enter the bank transfer reference.', 'error');
       return;
     }
-    // validate slip against reference before submitting
     if (paymentMethod === 'transfer') {
       if (!paymentSlip) {
         toast.push('Please attach the payment slip for bank transfer.', 'error');
         return;
       }
       const trimmedReference = paymentReference.trim();
-    const validation = await validateSlipPublic(paymentSlip, trimmedReference, displayTotal);
+      const validation = await validateSlipPublic(paymentSlip, trimmedReference, displayTotal);
       if (validation && validation.error) {
         toast.push(validation.error || 'Slip validation failed', 'error');
         return;
       }
-      // guard against non-slip uploads even when OCR may find tokens — be conservative
       const looksLikeSlip = detectSlipType(validation?.extractedText || '', validation?.confidence);
       if (!looksLikeSlip) {
         toast.push("Hmm, this doesn't look like a payment slip. Please upload the correct transfer receipt.", 'warning');
         setSlipValidation(validation || null);
         return;
       }
-      // if not a match, block submission and show OCR text
       if (!validation || !validation.match) {
         const extracted = validation?.extractedText || '';
         toast.push('Payment slip does not match the provided reference. Please re-check your slip or reference.', 'error');
         setSlipValidation(validation || { match: false, extractedText: extracted, confidence: validation?.confidence || 0 });
         return;
       }
-      // store validation result for UI
       setSlipValidation(validation);
     }
     try {
@@ -545,7 +586,6 @@ export default function Checkout() {
         paymentMethod,
         paymentReference: paymentMethod === 'transfer' ? trimmedReference || null : null,
       };
-      // If this was a buy-now, remove only purchased items from the cart; otherwise clear the whole cart
       if (buyNowItemId) {
         displayCart.forEach((it) => removeFromCart(it.id));
       } else {
@@ -563,409 +603,459 @@ export default function Checkout() {
   return (
     <div className="container mx-auto p-6">
       <h1 className="text-3xl font-bold mb-6">{isQuote ? 'Request a Quote' : 'Guest Checkout'}</h1>
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-12 items-start">
+      <div className="grid grid-cols-1 gap-12 items-start md:grid-cols-2">
         <div>
-          <h2 className="text-2xl font-semibold mb-4">Your Information</h2>
-          <form onSubmit={handleSubmit} className="bg-white p-6 rounded-lg shadow-md space-y-6">
+          <form onSubmit={handleSubmit} className="space-y-6 rounded-2xl bg-white p-6 shadow-lg">
             {cartHasPreorder && (
-              <div className="rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm text-rose-600">
+              <div className="rounded-2xl border border-rose-200 bg-rose-50/80 p-4 text-sm text-rose-600">
                 <p className="font-semibold">Preorder checkout</p>
                 <p className="mt-1 text-rose-500">
-                  We will reserve preorder items once we verify your bank transfer. Please attach the payment slip and include a phone number so our operations team can reach you quickly.
+                  We will reserve preorder items once we verify your bank transfer. Please attach the payment slip and include a reachable phone number.
                 </p>
               </div>
             )}
-            {isQuote && (
-              <fieldset>
-                <legend className="text-sm font-semibold text-gray-700 mb-3">How should we process this request?</legend>
-                <div className="space-y-3">
-                  {QUOTE_TYPES.map((option) => (
-                    <label
-                      key={option.value}
-                      className={`flex gap-3 rounded-md border p-3 cursor-pointer transition ${
-                        quoteType === option.value ? 'border-blue-500 bg-blue-50' : 'border-gray-200 hover:border-blue-200'
-                      }`}
-                    >
-                      <input
-                        type="radio"
-                        name="quoteType"
-                        value={option.value}
-                        checked={quoteType === option.value}
-                        onChange={handleQuoteTypeChange}
-                        className="mt-1"
-                      />
-                      <span>
-                        <span className="block text-sm font-semibold text-gray-800">{option.label}</span>
-                        <span className="block text-xs text-gray-500">{option.helper}</span>
-                      </span>
-                    </label>
+            <div className="rounded-2xl border border-rose-100 bg-white/80 p-4 shadow-inner">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-rose-500">Step {activeStep} / {totalSteps}</p>
+                  <p className="text-sm font-medium text-slate-600">
+                    {activeStep === 1 ? 'Contact & account details' : (digitalOnly ? 'Digital fulfilment' : 'Delivery & payment')}
+                  </p>
+                </div>
+                <div className="flex gap-2">
+                  {Array.from({ length: totalSteps }).map((_, idx) => (
+                    <span
+                      key={`step-dot-${idx}`}
+                      className={`h-2 w-10 rounded-full transition ${idx + 1 <= activeStep ? 'bg-rose-500' : 'bg-rose-100'}`}
+                    />
                   ))}
                 </div>
-              </fieldset>
-            )}
-
-            <RegularCustomerLookup
-              enabled={useRegularLookup}
-              onToggle={handleRegularToggle}
-              query={regularQuery}
-              onQueryChange={setRegularQuery}
-              status={regularStatus}
-              error={regularError}
-              onSubmit={handleRegularLookup}
-              match={regularMatch}
-              onClearMatch={clearRegularMatch}
-            />
-
-            <div className="space-y-4">
-              <div>
-                <label htmlFor="name" className="block text-gray-700 font-semibold mb-2">
-                  Full Name
-                </label>
-                <input
-                  type="text"
-                  name="name"
-                  id="name"
-                  value={form.name}
-                  onChange={handleFieldChange}
-                  className="w-full p-2 border rounded-md"
-                  required
-                />
-              </div>
-              <div>
-                <label htmlFor="email" className="block text-gray-700 font-semibold mb-2">
-                  Email Address
-                </label>
-                <input
-                  type="email"
-                  name="email"
-                  id="email"
-                  value={form.email}
-                  onChange={handleFieldChange}
-                  className="w-full p-2 border rounded-md"
-                  required
-                />
-              </div>
-              <div>
-                <label htmlFor="phone" className="block text-gray-700 font-semibold mb-2">
-                  Phone <span className="text-red-500">*</span>
-                </label>
-                <input
-                  type="tel"
-                  name="phone"
-                  id="phone"
-                  value={form.phone}
-                  onChange={handleFieldChange}
-                  className="w-full p-2 border rounded-md"
-                  required
-                />
-              </div>
-              <div>
-                <label htmlFor="companyName" className="block text-gray-700 font-semibold mb-2">
-                  Company / Organization {isQuote && quoteType === 'vendor' ? <span className="text-red-500">*</span> : null}
-                </label>
-                <input
-                  type="text"
-                  name="companyName"
-                  id="companyName"
-                  value={form.companyName}
-                  onChange={handleFieldChange}
-                  className="w-full p-2 border rounded-md"
-                  required={isQuote && quoteType === 'vendor'}
-                />
-              </div>
-              {isQuote && quoteType === 'vendor' && (
-                <div>
-                  <label htmlFor="registrationNumber" className="block text-gray-700 font-semibold mb-2">
-                    Vendor registration / tax number (optional)
-                  </label>
-                  <input
-                    type="text"
-                    name="registrationNumber"
-                    id="registrationNumber"
-                    value={form.registrationNumber}
-                    onChange={handleFieldChange}
-                    className="w-full p-2 border rounded-md"
-                  />
-                </div>
-              )}
-              {isQuote && quoteType === 'existing' && (
-                <div>
-                  <label htmlFor="existingAccountRef" className="block text-gray-700 font-semibold mb-2">
-                    Existing account reference <span className="text-red-500">*</span>
-                  </label>
-                  <input
-                    type="text"
-                    name="existingAccountRef"
-                    id="existingAccountRef"
-                    value={form.existingAccountRef}
-                    onChange={handleFieldChange}
-                    className="w-full p-2 border rounded-md"
-                    required
-                  />
-                </div>
-              )}
-              <div>
-                <label htmlFor="shippingAddress" className="block text-gray-700 font-semibold mb-2">
-                  Shipping / delivery address
-                </label>
-                <textarea
-                  name="shippingAddress"
-                  id="shippingAddress"
-                  rows={2}
-                  value={form.shippingAddress}
-                  onChange={handleFieldChange}
-                  className="w-full rounded-md border p-2"
-                  placeholder="Apartment, island, street — especially for Shop & Ship deliveries"
-                />
-              </div>
-              <div>
-                <label htmlFor="billingAddress" className="block text-gray-700 font-semibold mb-2">
-                  Billing address (optional)
-                </label>
-                <textarea
-                  name="billingAddress"
-                  id="billingAddress"
-                  rows={2}
-                  value={form.billingAddress}
-                  onChange={handleFieldChange}
-                  className="w-full rounded-md border p-2"
-                  placeholder="Only if different from shipping"
-                />
-              </div>
-              <div>
-                <label htmlFor="deliveryOption" className="block text-gray-700 font-semibold mb-2">
-                  Delivery preference
-                </label>
-                <select
-                  id="deliveryOption"
-                  value={deliveryOption}
-                  onChange={handleDeliveryOptionChange}
-                  className="w-full rounded-md border p-2"
-                >
-                  {DELIVERY_OPTIONS.map((option) => (
-                    <option key={option.id} value={option.id}>
-                      {option.label} {option.fee ? `(+ ${formatCurrency(option.fee)})` : '(included)'}
-                    </option>
-                  ))}
-                </select>
-                {selectedDeliveryOption?.helper && (
-                  <p className="text-xs text-gray-500 mt-1">{selectedDeliveryOption.helper}</p>
-                )}
-              </div>
-              <div>
-                <label htmlFor="deliveryInstructions" className="block text-gray-700 font-semibold mb-2">
-                  Delivery instructions (optional)
-                </label>
-                <textarea
-                  name="deliveryInstructions"
-                  id="deliveryInstructions"
-                  rows={2}
-                  value={form.deliveryInstructions}
-                  onChange={handleFieldChange}
-                  className="w-full rounded-md border p-2"
-                  placeholder="Gate codes, preferred times, ferry contacts…"
-                />
               </div>
             </div>
-
-            {!isQuote && (
-              <fieldset className="space-y-4">
-                <legend className="text-sm font-semibold text-gray-700">Payment method</legend>
-                {cartHasPreorder && <PreorderPolicySnippet />}
-                <div className="space-y-3">
-                  {PAYMENT_METHODS.map((option) => {
-                    const disabled = cartHasPreorder && option.value !== 'transfer' && option.value !== 'qr_code';
-                    return (
-                      <label
-                        key={option.value}
-                        className={`flex items-center gap-3 rounded-md border p-3 transition ${
-                          disabled
-                            ? 'cursor-not-allowed border-gray-200 bg-gray-50 text-gray-400'
-                            : 'cursor-pointer'
-                        } ${
-                          paymentMethod === option.value ? 'border-blue-500 bg-blue-50' : !disabled ? 'border-gray-200 hover:border-blue-200' : ''
-                        }`}
-                      >
-                        <input
-                          type="radio"
-                          name="paymentMethod"
-                          value={option.value}
-                          checked={paymentMethod === option.value}
-                          onChange={handlePaymentMethodChange}
-                          className="mt-1"
-                          disabled={disabled}
-                        />
-                        <span className="text-sm font-semibold text-gray-800">{option.label}</span>
-                      </label>
-                    );
-                  })}
-                </div>
-
-                {/* Payment Details */}
-                {paymentMethod === 'transfer' && getAccountTransferDetails() && (
-                  <div className="rounded-lg border border-amber-200 bg-amber-50 p-4">
-                    <h3 className="font-semibold text-amber-800 mb-2">Bank Transfer Details</h3>
-                    <div className="text-sm text-amber-700 whitespace-pre-line">
-                      {getAccountTransferDetails()}
+            {activeStep === 1 ? (
+              <div className="space-y-6">
+                {isQuote && (
+                  <fieldset>
+                    <legend className="text-sm font-semibold text-gray-700 mb-3">How should we process this request?</legend>
+                    <div className="space-y-3">
+                      {QUOTE_TYPES.map((option) => (
+                        <label
+                          key={option.value}
+                          className={`flex gap-3 rounded-xl border p-3 transition ${
+                            quoteType === option.value ? 'border-blue-500 bg-blue-50' : 'border-gray-200 hover:border-blue-200'
+                          }`}
+                        >
+                          <input
+                            type="radio"
+                            name="quoteType"
+                            value={option.value}
+                            checked={quoteType === option.value}
+                            onChange={handleQuoteTypeChange}
+                            className="mt-1"
+                          />
+                          <span>
+                            <span className="block text-sm font-semibold text-gray-800">{option.label}</span>
+                            <span className="block text-xs text-gray-500">{option.helper}</span>
+                          </span>
+                        </label>
+                      ))}
                     </div>
-                  </div>
+                  </fieldset>
                 )}
-
-                {paymentMethod === 'qr_code' && getPaymentQrCodeUrl() && (
-                  <div className="rounded-lg border border-blue-200 bg-blue-50 p-4">
-                    <h3 className="font-semibold text-blue-800 mb-2">QR Code Payment</h3>
-                    <div className="flex items-center gap-4">
-                      <img
-                        src={getPaymentQrCodeUrl()}
-                        alt="Payment QR Code"
-                        className="w-48 h-48 object-contain border border-gray-200 rounded-lg"
-                      />
-                      <div className="text-sm text-blue-700">
-                        <p className="mb-2">Scan this QR code with your banking app to make payment.</p>
-                        <p className="font-medium">Enter the transaction reference below after payment.</p>
-                      </div>
-                    </div>
+                <RegularCustomerLookup
+                  enabled={useRegularLookup}
+                  onToggle={handleRegularToggle}
+                  query={regularQuery}
+                  onQueryChange={setRegularQuery}
+                  status={regularStatus}
+                  error={regularError}
+                  onSubmit={handleRegularLookup}
+                  match={regularMatch}
+                  onClearMatch={clearRegularMatch}
+                />
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="sm:col-span-2">
+                    <label htmlFor="name" className="block text-gray-700 font-semibold mb-2">Full Name</label>
+                    <input
+                      type="text"
+                      name="name"
+                      id="name"
+                      value={form.name}
+                      onChange={handleFieldChange}
+                      className="w-full rounded-md border p-2"
+                      required
+                    />
                   </div>
-                )}
-
-                {(paymentMethod === 'transfer' || paymentMethod === 'qr_code') && (
-                  <div className="space-y-4">
-                    <div>
-                      <label htmlFor="paymentReference" className="block text-gray-700 font-semibold mb-2">
-                        {paymentMethod === 'qr_code' ? 'Transaction reference' : 'Transfer reference'} <span className="text-red-500">*</span>
+                  <div>
+                    <label htmlFor="email" className="block text-gray-700 font-semibold mb-2">Email Address</label>
+                    <input
+                      type="email"
+                      name="email"
+                      id="email"
+                      value={form.email}
+                      onChange={handleFieldChange}
+                      className="w-full rounded-md border p-2"
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label htmlFor="phone" className="block text-gray-700 font-semibold mb-2">
+                      Phone <span className="text-red-500">*</span>
+                    </label>
+                    <input
+                      type="tel"
+                      name="phone"
+                      id="phone"
+                      value={form.phone}
+                      onChange={handleFieldChange}
+                      className="w-full rounded-md border p-2"
+                      required
+                    />
+                  </div>
+                  <div className="sm:col-span-2">
+                    <label htmlFor="companyName" className="block text-gray-700 font-semibold mb-2">
+                      Company / Organization {requiresVendorCompany ? <span className="text-red-500">*</span> : null}
+                    </label>
+                    <input
+                      type="text"
+                      name="companyName"
+                      id="companyName"
+                      value={form.companyName}
+                      onChange={handleFieldChange}
+                      className="w-full rounded-md border p-2"
+                      required={requiresVendorCompany}
+                    />
+                  </div>
+                  {requiresVendorCompany && (
+                    <div className="sm:col-span-2">
+                      <label htmlFor="registrationNumber" className="block text-gray-700 font-semibold mb-2">
+                        Vendor registration / tax number (optional)
                       </label>
                       <input
                         type="text"
-                        name="paymentReference"
-                        id="paymentReference"
-                        value={paymentReference}
-                        onChange={(event) => setPaymentReference(event.target.value)}
-                        className="w-full p-2 border rounded-md"
-                        placeholder={paymentMethod === 'qr_code' ? 'Enter transaction ID from your app' : 'Transaction ID or narration'}
-                        required
+                        name="registrationNumber"
+                        id="registrationNumber"
+                        value={form.registrationNumber}
+                        onChange={handleFieldChange}
+                        className="w-full rounded-md border p-2"
                       />
-                      <p className="text-xs text-gray-400 mt-1">
-                        {paymentMethod === 'qr_code' 
-                          ? 'Upload an image that clearly shows this transaction reference.' 
-                          : 'Upload an image that clearly shows this reference number.'
-                        }
-                      </p>
                     </div>
-                    <div>
-                      <label className="block text-gray-700 font-semibold mb-2">
-                        {paymentMethod === 'qr_code' ? 'Payment confirmation' : 'Payment slip'} <span className="text-red-500">*</span>
+                  )}
+                  {requiresExistingRef && (
+                    <div className="sm:col-span-2">
+                      <label htmlFor="existingAccountRef" className="block text-gray-700 font-semibold mb-2">
+                        Existing account reference <span className="text-red-500">*</span>
                       </label>
-                      <div className="flex flex-col gap-3 md:flex-row">
-                        <div className="flex-1 space-y-2">
-                          <input
-                            type="file"
-                            accept="image/*"
-                            onChange={handleSlipChange}
-                            className="w-full"
-                            ref={paymentSlipInputRef}
-                          />
-                          {paymentSlipName && <p className="text-xs text-gray-500">Selected: {paymentSlipName}</p>}
-                          {uploadError && <p className="text-xs text-red-500">{uploadError}</p>}
-                          {paymentSlipPreview && (
-                            <button
-                              type="button"
-                              onClick={clearPaymentSlipState}
-                              className="inline-flex items-center gap-1 rounded border border-gray-300 bg-white px-3 py-1 text-xs font-semibold text-gray-600 hover:bg-gray-100"
-                            >
-                              Remove image
-                            </button>
-                          )}
-                        </div>
-                        {/** preview removed here — kept only in Order Summary to avoid duplicate previews */}
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </fieldset>
-            )}
-
-            <button
-              type="submit"
-              className="w-full bg-blue-600 text-white py-3 rounded-md transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
-              disabled={submitting}
-            >
-              {submitting ? (isQuote ? 'Sending…' : 'Submitting…') : isQuote ? 'Submit Quote Request' : 'Place Order'}
-            </button>
-          </form>
-        </div>
-
-        <div>
-          <h2 className="text-2xl font-semibold mb-4">Order Summary</h2>
-          <div className="bg-white p-6 rounded-lg shadow-md space-y-4">
-            {displayCart.map((item) => (
-              <div key={item.id} className="flex justify-between items-center border-b py-2 text-sm">
-                <div>
-                  <p className="font-semibold text-gray-800">{item.name}</p>
-                  <p className="text-gray-500">x {item.quantity}</p>
-                </div>
-                <p className="font-semibold">{formatCurrency(item.price * item.quantity)}</p>
-              </div>
-            ))}
-            <div className="flex justify-between items-center font-bold text-xl mt-4">
-              <p>Total</p>
-              <p>{formatCurrency(displayTotal)}</p>
-            </div>
-            {!isQuote && paymentMethod === 'transfer' && (
-              <>
-                {typeof getAccountTransferDetails === 'function' && (() => {
-                  const saved = getAccountTransferDetails();
-                  if (saved && (saved.bank_name || saved.account_name || saved.account_number)) {
-                    return (
-                      <div className="mb-3 rounded-lg border border-gray-200 bg-gray-50 p-3 text-sm text-gray-700">
-                        <div className="font-semibold text-gray-800">Bank transfer details</div>
-                        {saved.bank_name && <div className="mt-1">Bank: {saved.bank_name}</div>}
-                        {saved.account_name && <div>Account name: {saved.account_name}</div>}
-                        {saved.account_number && <div className="font-mono">Account number: {saved.account_number}</div>}
-                        <div className="mt-2 text-xs text-gray-500">These details come from your saved account settings.</div>
-                      </div>
-                    );
-                  }
-                  return null;
-                })()}
-                <p className="text-xs text-gray-500">
-                  Once we verify the payment slip we will confirm your order via email.
-                </p>
-              </>
-            )}
-            {paymentSlipPreview && (
-              <div className="mt-4 sm:mt-6">
-                <h3 className="text-sm font-semibold text-gray-700 mb-2">Slip preview</h3>
-                <div className="w-full rounded-lg border border-gray-200 bg-white p-2">
-                  <div className="mx-auto max-w-sm">
-                    <img src={paymentSlipPreview} alt="Slip preview" className="w-full h-auto max-h-48 object-contain rounded" />
-                  </div>
-                  {slipValidation && (
-                    <div className="mt-2">
-                      <InlineValidationCard
-                        status={slipValidation.match ? 'ok' : 'mismatch'}
-                        confidence={slipValidation.confidence}
-                        extractedText={slipValidation.extractedText}
-                        onReplace={() => {
-                          if (paymentSlipInputRef.current) paymentSlipInputRef.current.click();
-                        }}
+                      <input
+                        type="text"
+                        name="existingAccountRef"
+                        id="existingAccountRef"
+                        value={form.existingAccountRef}
+                        onChange={handleFieldChange}
+                        className="w-full rounded-md border p-2"
+                        required
                       />
                     </div>
                   )}
                 </div>
+                <div className="flex flex-col gap-3 border-t border-slate-100 pt-4 sm:flex-row sm:items-center sm:justify-between">
+                  <p className="text-xs text-slate-400">Complete the required contact fields to continue.</p>
+                  <button
+                    type="button"
+                    onClick={() => setActiveStep(2)}
+                    disabled={!stepOneComplete}
+                    className="inline-flex items-center justify-center rounded-full bg-rose-500 px-5 py-2 text-sm font-semibold text-white transition hover:bg-rose-600 disabled:pointer-events-none disabled:opacity-40"
+                  >
+                    Continue to {digitalOnly ? 'digital fulfilment' : 'delivery'}
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-6">
+                {requiresAddress ? (
+                  <div className="grid gap-4">
+                    <div>
+                      <label htmlFor="shippingAddress" className="block text-gray-700 font-semibold mb-2">Shipping / delivery address</label>
+                      <textarea
+                        name="shippingAddress"
+                        id="shippingAddress"
+                        rows={2}
+                        value={form.shippingAddress}
+                        onChange={handleFieldChange}
+                        className="w-full rounded-md border p-2"
+                        placeholder="Apartment, island, street — especially for Shop & Ship deliveries"
+                      />
+                    </div>
+                    <div>
+                      <label htmlFor="billingAddress" className="block text-gray-700 font-semibold mb-2">Billing address (optional)</label>
+                      <textarea
+                        name="billingAddress"
+                        id="billingAddress"
+                        rows={2}
+                        value={form.billingAddress}
+                        onChange={handleFieldChange}
+                        className="w-full rounded-md border p-2"
+                        placeholder="Only if different from shipping"
+                      />
+                    </div>
+                    <div>
+                      <label htmlFor="deliveryOption" className="block text-gray-700 font-semibold mb-2">Delivery preference</label>
+                      <select
+                        id="deliveryOption"
+                        value={deliveryOption}
+                        onChange={handleDeliveryOptionChange}
+                        className="w-full rounded-md border p-2"
+                      >
+                        {visibleDeliveryOptions.map((option) => (
+                          <option key={option.id} value={option.id}>
+                            {option.label} {option.fee ? `(+ ${formatCurrency(option.fee)})` : '(included)'}
+                          </option>
+                        ))}
+                      </select>
+                      {selectedDeliveryOption?.helper && (
+                        <p className="text-xs text-gray-500 mt-1">{selectedDeliveryOption.helper}</p>
+                      )}
+                    </div>
+                    <div>
+                      <label htmlFor="deliveryInstructions" className="block text-gray-700 font-semibold mb-2">Delivery instructions (optional)</label>
+                      <textarea
+                        name="deliveryInstructions"
+                        id="deliveryInstructions"
+                        rows={2}
+                        value={form.deliveryInstructions}
+                        onChange={handleFieldChange}
+                        className="w-full rounded-md border p-2"
+                        placeholder="Gate codes, preferred times, ferry contacts…"
+                      />
+                    </div>
+                  </div>
+                ) : (
+                  <div className="rounded-2xl border border-sky-100 bg-sky-50/80 p-4 text-sm text-sky-700">
+                    <p className="font-semibold text-sky-900">Instant digital delivery</p>
+                    <p className="mt-1">
+                      We will send download links, license keys and any technical notes straight to {form.email || 'your email'} as soon as payment is verified.
+                    </p>
+                  </div>
+                )}
+                {!isQuote && (
+                  <fieldset className="space-y-4">
+                    <legend className="text-sm font-semibold text-gray-700">Payment method</legend>
+                    {cartHasPreorder && <PreorderPolicySnippet />}
+                    <div className="space-y-3">
+                      {PAYMENT_METHODS.map((option) => {
+                        const disabled = cartHasPreorder && option.value !== 'transfer' && option.value !== 'qr_code';
+                        return (
+                          <label
+                            key={option.value}
+                            className={`flex items-center gap-3 rounded-xl border p-3 transition ${
+                              disabled ? 'cursor-not-allowed border-gray-200 bg-gray-50 text-gray-400' : 'cursor-pointer'
+                            } ${
+                              paymentMethod === option.value ? 'border-blue-500 bg-blue-50' : !disabled ? 'border-gray-200 hover:border-blue-200' : ''
+                            }`}
+                          >
+                            <input
+                              type="radio"
+                              name="paymentMethod"
+                              value={option.value}
+                              checked={paymentMethod === option.value}
+                              onChange={handlePaymentMethodChange}
+                              className="mt-1"
+                              disabled={disabled}
+                            />
+                            <span className="text-sm font-semibold text-gray-800">{option.label}</span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                    {paymentMethod === 'transfer' && getAccountTransferDetails() && (
+                      <div className="rounded-lg border border-amber-200 bg-amber-50 p-4">
+                        <h3 className="font-semibold text-amber-800 mb-2">Bank Transfer Details</h3>
+                        <div className="text-sm text-amber-700 whitespace-pre-line">{getAccountTransferDetails()}</div>
+                      </div>
+                    )}
+                    {paymentMethod === 'qr_code' && getPaymentQrCodeUrl() && (
+                      <div className="rounded-lg border border-blue-200 bg-blue-50 p-4">
+                        <h3 className="font-semibold text-blue-800 mb-2">QR Code Payment</h3>
+                        <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
+                          <img
+                            src={getPaymentQrCodeUrl()}
+                            alt="Payment QR Code"
+                            className="w-48 h-48 object-contain border border-gray-200 rounded-lg"
+                          />
+                          <div className="text-sm text-blue-700">
+                            <p className="mb-2">Scan this QR code with your banking app to make payment.</p>
+                            <p className="font-medium">Enter the transaction reference below after payment.</p>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                    {(paymentMethod === 'transfer' || paymentMethod === 'qr_code') && (
+                      <div className="space-y-4">
+                        <div>
+                          <label htmlFor="paymentReference" className="block text-gray-700 font-semibold mb-2">
+                            {paymentMethod === 'qr_code' ? 'Transaction reference' : 'Transfer reference'} <span className="text-red-500">*</span>
+                          </label>
+                          <input
+                            type="text"
+                            name="paymentReference"
+                            id="paymentReference"
+                            value={paymentReference}
+                            onChange={(event) => setPaymentReference(event.target.value)}
+                            className="w-full rounded-md border p-2"
+                            placeholder={paymentMethod === 'qr_code' ? 'Enter transaction ID from your app' : 'Transaction ID or narration'}
+                            required
+                          />
+                          <p className="text-xs text-gray-400 mt-1">
+                            {paymentMethod === 'qr_code'
+                              ? 'Upload an image that clearly shows this transaction reference.'
+                              : 'Upload an image that clearly shows this reference number.'}
+                          </p>
+                        </div>
+                        <div>
+                          <label className="block text-gray-700 font-semibold mb-2">
+                            {paymentMethod === 'qr_code' ? 'Payment confirmation' : 'Payment slip'} <span className="text-red-500">*</span>
+                          </label>
+                          <div className="flex flex-col gap-3 md:flex-row">
+                            <div className="flex-1 space-y-2">
+                              <input
+                                type="file"
+                                accept="image/*"
+                                onChange={handleSlipChange}
+                                className="w-full"
+                                ref={paymentSlipInputRef}
+                              />
+                              {paymentSlipName && <p className="text-xs text-gray-500">Selected: {paymentSlipName}</p>}
+                              {uploadError && <p className="text-xs text-red-500">{uploadError}</p>}
+                              {paymentSlipPreview && (
+                                <button
+                                  type="button"
+                                  onClick={clearPaymentSlipState}
+                                  className="inline-flex items-center gap-1 rounded border border-gray-300 bg-white px-3 py-1 text-xs font-semibold text-gray-600 hover:bg-gray-100"
+                                >
+                                  Remove image
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </fieldset>
+                )}
+                <div className="flex flex-col gap-3 border-t border-slate-100 pt-4 sm:flex-row sm:items-center sm:justify-between">
+                  <button
+                    type="button"
+                    onClick={() => setActiveStep(1)}
+                    className="inline-flex items-center justify-center rounded-full border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50"
+                  >
+                    Back to contact
+                  </button>
+                  <button
+                    type="submit"
+                    className="inline-flex items-center justify-center rounded-full bg-blue-600 px-6 py-2 text-sm font-semibold text-white shadow-lg shadow-blue-200 transition hover:bg-blue-700 disabled:pointer-events-none disabled:opacity-60"
+                    disabled={submitting}
+                  >
+                    {submitting ? (isQuote ? 'Sending…' : 'Submitting…') : isQuote ? 'Submit Quote Request' : 'Place Order'}
+                  </button>
+                </div>
               </div>
             )}
+          </form>
+        </div>
+        <div className="space-y-6">
+          <div className="rounded-3xl border border-rose-100 bg-gradient-to-b from-white via-rose-50 to-sky-50/60 p-6 shadow-xl shadow-rose-100/70">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wide text-rose-500">Live order snapshot</p>
+                <p className="text-3xl font-extrabold text-slate-900">{formatCurrency(displayTotal + deliveryFee - discountAmount)}</p>
+                <p className="text-xs text-slate-500">{summaryDeliveryLabel}</p>
+              </div>
+              <div className="rounded-2xl border border-white/60 bg-white/70 px-4 py-3 text-right text-sm text-slate-500">
+                <p>{displayCart.length} item{displayCart.length === 1 ? '' : 's'}</p>
+                <p>{digitalOnly ? 'Digital delivery' : selectedDeliveryOption?.label || 'Delivery'} </p>
+              </div>
+            </div>
+            <div className="mt-5 space-y-3">
+              {displayCart.map((item) => {
+                const typeLabel = (item.productTypeLabel || item.type || '').toString().toLowerCase();
+                const isDigitalItem = typeLabel === 'digital';
+                return (
+                  <div key={`${item.id}-${item.name}`} className="flex items-start gap-3 rounded-2xl border border-slate-100 bg-white/80 p-3 shadow-sm">
+                    <div className="relative h-14 w-14 overflow-hidden rounded-2xl bg-rose-50">
+                      {item.image ? (
+                        <img src={item.image || item.imageUrl || item.image_source} alt={item.name} className="h-full w-full object-cover" />
+                      ) : (
+                        <div className="flex h-full w-full items-center justify-center text-xs font-semibold text-rose-400">
+                          {item.name?.slice(0, 2)?.toUpperCase()}
+                        </div>
+                      )}
+                      <span className="absolute -bottom-1 -right-1 rounded-full bg-slate-900/90 px-2 py-0.5 text-[10px] font-semibold text-white">
+                        ×{item.quantity}
+                      </span>
+                    </div>
+                    <div className="flex-1">
+                      <div className="flex items-center justify-between gap-3">
+                        <p className="text-sm font-semibold text-slate-900 line-clamp-2">{item.name}</p>
+                        <span className="text-sm font-semibold text-slate-800">{formatCurrency(item.price * item.quantity)}</span>
+                      </div>
+                      <div className="mt-1 flex flex-wrap gap-2 text-[11px] uppercase tracking-wide text-slate-400">
+                        {isDigitalItem && <span className="rounded-full bg-sky-100 px-2 py-0.5 text-sky-600">Digital</span>}
+                        {item.preorder && <span className="rounded-full bg-amber-100 px-2 py-0.5 text-amber-600">Preorder</span>}
+                      </div>
+                      {isDigitalItem && (item.technical_details || item.technicalDetails) && (
+                        <p className="mt-1 text-xs text-slate-500 line-clamp-2">{item.technical_details || item.technicalDetails}</p>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+              {!displayCart.length && <p className="text-sm text-slate-400">Your cart is empty.</p>}
+            </div>
+            <div className="mt-5 rounded-2xl border border-rose-100 bg-white/70 p-4 text-sm text-slate-700">
+              <div className="flex justify-between">
+                <span>Subtotal</span>
+                <span>{formatCurrency(displayTotal)}</span>
+              </div>
+              <div className="flex justify-between">
+                <span>{digitalOnly ? 'Digital delivery' : 'Delivery'}</span>
+                <span>{deliveryFee ? formatCurrency(deliveryFee) : 'Included'}</span>
+              </div>
+              <div className="flex justify-between">
+                <span>Discount</span>
+                <span className={discountAmount ? 'text-emerald-600' : ''}>
+                  {discountAmount ? `- ${formatCurrency(discountAmount)}` : '—'}
+                </span>
+              </div>
+              <div className="mt-3 flex items-center justify-between text-lg font-semibold text-slate-900">
+                <span>Balance</span>
+                <span>{formatCurrency(displayTotal + deliveryFee - discountAmount)}</span>
+              </div>
+            </div>
           </div>
+          {paymentSlipPreview && (
+            <div className="rounded-3xl border border-slate-100 bg-white p-5 shadow-lg">
+              <h3 className="text-sm font-semibold text-gray-700 mb-2">Slip preview</h3>
+              <div className="w-full rounded-lg border border-gray-200 bg-white p-2">
+                <div className="mx-auto max-w-sm">
+                  <img src={paymentSlipPreview} alt="Slip preview" className="w-full h-auto max-h-48 object-contain rounded" />
+                </div>
+                {slipValidation && (
+                  <div className="mt-2">
+                    <InlineValidationCard
+                      status={slipValidation.match ? 'ok' : 'mismatch'}
+                      confidence={slipValidation.confidence}
+                      extractedText={slipValidation.extractedText}
+                      onReplace={() => {
+                        if (paymentSlipInputRef.current) paymentSlipInputRef.current.click();
+                      }}
+                    />
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
         </div>
       </div>
-      <OrderSummaryDrawer
-        open={summaryOpen}
-        onClose={setSummaryOpen}
-        items={summaryItems}
-        formatCurrency={formatCurrency}
-        deliveryFee={deliveryFee}
-        discount={discountAmount}
-        deliveryLabel={selectedDeliveryOption?.label || 'Delivery'}
-      />
       {submitting && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm">
           <div className="relative flex flex-col items-center gap-4 rounded-2xl bg-white/95 px-8 py-6 shadow-2xl">
@@ -987,4 +1077,5 @@ export default function Checkout() {
       )}
     </div>
   );
+
 }

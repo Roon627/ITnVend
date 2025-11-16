@@ -277,6 +277,11 @@ async function transformProductRows(rows = []) {
             color_name: row.color_name,
             audience: row.audience,
             delivery_type: row.delivery_type,
+            digital_download_url: row.digital_download_url,
+            digital_license_key: row.digital_license_key,
+            digital_activation_limit: row.digital_activation_limit,
+            digital_expiry: row.digital_expiry,
+            digital_support_url: row.digital_support_url,
             warranty_term: row.warranty_term,
             preorder_eta: row.preorder_eta,
             year: row.year,
@@ -2462,8 +2467,12 @@ app.get('/api/vendor/me/products', authMiddleware, async (req, res) => {
     try {
         if (!req.user || req.user.role !== 'vendor' || !req.user.vendorId) return res.status(403).json({ error: 'Forbidden' });
         const vendorId = req.user.vendorId;
-        const rows = await db.all('SELECT id, name, price, image, stock, created_at FROM products WHERE vendor_id = ? ORDER BY created_at DESC LIMIT 20', [vendorId]);
-        return res.json(rows || []);
+        const rows = await db.all(
+            `${PRODUCT_BASE_SELECT} AND p.vendor_id = ? ORDER BY p.created_at DESC LIMIT 20`,
+            [vendorId]
+        );
+        const products = await transformProductRows(rows);
+        return res.json(products || []);
     } catch (err) {
         console.error('vendor/me/products error', err);
         return res.status(500).json({ error: 'Internal error' });
@@ -3122,6 +3131,11 @@ app.post('/api/products', authMiddleware, requireRole('cashier'), async (req, re
         newArrival,
         highlightLabel,
         highlightPriority,
+        digitalDownloadUrl,
+        digitalLicenseKey,
+        digitalActivationLimit,
+        digitalExpiry,
+        digitalSupportUrl,
     } = req.body;
 
 
@@ -3157,6 +3171,20 @@ app.post('/api/products', authMiddleware, requireRole('cashier'), async (req, re
     const highlightPriorityInt = parseInt(highlightPriority, 10);
     const normalizedHighlightPriority = Number.isFinite(highlightPriorityInt) ? highlightPriorityInt : 0;
     const normalizedNewArrival = newArrival === true || newArrival === 1 ? 1 : 0;
+    const rawDigitalDownload = digitalDownloadUrl ?? req.body?.digital_download_url;
+    const normalizedDigitalDownloadUrl = typeof rawDigitalDownload === 'string' && rawDigitalDownload.trim() ? rawDigitalDownload.trim() : null;
+    const rawDigitalLicense = digitalLicenseKey ?? req.body?.digital_license_key;
+    const normalizedDigitalLicenseKey = typeof rawDigitalLicense === 'string' && rawDigitalLicense.trim() ? rawDigitalLicense.trim() : null;
+    const rawDigitalSupport = digitalSupportUrl ?? req.body?.digital_support_url;
+    const normalizedDigitalSupportUrl = typeof rawDigitalSupport === 'string' && rawDigitalSupport.trim() ? rawDigitalSupport.trim() : null;
+    const rawDigitalExpiry = digitalExpiry ?? req.body?.digital_expiry;
+    const normalizedDigitalExpiry = typeof rawDigitalExpiry === 'string' && rawDigitalExpiry.trim() ? rawDigitalExpiry.trim() : null;
+    let normalizedDigitalActivationLimit = null;
+    const rawDigitalLimit = digitalActivationLimit ?? req.body?.digital_activation_limit;
+    if (rawDigitalLimit !== undefined && rawDigitalLimit !== null && rawDigitalLimit !== '') {
+        const parsedLimit = parseInt(rawDigitalLimit, 10);
+        normalizedDigitalActivationLimit = Number.isFinite(parsedLimit) ? parsedLimit : null;
+    }
     let vendorIdInt = null;
     if (rawVendorId !== undefined && rawVendorId !== null && rawVendorId !== '') {
         const parsedVendorId = parseInt(rawVendorId, 10);
@@ -3224,11 +3252,12 @@ app.post('/api/products', authMiddleware, requireRole('cashier'), async (req, re
                 sku, barcode, cost, track_inventory, preorder_enabled,
                 preorder_release_date, preorder_notes, short_description, type,
                 brand_id, category_id, subcategory_id, subsubcategory_id,
-                material_id, color_id, audience, delivery_type, warranty_term,
+                material_id, color_id, audience, delivery_type, digital_download_url,
+                digital_license_key, digital_activation_limit, digital_expiry, digital_support_url, warranty_term,
                 preorder_eta, year, auto_sku, availability_status, vendor_id,
                 highlight_active, highlight_label, highlight_priority, new_arrival, gallery
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             [
                 name,
                 normalizedPrice,
@@ -3256,6 +3285,11 @@ app.post('/api/products', authMiddleware, requireRole('cashier'), async (req, re
                 colorIdInt,
                 normalizedAudience,
                 normalizedDelivery,
+                normalizedDigitalDownloadUrl,
+                normalizedDigitalLicenseKey,
+                normalizedDigitalActivationLimit,
+                normalizedDigitalExpiry,
+                normalizedDigitalSupportUrl,
                 normalizedWarranty,
                 normalizedEta,
                 normalizedYear,
@@ -3314,6 +3348,11 @@ app.post('/api/products', authMiddleware, requireRole('cashier'), async (req, re
             color_id: colorIdInt,
             audience: normalizedAudience,
             delivery_type: normalizedDelivery,
+            digital_download_url: normalizedDigitalDownloadUrl,
+            digital_license_key: normalizedDigitalLicenseKey,
+            digital_activation_limit: normalizedDigitalActivationLimit,
+            digital_expiry: normalizedDigitalExpiry,
+            digital_support_url: normalizedDigitalSupportUrl,
             warranty_term: normalizedWarranty,
             preorder_eta: normalizedEta,
             year: normalizedYear,
@@ -3373,7 +3412,18 @@ app.put('/api/products/:id', authMiddleware, requireRole('cashier'), async (req,
         newArrival,
         highlightLabel,
         highlightPriority,
+        digitalDownloadUrl,
+        digitalLicenseKey,
+        digitalActivationLimit,
+        digitalExpiry,
+        digitalSupportUrl,
     } = req.body;
+
+    const normalizeOptionalString = (value) => {
+        if (value === undefined || value === null) return null;
+        const trimmed = value.toString().trim();
+        return trimmed || null;
+    };
 
     try {
         const existing = await db.get('SELECT * FROM products WHERE id = ?', [id]);
@@ -3390,6 +3440,33 @@ app.put('/api/products/:id', authMiddleware, requireRole('cashier'), async (req,
         const normalizedDelivery = deliveryType !== undefined ? normalizeEnum(deliveryType, DELIVERY_TYPES) : existing.delivery_type;
         const normalizedWarranty = warrantyTerm !== undefined ? normalizeEnum(warrantyTerm, WARRANTY_TERMS) : existing.warranty_term;
         const normalizedEta = preorderEta !== undefined ? (preorderEta && preorderEta.toString().trim() ? preorderEta.toString().trim() : null) : existing.preorder_eta;
+        const hasDigitalDownload = Object.prototype.hasOwnProperty.call(req.body, 'digitalDownloadUrl') || Object.prototype.hasOwnProperty.call(req.body, 'digital_download_url');
+        const normalizedDigitalDownloadUrl = hasDigitalDownload
+            ? normalizeOptionalString(digitalDownloadUrl ?? req.body?.digital_download_url)
+            : existing.digital_download_url;
+        const hasDigitalLicense = Object.prototype.hasOwnProperty.call(req.body, 'digitalLicenseKey') || Object.prototype.hasOwnProperty.call(req.body, 'digital_license_key');
+        const normalizedDigitalLicenseKey = hasDigitalLicense
+            ? normalizeOptionalString(digitalLicenseKey ?? req.body?.digital_license_key)
+            : existing.digital_license_key;
+        const hasDigitalSupport = Object.prototype.hasOwnProperty.call(req.body, 'digitalSupportUrl') || Object.prototype.hasOwnProperty.call(req.body, 'digital_support_url');
+        const normalizedDigitalSupportUrl = hasDigitalSupport
+            ? normalizeOptionalString(digitalSupportUrl ?? req.body?.digital_support_url)
+            : existing.digital_support_url;
+        const hasDigitalExpiry = Object.prototype.hasOwnProperty.call(req.body, 'digitalExpiry') || Object.prototype.hasOwnProperty.call(req.body, 'digital_expiry');
+        const normalizedDigitalExpiry = hasDigitalExpiry
+            ? normalizeOptionalString(digitalExpiry ?? req.body?.digital_expiry)
+            : existing.digital_expiry;
+        const hasDigitalLimit = Object.prototype.hasOwnProperty.call(req.body, 'digitalActivationLimit') || Object.prototype.hasOwnProperty.call(req.body, 'digital_activation_limit');
+        let normalizedDigitalActivationLimit = existing.digital_activation_limit;
+        if (hasDigitalLimit) {
+            const rawLimit = digitalActivationLimit ?? req.body?.digital_activation_limit;
+            if (rawLimit === '' || rawLimit === null || rawLimit === undefined) {
+                normalizedDigitalActivationLimit = null;
+            } else {
+                const parsedLimit = parseInt(rawLimit, 10);
+                normalizedDigitalActivationLimit = Number.isFinite(parsedLimit) ? parsedLimit : null;
+            }
+        }
         let normalizedYear = existing.year ?? null;
         if (year !== undefined) {
             if (year === null || year === '') {
@@ -3534,6 +3611,11 @@ app.put('/api/products/:id', authMiddleware, requireRole('cashier'), async (req,
                 color_id = ?,
                 audience = ?,
                 delivery_type = ?,
+                digital_download_url = ?,
+                digital_license_key = ?,
+                digital_activation_limit = ?,
+                digital_expiry = ?,
+                digital_support_url = ?,
                 warranty_term = ?,
                 preorder_eta = ?,
                 year = ?,
@@ -3573,6 +3655,11 @@ app.put('/api/products/:id', authMiddleware, requireRole('cashier'), async (req,
                 colorIdInt,
                 normalizedAudience,
                 normalizedDelivery,
+                normalizedDigitalDownloadUrl,
+                normalizedDigitalLicenseKey,
+                normalizedDigitalActivationLimit,
+                normalizedDigitalExpiry,
+                normalizedDigitalSupportUrl,
                 normalizedWarranty,
                 normalizedEta,
                 normalizedYear,
@@ -3644,6 +3731,11 @@ app.put('/api/products/:id', authMiddleware, requireRole('cashier'), async (req,
             color_id: colorIdInt,
             audience: normalizedAudience,
             delivery_type: normalizedDelivery,
+            digital_download_url: normalizedDigitalDownloadUrl,
+            digital_license_key: normalizedDigitalLicenseKey,
+            digital_activation_limit: normalizedDigitalActivationLimit,
+            digital_expiry: normalizedDigitalExpiry,
+            digital_support_url: normalizedDigitalSupportUrl,
             warranty_term: normalizedWarranty,
             preorder_eta: normalizedEta,
             year: normalizedYear,
@@ -3939,7 +4031,12 @@ app.post('/api/vendor/products', authMiddleware, async (req, res) => {
             highlightLabel,
             highlightPriority,
             newArrival,
-            gallery
+            gallery,
+            digitalDownloadUrl,
+            digitalLicenseKey,
+            digitalActivationLimit,
+            digitalExpiry,
+            digitalSupportUrl
         } = req.body || {};
 
         if (!name || price == null) return res.status(400).json({ error: 'Missing fields' });
@@ -3966,6 +4063,20 @@ app.post('/api/vendor/products', authMiddleware, async (req, res) => {
         const colorIdInt = colorId ? parseInt(colorId, 10) : null;
         const rawAvailabilityStatus = availabilityStatus ?? req.body?.availability_status;
         const normalizedAvailabilityStatus = normalizeEnum(rawAvailabilityStatus, AVAILABILITY_STATUSES, null) || (availableForPreorder ? 'preorder' : 'in_stock');
+        const rawDigitalDownloadVendor = digitalDownloadUrl ?? req.body?.digital_download_url;
+        const normalizedDigitalDownloadUrl = typeof rawDigitalDownloadVendor === 'string' && rawDigitalDownloadVendor.trim() ? rawDigitalDownloadVendor.trim() : null;
+        const rawDigitalLicenseVendor = digitalLicenseKey ?? req.body?.digital_license_key;
+        const normalizedDigitalLicenseKey = typeof rawDigitalLicenseVendor === 'string' && rawDigitalLicenseVendor.trim() ? rawDigitalLicenseVendor.trim() : null;
+        const rawDigitalSupportVendor = digitalSupportUrl ?? req.body?.digital_support_url;
+        const normalizedDigitalSupportUrl = typeof rawDigitalSupportVendor === 'string' && rawDigitalSupportVendor.trim() ? rawDigitalSupportVendor.trim() : null;
+        const rawDigitalExpiryVendor = digitalExpiry ?? req.body?.digital_expiry;
+        const normalizedDigitalExpiry = typeof rawDigitalExpiryVendor === 'string' && rawDigitalExpiryVendor.trim() ? rawDigitalExpiryVendor.trim() : null;
+        let normalizedDigitalActivationLimit = null;
+        const rawDigitalLimitVendor = digitalActivationLimit ?? req.body?.digital_activation_limit;
+        if (rawDigitalLimitVendor !== undefined && rawDigitalLimitVendor !== null && rawDigitalLimitVendor !== '') {
+            const parsedLimit = parseInt(rawDigitalLimitVendor, 10);
+            normalizedDigitalActivationLimit = Number.isFinite(parsedLimit) ? parsedLimit : null;
+        }
 
         let resolvedCategoryId = categoryId ? parseInt(categoryId, 10) : null;
         let resolvedSubcategoryId = subcategoryId ? parseInt(subcategoryId, 10) : null;
@@ -4013,10 +4124,11 @@ app.post('/api/vendor/products', authMiddleware, async (req, res) => {
                 sku, barcode, cost, track_inventory, preorder_enabled,
                 preorder_release_date, preorder_notes, short_description, type,
                 brand_id, category_id, subcategory_id, subsubcategory_id,
-                material_id, color_id, audience, delivery_type, warranty_term,
+                material_id, color_id, audience, delivery_type, digital_download_url,
+                digital_license_key, digital_activation_limit, digital_expiry, digital_support_url, warranty_term,
                 preorder_eta, year, auto_sku, availability_status, vendor_id,
                 highlight_active, highlight_label, highlight_priority, new_arrival, gallery
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             `,
             [
                 name,
@@ -4045,6 +4157,11 @@ app.post('/api/vendor/products', authMiddleware, async (req, res) => {
                 colorIdInt,
                 normalizedAudience,
                 normalizedDelivery,
+                normalizedDigitalDownloadUrl,
+                normalizedDigitalLicenseKey,
+                normalizedDigitalActivationLimit,
+                normalizedDigitalExpiry,
+                normalizedDigitalSupportUrl,
                 normalizedWarranty,
                 normalizedEta,
                 normalizedYear,
@@ -4097,8 +4214,19 @@ app.put('/api/vendor/products/:id', authMiddleware, async (req, res) => {
             trackInventory,
             tags = [],
             availabilityStatus,
-            gallery
+            gallery,
+            digitalDownloadUrl,
+            digitalLicenseKey,
+            digitalActivationLimit,
+            digitalExpiry,
+            digitalSupportUrl
         } = req.body || {};
+
+        const normalizeOptionalString = (value) => {
+            if (value === undefined || value === null) return null;
+            const trimmed = value.toString().trim();
+            return trimmed || null;
+        };
 
         const updates = [];
         const params = [];
@@ -4115,6 +4243,18 @@ app.put('/api/vendor/products/:id', authMiddleware, async (req, res) => {
         if (trackInventory != null) { updates.push('track_inventory = ?'); params.push(trackInventory === false || trackInventory === 0 ? 0 : 1); }
         if (availabilityStatus != null) { updates.push('availability_status = ?'); params.push(availabilityStatus); }
         if (gallery != null) { const galleryInput = normalizeGalleryInput(gallery); updates.push('gallery = ?'); params.push(galleryInput.length ? JSON.stringify(galleryInput) : null); }
+        if (digitalDownloadUrl !== undefined) { updates.push('digital_download_url = ?'); params.push(normalizeOptionalString(digitalDownloadUrl)); }
+        if (digitalLicenseKey !== undefined) { updates.push('digital_license_key = ?'); params.push(normalizeOptionalString(digitalLicenseKey)); }
+        if (digitalSupportUrl !== undefined) { updates.push('digital_support_url = ?'); params.push(normalizeOptionalString(digitalSupportUrl)); }
+        if (digitalExpiry !== undefined) { updates.push('digital_expiry = ?'); params.push(normalizeOptionalString(digitalExpiry)); }
+        if (digitalActivationLimit !== undefined) {
+            if (digitalActivationLimit === '' || digitalActivationLimit === null) {
+                updates.push('digital_activation_limit = ?'); params.push(null);
+            } else {
+                const parsedLimit = parseInt(digitalActivationLimit, 10);
+                updates.push('digital_activation_limit = ?'); params.push(Number.isFinite(parsedLimit) ? parsedLimit : null);
+            }
+        }
 
         if (sku != null) {
             const finalSku = sku.trim() || null;

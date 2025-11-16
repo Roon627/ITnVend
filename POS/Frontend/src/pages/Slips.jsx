@@ -55,6 +55,9 @@ export default function Slips() {
     fetchList();
   }, [activeView, fetchList]);
 
+  const detailId = detail?.id;
+  const detailStatus = detail?.status;
+
   useEffect(() => {
     if (activeView !== 'review') return undefined;
     if (!selectedId) {
@@ -76,14 +79,14 @@ export default function Slips() {
     return () => {
       cancelled = true;
     };
-  }, [activeView, selectedId, detail]);
+  }, [activeView, selectedId]);
 
   useEffect(() => {
     if (activeView !== 'review') return undefined;
-    if (!detail || detail.status !== 'processing') return undefined;
+    if (!detailId || detailStatus !== 'processing') return undefined;
     const interval = window.setInterval(async () => {
       try {
-        const updated = await api.get(`/slips/${detail.id}`);
+        const updated = await api.get(`/slips/${detailId}`);
         setDetail(updated || null);
         if (updated?.status && updated.status !== 'processing') {
           window.clearInterval(interval);
@@ -94,7 +97,7 @@ export default function Slips() {
       }
     }, 5000);
     return () => window.clearInterval(interval);
-  }, [activeView, detail?.id, detail?.status, fetchList]);
+  }, [activeView, detailId, detailStatus, fetchList]);
 
   const handleSlipPersisted = useCallback(() => {
     fetchList();

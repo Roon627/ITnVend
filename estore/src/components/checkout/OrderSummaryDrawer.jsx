@@ -1,4 +1,5 @@
 import React from 'react';
+import { FiShoppingCart } from 'react-icons/fi';
 
 export default function OrderSummaryDrawer({
   open,
@@ -8,6 +9,7 @@ export default function OrderSummaryDrawer({
   deliveryFee = 0,
   discount = 0,
   deliveryLabel = 'Delivery',
+  triggerLabel = 'Order summary',
 }) {
   const subtotal = items.reduce((sum, item) => sum + item.price * item.quantity, 0);
   const finalTotal = subtotal + deliveryFee - discount;
@@ -16,9 +18,12 @@ export default function OrderSummaryDrawer({
       <button
         type="button"
         onClick={() => onClose(!open)}
-        className="fixed bottom-6 right-6 z-30 inline-flex items-center gap-2 rounded-full bg-rose-500 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-rose-200 transition hover:bg-rose-600 md:right-10"
+        className="group fixed bottom-6 right-6 z-30 inline-flex items-center gap-2 rounded-full bg-rose-500/95 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-rose-200 transition hover:-translate-y-0.5 hover:bg-rose-600 md:right-10"
+        aria-haspopup="dialog"
+        aria-expanded={open}
       >
-        Order summary
+        <FiShoppingCart className="text-base" aria-hidden="true" />
+        <span>{triggerLabel}</span>
         <span className="rounded-full bg-white/25 px-2 py-0.5 text-xs font-bold">{items.length}</span>
       </button>
       <div

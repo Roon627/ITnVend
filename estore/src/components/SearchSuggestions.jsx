@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api from '../lib/api';
 import { resolveMediaUrl } from '../lib/media';
@@ -50,9 +50,9 @@ export default function SearchSuggestions({ query, onSelect, minChars = 2, limit
         if (mounted.current) setLoading(false);
       }
     }, 200);
-  }, [query, minChars, limit]);
+  }, [query, minChars, limit, enabled]);
 
-  const fireAnalytics = (item) => {
+  const fireAnalytics = useCallback((item) => {
     try {
       const payload = { event: 'search_suggestion_select', suggestionId: item?.id || null, query: query || '' };
       // GTM dataLayer
@@ -63,13 +63,13 @@ export default function SearchSuggestions({ query, onSelect, minChars = 2, limit
       if (window && typeof window.gtag === 'function') {
         window.gtag('event', 'search_suggestion_select', payload);
       }
-    } catch (e) {
+    } catch (error) {
       // don't let analytics break UX
-      // console.debug('analytics failed', e);
+      console.debug('Search analytics failed', error);
     }
-  };
+  }, [query]);
 
-  const handleSelect = (item) => {
+  const handleSelect = useCallback((item) => {
     setOpen(false);
     fireAnalytics(item);
     if (onSelect) {
@@ -78,7 +78,7 @@ export default function SearchSuggestions({ query, onSelect, minChars = 2, limit
     }
     // default: navigate to product detail
     if (item && item.id) navigate(`/product/${item.id}`);
-  };
+  }, [fireAnalytics, navigate, onSelect]);
 
   // Keyboard handling
   useEffect(() => {
@@ -107,7 +107,7 @@ export default function SearchSuggestions({ query, onSelect, minChars = 2, limit
     }
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [open, items, active, query, navigate, minChars]);
+  }, [open, items, active, query, navigate, minChars, handleSelect]);
 
   // click away to close
   useEffect(() => {

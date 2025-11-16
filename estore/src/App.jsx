@@ -17,6 +17,8 @@ import ShopAndShip from "./pages/ShopAndShip";
 import Socials from "./pages/Socials";
 import Footer from "./components/Footer";
 import PublicNavbar from "./components/PublicNavbar";
+import FloatingOrderSummary from "./components/checkout/FloatingOrderSummary";
+import { OrderSummaryProvider } from "./components/checkout/OrderSummaryContext";
 import VendorProfile from "./pages/VendorProfile";
 import VendorDirectory from "./pages/VendorDirectory";
 import ResetPassword from "./pages/ResetPassword";
@@ -26,19 +28,22 @@ import NotFound from "./pages/NotFound";
 
 function PublicLayout({ children }) {
   return (
-    <div className="flex min-h-screen flex-col bg-gradient-to-br from-rose-50 via-white to-sky-50 text-slate-800">
-      <a
-        href="#main-content"
-        className="absolute left-4 top-4 z-50 -translate-y-20 rounded-full bg-white px-4 py-2 text-sm font-semibold text-rose-500 shadow transition focus-visible:translate-y-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-400"
-      >
-        Skip to content
-      </a>
-      <PublicNavbar />
-      <main id="main-content" className="flex-1">
-        {children}
-      </main>
-      <Footer />
-    </div>
+    <OrderSummaryProvider>
+      <div className="flex min-h-screen flex-col bg-gradient-to-br from-rose-50 via-white to-sky-50 text-slate-800">
+        <a
+          href="#main-content"
+          className="absolute left-4 top-4 z-50 -translate-y-20 rounded-full bg-white px-4 py-2 text-sm font-semibold text-rose-500 shadow transition focus-visible:translate-y-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-400"
+        >
+          Skip to content
+        </a>
+        <PublicNavbar />
+        <main id="main-content" className="flex-1">
+          {children}
+        </main>
+        <Footer />
+      </div>
+      <FloatingOrderSummary />
+    </OrderSummaryProvider>
   );
 }
 

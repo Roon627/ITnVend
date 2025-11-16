@@ -65,7 +65,7 @@ export default function AddProduct() {
       const createdPayload = {
         name: payload.name,
         price: payload.price != null ? parseFloat(payload.price) : 0,
-        stock: isDigital ? 0 : payload.stock ? parseInt(payload.stock, 10) || 0 : 0,
+        stock: payload.stock ? parseInt(payload.stock, 10) || 0 : 0,
         categoryId: payload.categoryId || null,
         subcategoryId: payload.subcategoryId || null,
         subsubcategoryId: payload.subsubcategoryId || null,
@@ -77,7 +77,7 @@ export default function AddProduct() {
         barcode: payload.barcode || null,
         model: payload.model || null,
         cost: payload.cost ? parseFloat(payload.cost) : 0,
-        trackInventory: isDigital ? false : payload.trackInventory,
+        trackInventory: payload.trackInventory,
         type: isDigital ? 'digital' : 'physical',
         productTypeLabel: payload.productTypeLabel || payload.type || (isDigital ? 'digital' : 'physical'),
         availabilityStatus: normalizeAvailabilityStatus(payload.availabilityStatus),

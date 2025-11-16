@@ -582,9 +582,9 @@ export default function ProductForm({
       categoryId: form.categoryId || null,
       subcategoryId: form.subcategoryId || null,
       subsubcategoryId: form.subsubcategoryId || null,
-      brandId: form.type === 'digital' ? null : form.brandId || null,
-      materialId: form.type === 'digital' ? null : form.materialId || null,
-      colorId: form.type === 'digital' ? null : form.colorId || null,
+      brandId: form.brandId || null,
+      materialId: form.materialId || null,
+      colorId: form.colorId || null,
       type: normalizedType,
       productTypeLabel: form.type || normalizedType,
       model: form.model,
@@ -650,16 +650,7 @@ export default function ProductForm({
               onCreate={createAudience || internalCreateAudience}
             />
           </div>
-          <div className="mt-3">
-            <label className="text-sm font-medium text-slate-600">Download / license instructions</label>
-            <textarea
-              value={form.technicalDetails}
-              onChange={(event) => update('technicalDetails', event.target.value)}
-              rows={3}
-              className="mt-1 w-full rounded-md border px-3 py-2 text-sm"
-              placeholder="Share download links, license keys or activation instructions"
-            />
-          </div>
+          
           <div className="mt-3 grid gap-3 md:grid-cols-2">
             <div>
               <label className="text-sm font-medium text-slate-600">Download URL</label>
@@ -928,18 +919,16 @@ export default function ProductForm({
               }}
               options={PRODUCT_TYPES}
             />
-            {form.type !== 'digital' && (
-              <SelectField
-                label="Brand"
-                value={form.brandId}
-                onChange={(value) => update('brandId', value)}
-                options={brandOptions}
-                placeholder="Select brand"
-                allowCreate
-                createLabel="New brand"
-                onCreate={createBrand || internalCreateBrand}
-              />
-            )}
+            <SelectField
+              label="Brand"
+              value={form.brandId}
+              onChange={(value) => update('brandId', value)}
+              options={brandOptions}
+              placeholder="Select brand"
+              allowCreate
+              createLabel="New brand"
+              onCreate={createBrand || internalCreateBrand}
+            />
             <SelectField
               label="Availability status"
               value={form.availabilityStatus}
@@ -1206,18 +1195,16 @@ export default function ProductForm({
                 placeholder="Tell shoppers what makes this product special"
               />
             </div>
-            {form.type !== 'digital' && (
-              <div>
-                <label className="text-sm font-medium text-slate-600">Technical details / specs</label>
-                <textarea
-                  value={form.technicalDetails}
-                  onChange={(event) => update('technicalDetails', event.target.value)}
-                  rows={3}
-                  className="mt-1 w-full rounded-md border px-3 py-2 text-sm"
-                  placeholder="Use JSON, bullet lists or simple text"
-                />
-              </div>
-            )}
+            <div>
+              <label className="text-sm font-medium text-slate-600">Technical details / specs</label>
+              <textarea
+                value={form.technicalDetails}
+                onChange={(event) => update('technicalDetails', event.target.value)}
+                rows={3}
+                className="mt-1 w-full rounded-md border px-3 py-2 text-sm"
+                placeholder="Use JSON, bullet lists or simple text"
+              />
+            </div>
           </div>
           <div className="rounded-xl border bg-slate-50 p-4">
             <p className="text-sm font-semibold text-slate-700">Highlights</p>

@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from 'react';
+import { useCallback, useEffect, useState, useRef } from 'react';
 import api from '../lib/api';
 import { isUserListing, isVendorListing } from '../lib/listings';
 
@@ -7,7 +7,7 @@ export default function useMarketplaceStats({ pollInterval = 30000 } = {}) {
   const [loading, setLoading] = useState(true);
   const mounted = useRef(true);
 
-  async function load() {
+  const load = useCallback(async () => {
     try {
       const [allProducts, publicVendors] = await Promise.all([
         api.get('/products').catch(() => []),
@@ -37,11 +37,11 @@ export default function useMarketplaceStats({ pollInterval = 30000 } = {}) {
       });
     } catch (err) {
       // ignore — keep previous stats
-      // console.debug('useMarketplaceStats load failed', err?.message || err);
+      console.debug('useMarketplaceStats load failed', err?.message || err);
     } finally {
       if (mounted.current) setLoading(false);
     }
-  }
+  }, []);
 
   useEffect(() => {
     mounted.current = true;
@@ -56,8 +56,7 @@ export default function useMarketplaceStats({ pollInterval = 30000 } = {}) {
       mounted.current = false;
       if (id) clearInterval(id);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pollInterval]);
+  }, [pollInterval, load]);
 
   return { stats, loading, refresh: load };
 }
