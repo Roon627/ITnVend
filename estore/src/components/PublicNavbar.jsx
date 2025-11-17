@@ -110,7 +110,7 @@ export default function PublicNavbar() {
     return (
       <>
       {showNotice && (
-        <div className="bg-gradient-to-r from-rose-500 via-rose-400 to-sky-400 text-white">
+        <div className="bg-gradient-to-r from-[#a78bfa] via-[#cba7ff] to-[#f9a8d4] text-white">
           <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3 px-6 py-2 text-sm">
             <div className="flex flex-1 flex-wrap items-center gap-2">
               <span className="font-semibold uppercase tracking-wide">Friendly safety reminder:</span>
@@ -138,7 +138,7 @@ export default function PublicNavbar() {
         </div>
       )}
       <header
-        className={`sticky top-0 z-40 bg-gradient-to-r from-rose-50/70 via-white/40 to-sky-50/70 backdrop-blur-md transition-shadow duration-300 ${
+        className={`sticky top-0 z-40 bg-gradient-to-r from-[#f6ecff]/80 via-white/50 to-[#fde7f3]/80 backdrop-blur-md transition-shadow duration-300 ${
           elevated ? 'shadow-md' : 'shadow-sm'
         }`}
       >
@@ -187,7 +187,7 @@ export default function PublicNavbar() {
 
           <div className="ml-auto flex items-center gap-3">
             <div className="relative">
-              <Link to="/cart" className={cartButtonClasses}>
+              <Link to="/cart" className={`${cartButtonClasses} hidden md:inline-flex`}>
                 <FaShoppingCart className="mr-2" aria-hidden="true" />
                 Cart
                 {cartbadge}
@@ -197,7 +197,7 @@ export default function PublicNavbar() {
             {!isOnMarketPage && (
               <Link
                 to="/market"
-                className="hidden items-center gap-3 rounded-2xl bg-gradient-to-r from-rose-500 via-rose-400 to-sky-400 px-4 py-2 text-white shadow-md shadow-rose-200/50 transition-transform duration-200 hover:-translate-y-0.5 lg:inline-flex"
+                className="hidden items-center gap-3 rounded-2xl px-4 py-2 text-white shadow-md shadow-rose-200/50 transition-transform duration-200 hover:-translate-y-0.5 lg:inline-flex highlight-gradient"
               >
                 <span className="inline-flex h-8 w-8 items-center justify-center rounded-xl bg-white/20 text-white">
                   <FaShoppingBag />
