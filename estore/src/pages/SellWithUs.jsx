@@ -111,6 +111,7 @@ export default function SellWithUs() {
   const [slipFile, setSlipFile] = useState(null);
   const [slipPreview, setSlipPreview] = useState(null);
   const [submitting, setSubmitting] = useState(false);
+  const [step, setStep] = useState(1);
   const toast = useToast();
   const navigate = useNavigate();
 
@@ -404,6 +405,354 @@ export default function SellWithUs() {
 
   const tagsList = useMemo(() => normalizeTags(form.tags), [form.tags]);
 
+  const listingDetailsSection = (
+    <>
+      <div>
+        <p className="text-xs uppercase tracking-wide text-slate-400">Product overview</p>
+        <div className="mt-3 grid gap-4 md:grid-cols-2">
+          <label className="text-sm font-medium text-slate-600 md:col-span-2">
+            Product title*
+            <input
+              name="productTitle"
+              value={form.productTitle}
+              onChange={handleChange}
+              required
+              className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 focus:border-rose-400 focus:outline-none focus:ring-2 focus:ring-rose-100"
+              placeholder="e.g. Surface Laptop 5"
+            />
+          </label>
+          <label className="text-sm font-medium text-slate-600">
+            Brand
+            <input
+              name="brand"
+              value={form.brand}
+              onChange={handleChange}
+              className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 focus:border-rose-400 focus:outline-none focus:ring-2 focus:ring-rose-100"
+              placeholder="Brand name"
+            />
+          </label>
+          <label className="text-sm font-medium text-slate-600">
+            Model
+            <input
+              name="model"
+              value={form.model}
+              onChange={handleChange}
+              className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 focus:border-rose-400 focus:outline-none focus:ring-2 focus:ring-rose-100"
+              placeholder="Model / trim"
+            />
+          </label>
+          <label className="text-sm font-medium text-slate-600">
+            Year
+            <input
+              name="year"
+              type="number"
+              value={form.year}
+              onChange={handleChange}
+              className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 focus:border-rose-400 focus:outline-none focus:ring-2 focus:ring-rose-100"
+            />
+          </label>
+          <div>
+            <label className="text-sm font-medium text-slate-600 flex items-center justify-between">
+              SKU
+              <span className="flex items-center gap-2 text-xs font-semibold text-slate-500">
+                <input
+                  type="checkbox"
+                  name="autoSku"
+                  checked={form.autoSku}
+                  onChange={handleChange}
+                  className="rounded border-slate-300 text-rose-500"
+                />
+                Auto-generate
+              </span>
+            </label>
+            <input
+              name="sku"
+              value={form.sku}
+              onChange={handleChange}
+              disabled={form.autoSku}
+              className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 focus:border-rose-400 focus:outline-none focus:ring-2 focus:ring-rose-100 disabled:bg-slate-50"
+              placeholder="AUTO"
+            />
+          </div>
+        </div>
+      </div>
+
+      <div>
+        <p className="text-xs uppercase tracking-wide text-slate-400">Descriptions</p>
+        <div className="mt-3 space-y-4">
+          <label className="text-sm font-medium text-slate-600">
+            One-line summary
+            <input
+              name="shortDescription"
+              value={form.shortDescription}
+              onChange={handleChange}
+              className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 focus:border-rose-400 focus:outline-none focus:ring-2 focus:ring-rose-100"
+              placeholder="Short blurb shown on cards"
+            />
+          </label>
+          <label className="text-sm font-medium text-slate-600">
+            Detailed description
+            <textarea
+              name="description"
+              value={form.description}
+              onChange={handleChange}
+              rows={4}
+              className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 focus:border-rose-400 focus:outline-none focus:ring-2 focus:ring-rose-100"
+              placeholder="Features, selling points, condition notes"
+            />
+          </label>
+          <label className="text-sm font-medium text-slate-600">
+            Technical details / specs
+            <textarea
+              name="technicalDetails"
+              value={form.technicalDetails}
+              onChange={handleChange}
+              rows={3}
+              className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 focus:border-rose-400 focus:outline-none focus:ring-2 focus:ring-rose-100"
+              placeholder="CPU, GPU, edition, bundle info, etc."
+            />
+          </label>
+        </div>
+      </div>
+
+      <div>
+        <p className="text-xs uppercase tracking-wide text-slate-400">Pricing & inventory</p>
+        <div className="mt-3 grid gap-4 md:grid-cols-2">
+          <label className="text-sm font-medium text-slate-600">
+            Asking price (MVR)
+            <input
+              name="price"
+              type="number"
+              value={form.price}
+              onChange={handleChange}
+              className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 focus:border-rose-400 focus:outline-none focus:ring-2 focus:ring-rose-100"
+              placeholder="0.00"
+            />
+          </label>
+          <label className="text-sm font-medium text-slate-600">
+            Stock / quantity
+            <input
+              name="stock"
+              type="number"
+              min="1"
+              value={form.stock}
+              onChange={handleChange}
+              className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 focus:border-rose-400 focus:outline-none focus:ring-2 focus:ring-rose-100"
+            />
+          </label>
+          <label className="text-sm font-medium text-slate-600">
+            Availability
+            <select
+              name="availabilityStatus"
+              value={form.availabilityStatus}
+              onChange={handleChange}
+              className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 focus:border-rose-400 focus:outline-none focus:ring-2 focus:ring-rose-100"
+            >
+              {AVAILABILITY_STATUS_OPTIONS.map((option) => (
+                <option key={option.id} value={option.id}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="text-sm font-medium text-slate-600">
+            Category
+            <select
+              name="category"
+              value={form.category}
+              onChange={handleChange}
+              className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 focus:border-rose-400 focus:outline-none focus:ring-2 focus:ring-rose-100"
+            >
+              <option value="">Select</option>
+              {Object.keys(categoriesMap).map((cat) => (
+                <option key={cat} value={cat}>
+                  {cat}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="text-sm font-medium text-slate-600">
+            Subcategory
+            <select
+              name="subcategory"
+              value={form.subcategory}
+              onChange={handleChange}
+              className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 focus:border-rose-400 focus:outline-none focus:ring-2 focus:ring-rose-100"
+            >
+              <option value="">Select</option>
+              {availableSubcategories.map((sub) => (
+                <option key={sub} value={sub}>
+                  {sub}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="text-sm font-medium text-slate-600">
+            Tags
+            <input
+              name="tags"
+              value={form.tags}
+              onChange={handleChange}
+              className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 focus:border-rose-400 focus:outline-none focus:ring-2 focus:ring-rose-100"
+              placeholder="Comma separated keywords"
+            />
+          </label>
+        </div>
+      </div>
+
+      <div>
+        <p className="text-xs uppercase tracking-wide text-slate-400">Additional specifics</p>
+        <div className="mt-3 grid gap-4 md:grid-cols-2">
+          <label className="text-sm font-medium text-slate-600">
+            Barcode / serial
+            <input
+              name="barcode"
+              value={form.barcode}
+              onChange={handleChange}
+              className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 focus:border-rose-400 focus:outline-none focus:ring-2 focus:ring-rose-100"
+              placeholder="Optional tracking IDs"
+            />
+          </label>
+          <label className="text-sm font-medium text-slate-600">
+            Warranty
+            <select
+              name="warrantyTerm"
+              value={form.warrantyTerm}
+              onChange={handleChange}
+              className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 focus:border-rose-400 focus:outline-none focus:ring-2 focus:ring-rose-100"
+            >
+              {WARRANTY_OPTIONS.map((option) => (
+                <option key={option.id} value={option.id}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="text-sm font-medium text-slate-600">
+            Material
+            <input
+              name="material"
+              value={form.material}
+              onChange={handleChange}
+              className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 focus:border-rose-400 focus:outline-none focus:ring-2 focus:ring-rose-100"
+              placeholder="e.g. Aluminum"
+            />
+          </label>
+          <label className="text-sm font-medium text-slate-600">
+            Color
+            <input
+              name="color"
+              value={form.color}
+              onChange={handleChange}
+              className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 focus:border-rose-400 focus:outline-none focus:ring-2 focus:ring-rose-100"
+              placeholder="e.g. Matte black"
+            />
+          </label>
+          <label className="text-sm font-medium text-slate-600">
+            Weight
+            <input
+              name="weight"
+              value={form.weight}
+              onChange={handleChange}
+              className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 focus:border-rose-400 focus:outline-none focus:ring-2 focus:ring-rose-100"
+              placeholder="e.g. 1.6kg"
+            />
+          </label>
+          <label className="text-sm font-medium text-slate-600">
+            Dimensions
+            <input
+              name="dimensions"
+              value={form.dimensions}
+              onChange={handleChange}
+              className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 focus:border-rose-400 focus:outline-none focus:ring-2 focus:ring-rose-100"
+              placeholder="e.g. 13” x 9” x 0.5”"
+            />
+          </label>
+        </div>
+      </div>
+
+      <div>
+        <p className="text-xs uppercase tracking-wide text-slate-400">Audience & delivery</p>
+        <div className="mt-3 grid gap-4 md:grid-cols-2">
+          <label className="text-sm font-medium text-slate-600">
+            Intended audience
+            <select
+              name="audience"
+              value={form.audience}
+              onChange={handleChange}
+              className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 focus:border-rose-400 focus:outline-none focus:ring-2 focus:ring-rose-100"
+            >
+              {AUDIENCE_OPTIONS.map((option) => (
+                <option key={option.id} value={option.id}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="text-sm font-medium text-slate-600">
+            Delivery type
+            <select
+              name="deliveryType"
+              value={form.deliveryType}
+              onChange={handleChange}
+              className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 focus:border-rose-400 focus:outline-none focus:ring-2 focus:ring-rose-100"
+            >
+              <option value="">Not specified</option>
+              {DELIVERY_OPTIONS.map((option) => (
+                <option key={option.id} value={option.id}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+        <p className="text-xs text-slate-500 mt-3">
+          Quantities are displayed to buyers for context, but ITnVend does not manage fulfilment or stock for peer-to-peer listings.
+        </p>
+      </div>
+
+      <div className="rounded-2xl border border-slate-200 bg-slate-50/60 p-4">
+        <p className="text-xs uppercase tracking-wide text-slate-400">Listing options</p>
+        <div className="mt-3 flex flex-col gap-3">
+          <label className="inline-flex items-center gap-2 text-sm font-medium text-slate-700">
+            <input
+              type="checkbox"
+              name="feature"
+              checked={form.feature}
+              onChange={handleChange}
+              className="rounded border-slate-300 text-rose-500"
+            />
+            Boost listing (adds {FEATURE_FEE_AMOUNT} MVR)
+          </label>
+          <div className="text-sm text-slate-600">
+            Category tag:
+            <span className="ml-2 inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-semibold text-slate-600">
+              {form.user_tag || suggestedTag}
+            </span>
+            <input
+              name="user_tag"
+              value={form.user_tag || ''}
+              onChange={handleChange}
+              className="mt-2 w-full rounded-lg border border-slate-200 px-3 py-2 text-xs focus:border-rose-400 focus:outline-none focus:ring-2 focus:ring-rose-100"
+              placeholder="Override the suggested listing tag"
+            />
+          </div>
+          <label className="text-sm font-medium text-slate-600">
+            Internal notes for reviewer
+            <textarea
+              name="vendorNotes"
+              value={form.vendorNotes}
+              onChange={handleChange}
+              rows={2}
+              className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 focus:border-rose-400 focus:outline-none focus:ring-2 focus:ring-rose-100"
+              placeholder="Optional clarifications for the merchandising team"
+            />
+          </label>
+        </div>
+      </div>
+    </>
+  );
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-rose-50 px-4 py-8 lg:px-8">
       <div className="mx-auto max-w-6xl space-y-8">
@@ -428,27 +777,40 @@ export default function SellWithUs() {
                 ))}
               </ul>
             </div>
-            <div className="w-full grid grid-cols-1 gap-4 sm:grid-cols-3">
-              {/* Render live stats when available, fall back to HIGHLIGHTS placeholders */}
-              {(
-                stats && (stats.totalProducts || stats.vendors || stats.sellers) ? [
-                  { label: 'Total products', value: stats.totalProducts },
-                  { label: 'Approved vendors', value: stats.vendors },
-                  { label: 'Peer sellers', value: stats.sellers },
-                ] : HIGHLIGHTS
-              ).map((stat) => (
-                <div key={stat.label} className="rounded-2xl border border-rose-100 bg-white px-4 py-3 text-center shadow-sm">
-                  <div className="text-xl font-semibold text-slate-900">{stat.value}</div>
-                  <div className="text-xs uppercase tracking-wide text-slate-500">{stat.label}</div>
-                </div>
-              ))}
+            <div className="w-full overflow-x-auto sm:overflow-visible [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+              <div className="flex min-w-fit gap-3 sm:grid sm:min-w-0 sm:grid-cols-3">
+                {(
+                  stats && (stats.totalProducts || stats.vendors || stats.sellers) ? [
+                    { label: 'Total products', value: stats.totalProducts },
+                    { label: 'Approved vendors', value: stats.vendors },
+                    { label: 'Peer sellers', value: stats.sellers },
+                  ] : HIGHLIGHTS
+                ).map((stat) => (
+                  <div key={stat.label} className="flex min-w-[140px] flex-col items-center justify-center rounded-2xl border border-rose-100 bg-white px-4 py-3 text-center shadow-sm">
+                    <div className="text-xl font-semibold text-slate-900">{stat.value}</div>
+                    <div className="text-xs uppercase tracking-wide text-slate-500">{stat.label}</div>
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
         </section>
 
-        <div className="grid gap-6 lg:grid-cols-[2fr,1fr]">
-          <section className="rounded-2xl border border-white/70 bg-white/95 p-6 shadow-xl shadow-rose-100/30">
-            <form onSubmit={handleSubmit} className="space-y-6">
+        <div className="grid gap-6 lg:grid-cols-[2fr,1fr] lg:items-start">
+          <div className="order-2 space-y-4 lg:order-1">
+            <div className="flex flex-col gap-2 rounded-2xl border border-rose-100 bg-rose-50/80 p-4 sm:flex-row sm:items-center sm:justify-between">
+              {[{ id: 1, title: 'Seller info', description: 'Who you are' }, { id: 2, title: 'Listing details', description: "What you're selling" }].map((stepItem) => (
+                <div key={stepItem.id} className={`flex flex-1 min-w-[160px] flex-col rounded-2xl border px-3 py-2 text-xs ${step === stepItem.id ? 'border-rose-300 bg-white shadow-sm' : 'border-transparent text-slate-500'}`}>
+                  <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Step {stepItem.id}</span>
+                  <span className="text-sm font-semibold text-rose-600">{stepItem.title}</span>
+                  <span className="text-[10px] text-slate-500">{stepItem.description}</span>
+                </div>
+              ))}
+            </div>
+            <section className="rounded-2xl border border-white/70 bg-white/95 p-6 shadow-xl shadow-rose-100/30">
+              <form onSubmit={handleSubmit} className="space-y-6">
+              {step === 1 ? (
+                <>
               <div>
                 <p className="text-xs uppercase tracking-wide text-slate-400">Seller details</p>
                 <div className="mt-3 grid gap-4 md:grid-cols-2">
@@ -500,385 +862,24 @@ export default function SellWithUs() {
                 </div>
               </div>
 
-              <div>
-                <p className="text-xs uppercase tracking-wide text-slate-400">Product overview</p>
-                <div className="mt-3 grid gap-4 md:grid-cols-2">
-                  <label className="text-sm font-medium text-slate-600 md:col-span-2">
-                    Product title*
-                    <input
-                      name="productTitle"
-                      value={form.productTitle}
-                      onChange={handleChange}
-                      required
-                      className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 focus:border-rose-400 focus:outline-none focus:ring-2 focus:ring-rose-100"
-                      placeholder="e.g. Surface Laptop 5"
-                    />
-                  </label>
-                  <label className="text-sm font-medium text-slate-600">
-                    Brand
-                    <input
-                      name="brand"
-                      value={form.brand}
-                      onChange={handleChange}
-                      className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 focus:border-rose-400 focus:outline-none focus:ring-2 focus:ring-rose-100"
-                      placeholder="Brand name"
-                    />
-                  </label>
-                  <label className="text-sm font-medium text-slate-600">
-                    Model
-                    <input
-                      name="model"
-                      value={form.model}
-                      onChange={handleChange}
-                      className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 focus:border-rose-400 focus:outline-none focus:ring-2 focus:ring-rose-100"
-                      placeholder="Model / trim"
-                    />
-                  </label>
-                  <label className="text-sm font-medium text-slate-600">
-                    Year
-                    <input
-                      name="year"
-                      type="number"
-                      value={form.year}
-                      onChange={handleChange}
-                      className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 focus:border-rose-400 focus:outline-none focus:ring-2 focus:ring-rose-100"
-                    />
-                  </label>
-                  <div>
-                    <label className="text-sm font-medium text-slate-600 flex items-center justify-between">
-                      SKU
-                      <span className="flex items-center gap-2 text-xs font-semibold text-slate-500">
-                        <input
-                          type="checkbox"
-                          name="autoSku"
-                          checked={form.autoSku}
-                          onChange={handleChange}
-                          className="rounded border-slate-300 text-rose-500"
-                        />
-                        Auto-generate
-                      </span>
-                    </label>
-                    <input
-                      name="sku"
-                      value={form.sku}
-                      onChange={handleChange}
-                      disabled={form.autoSku}
-                      className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 focus:border-rose-400 focus:outline-none focus:ring-2 focus:ring-rose-100 disabled:bg-slate-50"
-                      placeholder="AUTO"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              <div>
-                <p className="text-xs uppercase tracking-wide text-slate-400">Descriptions</p>
-                <div className="mt-3 space-y-4">
-                  <label className="text-sm font-medium text-slate-600">
-                    One-line summary
-                    <input
-                      name="shortDescription"
-                      value={form.shortDescription}
-                      onChange={handleChange}
-                      className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 focus:border-rose-400 focus:outline-none focus:ring-2 focus:ring-rose-100"
-                      placeholder="Short blurb shown on cards"
-                    />
-                  </label>
-                  <label className="text-sm font-medium text-slate-600">
-                    Detailed description
-                    <textarea
-                      name="description"
-                      value={form.description}
-                      onChange={handleChange}
-                      rows={4}
-                      className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 focus:border-rose-400 focus:outline-none focus:ring-2 focus:ring-rose-100"
-                      placeholder="Features, selling points, condition notes"
-                    />
-                  </label>
-                  <label className="text-sm font-medium text-slate-600">
-                    Technical details / specs
-                    <textarea
-                      name="technicalDetails"
-                      value={form.technicalDetails}
-                      onChange={handleChange}
-                      rows={3}
-                      className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 focus:border-rose-400 focus:outline-none focus:ring-2 focus:ring-rose-100"
-                      placeholder="Optional spec sheet text"
-                    />
-                  </label>
-                </div>
-              </div>
-
-              <div>
-                <p className="text-xs uppercase tracking-wide text-slate-400">Pricing & inventory</p>
-                <div className="mt-3 grid gap-4 md:grid-cols-2">
-                  <label className="text-sm font-medium text-slate-600">
-                    Selling price (MVR)*
-                    <input
-                      name="price"
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      value={form.price}
-                      onChange={handleChange}
-                      className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 focus:border-rose-400 focus:outline-none focus:ring-2 focus:ring-rose-100"
-                      placeholder="e.g. 8500"
-                    />
-                  </label>
-                  <label className="text-sm font-medium text-slate-600">
-                    Quantity available
-                    <input
-                      name="stock"
-                      type="number"
-                      min="1"
-                      value={form.stock}
-                      onChange={handleChange}
-                      className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 focus:border-rose-400 focus:outline-none focus:ring-2 focus:ring-rose-100"
-                    />
-                  </label>
-                  <label className="text-sm font-medium text-slate-600">
-                    Availability
-                    <select
-                      name="availabilityStatus"
-                      value={form.availabilityStatus}
-                      onChange={handleChange}
-                      className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 focus:border-rose-400 focus:outline-none focus:ring-2 focus:ring-rose-100"
-                    >
-                      {AVAILABILITY_STATUS_OPTIONS.map((option) => (
-                        <option key={option.id} value={option.id}>
-                          {option.label}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label className="text-sm font-medium text-slate-600">
-                    Product type
-                    <select
-                      name="type"
-                      value={form.type}
-                      onChange={handleChange}
-                      className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 focus:border-rose-400 focus:outline-none focus:ring-2 focus:ring-rose-100"
-                    >
-                      {PRODUCT_TYPES.map((option) => (
-                        <option key={option.id} value={option.id}>
-                          {option.label}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label className="text-sm font-medium text-slate-600">
-                    Barcode / identifier
-                    <input
-                      name="barcode"
-                      value={form.barcode}
-                      onChange={handleChange}
-                      className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 focus:border-rose-400 focus:outline-none focus:ring-2 focus:ring-rose-100"
-                      placeholder="EAN / UPC (optional)"
-                    />
-                  </label>
-                  <label className="text-sm font-medium text-slate-600">
-                    Serial number
-                    <input
-                      name="serialNumber"
-                      value={form.serialNumber}
-                      onChange={handleChange}
-                      className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 focus:border-rose-400 focus:outline-none focus:ring-2 focus:ring-rose-100"
-                    />
-                  </label>
-                  <label className="text-sm font-medium text-slate-600">
-                    Warranty summary
-                    <textarea
-                      name="warranty"
-                      value={form.warranty}
-                      onChange={handleChange}
-                      rows={2}
-                      className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 focus:border-rose-400 focus:outline-none focus:ring-2 focus:ring-rose-100"
-                      placeholder="e.g. Remaining AppleCare until Oct 2025"
-                    />
-                  </label>
-                  <label className="text-sm font-medium text-slate-600">
-                    Warranty term
-                    <select
-                      name="warrantyTerm"
-                      value={form.warrantyTerm}
-                      onChange={handleChange}
-                      className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 focus:border-rose-400 focus:outline-none focus:ring-2 focus:ring-rose-100"
-                    >
-                      {WARRANTY_OPTIONS.map((option) => (
-                        <option key={option.id} value={option.id}>
-                          {option.label}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                </div>
-              </div>
-              <div>
-                <p className="text-xs uppercase tracking-wide text-slate-400">Classification</p>
-                <div className="mt-3 grid gap-4 md:grid-cols-2">
-                  <label className="text-sm font-medium text-slate-600">
-                    Category
-                    <select
-                      name="category"
-                      value={form.category}
-                      onChange={handleChange}
-                      className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 focus:border-rose-400 focus:outline-none focus:ring-2 focus:ring-rose-100"
-                    >
-                      <option value="">Select</option>
-                      {Object.keys(categoriesMap).map((category) => (
-                        <option key={category} value={category}>
-                          {category}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label className="text-sm font-medium text-slate-600">
-                    Subcategory
-                    <select
-                      name="subcategory"
-                      value={form.subcategory}
-                      onChange={handleChange}
-                      disabled={!availableSubcategories.length}
-                      className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 focus:border-rose-400 focus:outline-none focus:ring-2 focus:ring-rose-100 disabled:bg-slate-50"
-                    >
-                      <option value="">Select</option>
-                      {availableSubcategories.map((subcategory) => (
-                        <option key={subcategory} value={subcategory}>
-                          {subcategory}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label className="text-sm font-medium text-slate-600 md:col-span-2">
-                    Additional tags (comma separated)
-                    <input
-                      name="tags"
-                      value={form.tags}
-                      onChange={handleChange}
-                      className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 focus:border-rose-400 focus:outline-none focus:ring-2 focus:ring-rose-100"
-                      placeholder="gaming, microsoft, touchscreen"
-                    />
-                  </label>
-                  <label className="text-sm font-medium text-slate-600">
-                    Material / finish
-                    <input
-                      name="material"
-                      value={form.material}
-                      onChange={handleChange}
-                      className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 focus:border-rose-400 focus:outline-none focus:ring-2 focus:ring-rose-100"
-                    />
-                  </label>
-                  <label className="text-sm font-medium text-slate-600">
-                    Primary color
-                    <input
-                      name="color"
-                      value={form.color}
-                      onChange={handleChange}
-                      className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 focus:border-rose-400 focus:outline-none focus:ring-2 focus:ring-rose-100"
-                    />
-                  </label>
-                  <label className="text-sm font-medium text-slate-600">
-                    Weight
-                    <input
-                      name="weight"
-                      value={form.weight}
-                      onChange={handleChange}
-                      className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 focus:border-rose-400 focus:outline-none focus:ring-2 focus:ring-rose-100"
-                      placeholder="e.g. 1.6kg"
-                    />
-                  </label>
-                  <label className="text-sm font-medium text-slate-600">
-                    Dimensions
-                    <input
-                      name="dimensions"
-                      value={form.dimensions}
-                      onChange={handleChange}
-                      className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 focus:border-rose-400 focus:outline-none focus:ring-2 focus:ring-rose-100"
-                      placeholder="e.g. 13” x 9” x 0.5”"
-                    />
-                  </label>
-                </div>
-              </div>
-
-              <div>
-                <p className="text-xs uppercase tracking-wide text-slate-400">Audience & delivery</p>
-                <div className="mt-3 grid gap-4 md:grid-cols-2">
-                  <label className="text-sm font-medium text-slate-600">
-                    Intended audience
-                    <select
-                      name="audience"
-                      value={form.audience}
-                      onChange={handleChange}
-                      className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 focus:border-rose-400 focus:outline-none focus:ring-2 focus:ring-rose-100"
-                    >
-                      {AUDIENCE_OPTIONS.map((option) => (
-                        <option key={option.id} value={option.id}>
-                          {option.label}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label className="text-sm font-medium text-slate-600">
-                    Delivery type
-                    <select
-                      name="deliveryType"
-                      value={form.deliveryType}
-                      onChange={handleChange}
-                      className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 focus:border-rose-400 focus:outline-none focus:ring-2 focus:ring-rose-100"
-                    >
-                      <option value="">Not specified</option>
-                      {DELIVERY_OPTIONS.map((option) => (
-                        <option key={option.id} value={option.id}>
-                          {option.label}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                </div>
-                <p className="text-xs text-slate-500 mt-3">
-                  Quantities are displayed to buyers for context, but ITnVend does not manage fulfilment or stock for peer-to-peer listings.
+              <div className="rounded-2xl border border-dashed border-rose-200 bg-rose-50/50 p-4 text-sm text-slate-600">
+                <p className="font-semibold text-rose-600">Next up: listing details</p>
+                <p className="mt-1">
+                  Continue to step 2 to describe the product, set pricing, upload media, and finalize the submission.
                 </p>
               </div>
 
-              <div className="rounded-2xl border border-slate-200 bg-slate-50/60 p-4">
-                <p className="text-xs uppercase tracking-wide text-slate-400">Listing options</p>
-                <div className="mt-3 flex flex-col gap-3">
-                  <label className="inline-flex items-center gap-2 text-sm font-medium text-slate-700">
-                    <input
-                      type="checkbox"
-                      name="feature"
-                      checked={form.feature}
-                      onChange={handleChange}
-                      className="rounded border-slate-300 text-rose-500"
-                    />
-                    Boost listing (adds {FEATURE_FEE_AMOUNT} MVR)
-                  </label>
-                  <div className="text-sm text-slate-600">
-                    Category tag:
-                    <span className="ml-2 inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-semibold text-slate-600">
-                      {form.user_tag || suggestedTag}
-                    </span>
-                    <input
-                      name="user_tag"
-                      value={form.user_tag || ''}
-                      onChange={handleChange}
-                      className="mt-2 w-full rounded-lg border border-slate-200 px-3 py-2 text-xs focus:border-rose-400 focus:outline-none focus:ring-2 focus:ring-rose-100"
-                      placeholder="Override the suggested listing tag"
-                    />
-                  </div>
-                  <label className="text-sm font-medium text-slate-600">
-                    Internal notes for reviewer
-                    <textarea
-                      name="vendorNotes"
-                      value={form.vendorNotes}
-                      onChange={handleChange}
-                      rows={2}
-                      className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 focus:border-rose-400 focus:outline-none focus:ring-2 focus:ring-rose-100"
-                      placeholder="Optional clarifications for the merchandising team"
-                    />
-                  </label>
+              <div className="sticky bottom-[72px] z-10 flex flex-col gap-3 border-t bg-white/95 pb-3 pt-4 sm:static sm:border-transparent sm:bg-transparent sm:pb-0">
+                <span className="text-xs text-slate-400">Step 1 of 2</span>
+                <div className="flex flex-col gap-2 sm:flex-row">
+                  <button type="button" onClick={() => navigate('/')} className="rounded-full border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-600">Cancel</button>
+                  <button type="button" onClick={() => setStep(2)} className="rounded-full bg-rose-500 px-4 py-2 text-sm font-semibold text-white shadow">Continue</button>
                 </div>
               </div>
-
+            </>
+          ) : (
+            <>
+              {listingDetailsSection}
               <div className="rounded-2xl border border-slate-200 bg-white/80 p-5 shadow-sm">
                 <p className="text-xs uppercase tracking-wide text-slate-400">Marketplace terms</p>
                 <label className="mt-3 flex items-start gap-3 text-sm text-slate-700">
@@ -914,7 +915,7 @@ export default function SellWithUs() {
                 </div>
               </div>
 
-              <div className="flex flex-col gap-3 pt-4 border-t">
+              <div className="sticky bottom-[72px] z-10 flex flex-col gap-3 border-t bg-white/95 pb-3 pt-4 sm:static sm:border-transparent sm:bg-transparent sm:pb-0">
                 <button
                   type="submit"
                   disabled={submitting}
@@ -922,14 +923,22 @@ export default function SellWithUs() {
                 >
                   {submitting ? 'Submitting.' : 'Submit listing'}
                 </button>
-                <button type="button" onClick={() => navigate('/')} className="text-sm text-slate-500 hover:text-slate-700">
-                  Cancel and go back
-                </button>
+                <div className="flex flex-col gap-2 sm:flex-row">
+                  <button type="button" onClick={() => setStep(1)} className="rounded-full border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-600">
+                    Back to seller info
+                  </button>
+                  <button type="button" onClick={() => navigate('/')} className="text-sm text-slate-500 hover:text-slate-700">
+                    Cancel and go back
+                  </button>
+                </div>
               </div>
-            </form>
-          </section>
+            </>
+          )}
+        </form>
+      </section>
+          </div>
 
-          <aside className="rounded-2xl border border-white/60 bg-white/95 p-6 shadow-lg shadow-rose-100/30 space-y-6">
+          <aside className="order-1 rounded-2xl border border-white/60 bg-white/95 p-6 shadow-lg shadow-rose-100/30 space-y-6 lg:order-2">
             <div>
               <p className="text-xs uppercase tracking-wide text-slate-400">Fee summary</p>
               <div className="mt-3 space-y-2 text-sm">

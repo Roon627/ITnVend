@@ -27,6 +27,16 @@ export default function Vendors() {
   const [credModalOpen, setCredModalOpen] = useState(false);
   const [credLoading, setCredLoading] = useState(false);
   const [credData, setCredData] = useState(null);
+  const [billingModalOpen, setBillingModalOpen] = useState(false);
+  const [billingVendor, setBillingVendor] = useState(null);
+  const [billingInvoices, setBillingInvoices] = useState([]);
+  const [billingForm, setBillingForm] = useState({ monthlyFee: '', billingStartDate: '' });
+  const [billingLoading, setBillingLoading] = useState(false);
+
+  const [editModalOpen, setEditModalOpen] = useState(false);
+  const [editVendor, setEditVendor] = useState(null);
+  const [editSaving, setEditSaving] = useState(false);
+  const [invoiceActionId, setInvoiceActionId] = useState(null);
   const vendorPortalBase = useMemo(() => {
     if (VENDOR_PORTAL_SOURCE) return VENDOR_PORTAL_SOURCE.replace(/\/$/, '');
     if (typeof window !== 'undefined' && window.location?.origin) {
@@ -148,6 +158,154 @@ export default function Vendors() {
     }
   }
 
+  const closeBillingModal = () => {
+    setBillingModalOpen(false);
+    setBillingVendor(null);
+    setBillingInvoices([]);
+    setBillingForm({ monthlyFee: '', billingStartDate: '' });
+  };
+
+  function openEditModal(vendor) {
+    setEditVendor({
+      id: vendor.id,
+      legal_name: vendor.legal_name || '',
+      contact_person: vendor.contact_person || '',
+      email: vendor.email || '',
+      phone: vendor.phone || '',
+      address: vendor.address || '',
+      website: vendor.website || '',
+      capabilities: vendor.capabilities || '',
+      notes: vendor.notes || '',
+      tagline: vendor.tagline || '',
+      public_description: vendor.public_description || '',
+      monthly_fee: vendor.monthly_fee != null ? Number(vendor.monthly_fee).toFixed(2) : '',
+      billing_start_date: vendor.billing_start_date ? vendor.billing_start_date.slice(0, 10) : '',
+    });
+    setEditModalOpen(true);
+  }
+
+  async function saveVendorDetails() {
+    if (!editVendor) return;
+    setEditSaving(true);
+    try {
+      const payload = {
+        legal_name: editVendor.legal_name,
+        contact_person: editVendor.contact_person,
+        email: editVendor.email,
+        phone: editVendor.phone,
+        address: editVendor.address,
+        website: editVendor.website,
+        capabilities: editVendor.capabilities,
+        notes: editVendor.notes,
+        tagline: editVendor.tagline,
+        public_description: editVendor.public_description,
+        monthly_fee: editVendor.monthly_fee === '' ? null : Number(editVendor.monthly_fee),
+        billing_start_date: editVendor.billing_start_date || null,
+      };
+      await api.put(`/vendors/${editVendor.id}`, payload);
+      toast.push('Vendor updated', 'success');
+      setEditModalOpen(false);
+      setEditVendor(null);
+      fetchVendors();
+    } catch (err) {
+      console.error('Failed to update vendor', err);
+      toast.push(err?.data?.error || err?.message || 'Failed to update vendor', 'error');
+    } finally {
+      setEditSaving(false);
+    }
+  }
+
+
+
+
+  async function loadBillingInvoices(vendorId) {
+    if (!vendorId) return;
+    setBillingLoading(true);
+    try {
+      const res = await api.get(`/vendors/${vendorId}/invoices`);
+      setBillingInvoices((res && res.invoices) || (Array.isArray(res) ? res : []));
+    } catch (err) {
+      console.error('Failed to load billing invoices', err);
+      toast.push(err?.data?.error || err?.message || 'Failed to load vendor invoices', 'error');
+      setBillingInvoices([]);
+    } finally {
+      setBillingLoading(false);
+    }
+  }
+
+  function openBillingModal(vendor) {
+    if (!vendor) return;
+    setBillingVendor(vendor);
+    setBillingForm({
+      monthlyFee: vendor?.monthly_fee != null ? String(Number(vendor.monthly_fee).toFixed(2)) : '',
+      billingStartDate: vendor?.billing_start_date ? vendor.billing_start_date.slice(0, 10) : '',
+    });
+    setBillingInvoices([]);
+    setBillingModalOpen(true);
+    loadBillingInvoices(vendor.id);
+  }
+
+  async function saveBillingSettings() {
+    if (!billingVendor) return;
+    try {
+      const payload = {
+        monthly_fee: billingForm.monthlyFee === '' ? null : Number(billingForm.monthlyFee),
+        billing_start_date: billingForm.billingStartDate || null,
+      };
+      await api.patch(`/vendors/${billingVendor.id}/billing`, payload);
+      toast.push('Billing settings updated', 'success');
+      setBillingVendor((prev) =>
+        prev ? { ...prev, monthly_fee: payload.monthly_fee, billing_start_date: payload.billing_start_date } : prev
+      );
+      fetchVendors();
+    } catch (err) {
+      console.error('Failed to update billing', err);
+      toast.push(err?.data?.error || err?.message || 'Failed to update billing settings', 'error');
+    }
+  }
+
+  async function generateManualInvoice() {
+    if (!billingVendor) return;
+    try {
+      await api.post(`/vendors/${billingVendor.id}/invoices/generate`, {});
+      toast.push('Invoice generated', 'success');
+      loadBillingInvoices(billingVendor.id);
+    } catch (err) {
+      console.error('Failed to generate invoice', err);
+      toast.push(err?.data?.error || err?.message || 'Failed to generate invoice', 'error');
+    }
+  }
+
+  async function markInvoicePaid(invoice) {
+    if (!billingVendor || !invoice) return;
+    try {
+      setInvoiceActionId(invoice.id);
+      await api.post(`/vendors/${billingVendor.id}/invoices/${invoice.id}/pay`, {});
+      toast.push('Invoice marked as paid', 'success');
+      loadBillingInvoices(billingVendor.id);
+      fetchVendors();
+    } catch (err) {
+      console.error('Failed to mark invoice paid', err);
+      toast.push(err?.data?.error || err?.message || 'Failed to mark invoice as paid', 'error');
+    } finally {
+      setInvoiceActionId(null);
+    }
+  }
+
+  async function reactivateVendorFromModal() {
+    if (!billingVendor) return;
+    try {
+      await api.post(`/vendors/${billingVendor.id}/reactivate`, {
+        billing_start_date: billingForm.billingStartDate || null,
+      });
+      toast.push('Vendor reactivated', 'success');
+      fetchVendors();
+    } catch (err) {
+      console.error('Failed to reactivate vendor', err);
+      toast.push(err?.data?.error || err?.message || 'Failed to reactivate vendor', 'error');
+    }
+  }
+
   const statusSummary = useMemo(() => {
     if (!vendors?.length) return {};
     return vendors.reduce((acc, vendor) => {
@@ -253,6 +411,8 @@ export default function Vendors() {
                       ) : (
                         <>
                           <button type="button" onClick={() => resendCredentialsUI(vendor.id)} className="rounded-full border px-4 py-2 text-sm font-semibold">Resend credentials</button>
+                          <button type="button" onClick={() => openEditModal(vendor)} className="rounded-full border px-4 py-2 text-sm font-semibold">Edit details</button>
+                          <button type="button" onClick={() => openBillingModal(vendor)} className="rounded-full border px-4 py-2 text-sm font-semibold">Billing</button>
                           <button type="button" onClick={() => sendPasswordReset(vendor)} className="rounded-full border px-4 py-2 text-sm font-semibold">Send password reset</button>
                           <button type="button" onClick={() => impersonateVendor(vendor.id)} className="rounded-full bg-blue-600 text-white px-4 py-2 text-sm font-semibold">Login as vendor</button>
                           <button type="button" onClick={() => openTokensModal(vendor)} className="rounded-full border px-4 py-2 text-sm font-semibold inline-flex items-center gap-2"><FaKey />View tokens</button>
@@ -339,6 +499,156 @@ export default function Vendors() {
               </div>
             ) : (
               <div className="text-sm text-slate-500">No credential data available.</div>
+            )}
+          </div>
+        </div>
+      </Modal>
+
+      <Modal open={editModalOpen} onClose={() => setEditModalOpen(false)}>
+        <div className="w-full max-w-3xl rounded-2xl border border-slate-200 bg-white p-5">
+          <div className="flex items-center justify-between">
+            <h3 className="text-lg font-semibold">Edit vendor — {editVendor?.legal_name || ''}</h3>
+            <button onClick={() => setEditModalOpen(false)} className="text-sm text-slate-500">Close</button>
+          </div>
+          <form className="mt-4 grid gap-4 md:grid-cols-2" onSubmit={(e) => { e.preventDefault(); saveVendorDetails(); }}>
+            <label className="text-sm font-medium text-slate-600">
+              Legal name
+              <input value={editVendor?.legal_name || ''} onChange={(e) => setEditVendor((prev) => ({ ...prev, legal_name: e.target.value }))} className="mt-1 w-full rounded border border-slate-200 px-3 py-2" required />
+            </label>
+            <label className="text-sm font-medium text-slate-600">
+              Contact person
+              <input value={editVendor?.contact_person || ''} onChange={(e) => setEditVendor((prev) => ({ ...prev, contact_person: e.target.value }))} className="mt-1 w-full rounded border border-slate-200 px-3 py-2" />
+            </label>
+            <label className="text-sm font-medium text-slate-600">
+              Email
+              <input type="email" value={editVendor?.email || ''} onChange={(e) => setEditVendor((prev) => ({ ...prev, email: e.target.value }))} className="mt-1 w-full rounded border border-slate-200 px-3 py-2" />
+            </label>
+            <label className="text-sm font-medium text-slate-600">
+              Phone
+              <input value={editVendor?.phone || ''} onChange={(e) => setEditVendor((prev) => ({ ...prev, phone: e.target.value }))} className="mt-1 w-full rounded border border-slate-200 px-3 py-2" />
+            </label>
+            <label className="text-sm font-medium text-slate-600 md:col-span-2">
+              Address
+              <input value={editVendor?.address || ''} onChange={(e) => setEditVendor((prev) => ({ ...prev, address: e.target.value }))} className="mt-1 w-full rounded border border-slate-200 px-3 py-2" />
+            </label>
+            <label className="text-sm font-medium text-slate-600">
+              Website
+              <input value={editVendor?.website || ''} onChange={(e) => setEditVendor((prev) => ({ ...prev, website: e.target.value }))} className="mt-1 w-full rounded border border-slate-200 px-3 py-2" />
+            </label>
+            <label className="text-sm font-medium text-slate-600">
+              Monthly fee (MVR)
+              <input type="number" step="0.01" value={editVendor?.monthly_fee || ''} onChange={(e) => setEditVendor((prev) => ({ ...prev, monthly_fee: e.target.value }))} className="mt-1 w-full rounded border border-slate-200 px-3 py-2" />
+            </label>
+            <label className="text-sm font-medium text-slate-600">
+              Billing start date
+              <input type="date" value={editVendor?.billing_start_date || ''} onChange={(e) => setEditVendor((prev) => ({ ...prev, billing_start_date: e.target.value }))} className="mt-1 w-full rounded border border-slate-200 px-3 py-2" />
+            </label>
+            <label className="text-sm font-medium text-slate-600 md:col-span-2">
+              Capabilities / scope
+              <textarea value={editVendor?.capabilities || ''} onChange={(e) => setEditVendor((prev) => ({ ...prev, capabilities: e.target.value }))} rows="2" className="mt-1 w-full rounded border border-slate-200 px-3 py-2" />
+            </label>
+            <label className="text-sm font-medium text-slate-600 md:col-span-2">
+              Notes (internal)
+              <textarea value={editVendor?.notes || ''} onChange={(e) => setEditVendor((prev) => ({ ...prev, notes: e.target.value }))} rows="2" className="mt-1 w-full rounded border border-slate-200 px-3 py-2" />
+            </label>
+            <label className="text-sm font-medium text-slate-600">
+              Tagline
+              <input value={editVendor?.tagline || ''} onChange={(e) => setEditVendor((prev) => ({ ...prev, tagline: e.target.value }))} className="mt-1 w-full rounded border border-slate-200 px-3 py-2" />
+            </label>
+            <label className="text-sm font-medium text-slate-600 md:col-span-2">
+              Public description
+              <textarea value={editVendor?.public_description || ''} onChange={(e) => setEditVendor((prev) => ({ ...prev, public_description: e.target.value }))} rows="3" className="mt-1 w-full rounded border border-slate-200 px-3 py-2" />
+            </label>
+            <div className="md:col-span-2 flex flex-col gap-2 sm:flex-row sm:justify-end">
+              <button type="button" onClick={() => setEditModalOpen(false)} className="rounded-full border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-600">Cancel</button>
+              <button type="submit" disabled={editSaving} className="rounded-full bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow disabled:opacity-50">{editSaving ? 'Saving…' : 'Save changes'}</button>
+            </div>
+          </form>
+        </div>
+      </Modal>
+
+      <Modal open={billingModalOpen} onClose={closeBillingModal}>
+        <div className="w-full max-w-3xl rounded-2xl border border-slate-200 bg-white p-5">
+          <div className="flex items-center justify-between">
+            <h3 className="text-lg font-semibold">Billing controls — {billingVendor?.legal_name || ''}</h3>
+            <button onClick={closeBillingModal} className="text-sm text-slate-500">Close</button>
+          </div>
+          <div className="mt-4 grid gap-4 md:grid-cols-2">
+            <label className="text-sm font-medium text-slate-600">
+              Monthly fee (MVR)
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                value={billingForm.monthlyFee}
+                onChange={(e) => setBillingForm((prev) => ({ ...prev, monthlyFee: e.target.value }))}
+                className="mt-1 w-full rounded border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </label>
+            <label className="text-sm font-medium text-slate-600">
+              Billing start date
+              <input
+                type="date"
+                value={billingForm.billingStartDate}
+                onChange={(e) => setBillingForm((prev) => ({ ...prev, billingStartDate: e.target.value }))}
+                className="mt-1 w-full rounded border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </label>
+          </div>
+          <div className="mt-4 flex flex-wrap gap-3">
+            <button type="button" onClick={saveBillingSettings} className="rounded-full bg-emerald-500 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-emerald-600">Save billing settings</button>
+            <button type="button" onClick={generateManualInvoice} className="rounded-full border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 hover:border-blue-200 hover:text-blue-600">Generate invoice</button>
+            <button type="button" onClick={reactivateVendorFromModal} className="rounded-full border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 hover:border-blue-200 hover:text-blue-600">Reactivate account</button>
+          </div>
+          <div className="mt-6">
+            <div className="flex items-center justify-between">
+              <h4 className="text-sm font-semibold text-slate-600">Recent invoices</h4>
+              {billingLoading && <span className="text-xs text-slate-400">Loading…</span>}
+            </div>
+            {billingInvoices.length === 0 && !billingLoading ? (
+              <p className="mt-3 text-sm text-slate-500">No invoices on file.</p>
+            ) : (
+              <div className="mt-3 overflow-x-auto">
+                <table className="min-w-full text-sm">
+                  <thead>
+                    <tr className="text-left text-xs uppercase tracking-wide text-slate-400">
+                      <th className="px-2 py-2">Invoice #</th>
+                      <th className="px-2 py-2">Amount</th>
+                      <th className="px-2 py-2">Status</th>
+                      <th className="px-2 py-2">Due</th>
+                      <th className="px-2 py-2">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {billingInvoices.map((inv) => (
+                      <tr key={inv.id} className="border-t text-slate-600">
+                        <td className="px-2 py-2">{inv.invoice_number || inv.id}</td>
+                        <td className="px-2 py-2">MVR {Number(inv.fee_amount || 0).toFixed(2)}</td>
+                        <td className="px-2 py-2">
+                          <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${inv.status === 'paid' ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'}`}>
+                            {inv.status || 'unpaid'}
+                          </span>
+                        </td>
+                        <td className="px-2 py-2">{inv.due_date ? new Date(inv.due_date).toLocaleDateString() : '—'}</td>
+                        <td className="px-2 py-2">
+                          {inv.status === 'paid' ? (
+                            <span className="text-xs text-slate-400">Settled</span>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => markInvoicePaid(inv)}
+                              disabled={invoiceActionId === inv.id}
+                              className="rounded-full border border-slate-200 px-3 py-1 text-xs font-semibold text-slate-700 hover:border-emerald-200 hover:text-emerald-600 disabled:cursor-not-allowed disabled:opacity-60"
+                            >
+                              {invoiceActionId === inv.id ? 'Marking…' : 'Mark paid'}
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             )}
           </div>
         </div>

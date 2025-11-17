@@ -20,6 +20,10 @@ const STATUS_OPTIONS = {
     { value: 'accepted', label: 'Accepted' },
     { value: 'cancelled', label: 'Cancelled' },
   ],
+  vendor_fee: [
+    { value: 'unpaid', label: 'Unpaid' },
+    { value: 'paid', label: 'Paid' },
+  ],
 };
 
 const STATUS_BADGE_CLASSES = {
@@ -29,6 +33,7 @@ const STATUS_BADGE_CLASSES = {
   draft: 'bg-muted/20 text-muted-foreground',
   sent: 'bg-primary/10 text-primary',
   accepted: 'bg-success text-primary-foreground',
+  unpaid: 'bg-amber-100 text-amber-700',
 };
 
 const STATUS_LABELS = {
@@ -38,6 +43,7 @@ const STATUS_LABELS = {
   draft: 'Draft',
   sent: 'Sent',
   accepted: 'Accepted',
+  unpaid: 'Unpaid',
 };
 
 export default function Invoices() {
@@ -47,7 +53,25 @@ export default function Invoices() {
   const userRole = user?.role || '';
   const canManageTransactions = userRole === 'admin' || userRole === 'accounts';
 
-  const [invoices, setInvoices] = useState([]);
+  const [coreInvoices, setCoreInvoices] = useState([]);
+  const [vendorInvoiceRows, setVendorInvoiceRows] = useState([]);
+  const mappedVendorInvoices = useMemo(() => {
+    return (vendorInvoiceRows || []).map((row) => ({
+      id: `vendor-${row.id}`,
+      raw_id: row.id,
+      vendor_id: row.vendor_id,
+      customer_name: row.vendor_name || `Vendor #${row.vendor_id}`,
+      total: Number(row.fee_amount) || 0,
+      status: row.status || 'unpaid',
+      type: 'vendor_fee',
+      created_at: row.issued_at || row.created_at,
+      outlet_name: 'Vendor billing',
+      invoice_number: row.invoice_number,
+      vendorInvoice: true,
+      due_date: row.due_date,
+    }));
+  }, [vendorInvoiceRows]);
+  const invoices = useMemo(() => [...coreInvoices, ...mappedVendorInvoices], [coreInvoices, mappedVendorInvoices]);
   const [searchTerm, setSearchTerm] = useState('');
   const [typeFilter, setTypeFilter] = useState('all');
 
@@ -157,7 +181,7 @@ export default function Invoices() {
   };
 
   const invoiceSummary = useMemo(() => {
-    if (!Array.isArray(invoices) || invoices.length === 0) {
+    if (!Array.isArray(coreInvoices) || coreInvoices.length === 0) {
       return {
         invoiceCount: 0,
         invoiceTotal: 0,
@@ -170,8 +194,8 @@ export default function Invoices() {
       };
     }
 
-    const invoiceDocs = invoices.filter((doc) => doc.type !== 'quote');
-    const quoteDocs = invoices.filter((doc) => doc.type === 'quote');
+    const invoiceDocs = coreInvoices.filter((doc) => doc.type === 'invoice');
+    const quoteDocs = coreInvoices.filter((doc) => doc.type === 'quote');
     const invoiceTotal = invoiceDocs.reduce((sum, doc) => sum + (Number(doc.total) || 0), 0);
     const outstanding = invoiceDocs
       .filter((doc) => (doc.status || 'issued') !== 'paid')
@@ -197,7 +221,7 @@ export default function Invoices() {
       acceptedQuoteCount: acceptedQuoteDocs.length,
       monthRevenue,
     };
-  }, [invoices]);
+  }, [coreInvoices]);
 
   const summaryCards = useMemo(
     () => [
@@ -238,10 +262,11 @@ export default function Invoices() {
   const typeChips = useMemo(
     () => [
       { value: 'all', label: 'All', count: invoices.length },
-      { value: 'invoice', label: 'Invoices', count: invoices.filter((doc) => doc.type !== 'quote').length },
-      { value: 'quote', label: 'Quotes', count: invoices.filter((doc) => doc.type === 'quote').length },
+      { value: 'invoice', label: 'Invoices', count: coreInvoices.filter((doc) => doc.type === 'invoice').length },
+      { value: 'quote', label: 'Quotes', count: coreInvoices.filter((doc) => doc.type === 'quote').length },
+      { value: 'vendor_fee', label: 'Vendor fees', count: mappedVendorInvoices.length },
     ],
-    [invoices]
+    [invoices, coreInvoices, mappedVendorInvoices.length]
   );
 
   const statusCounts = useMemo(() => {
@@ -256,8 +281,9 @@ export default function Invoices() {
   const statusChips = useMemo(() => {
     if (typeFilter === 'invoice') return STATUS_OPTIONS.invoice;
     if (typeFilter === 'quote') return STATUS_OPTIONS.quote;
+    if (typeFilter === 'vendor_fee') return STATUS_OPTIONS.vendor_fee;
     const merged = new Map();
-    [...STATUS_OPTIONS.invoice, ...STATUS_OPTIONS.quote].forEach((opt) => {
+    [...STATUS_OPTIONS.invoice, ...STATUS_OPTIONS.quote, ...STATUS_OPTIONS.vendor_fee].forEach((opt) => {
       if (!merged.has(opt.value)) merged.set(opt.value, opt);
     });
     return Array.from(merged.values());
@@ -287,8 +313,15 @@ export default function Invoices() {
 
   const loadInvoices = useCallback(async () => {
     try {
-      const list = await api.get('/invoices');
-      setInvoices(list);
+      const [list, vendorRes] = await Promise.all([
+        api.get('/invoices'),
+        api.get('/reports/vendor-invoices').catch((err) => {
+          console.debug('vendor-invoices fetch failed', err?.message || err);
+          return null;
+        }),
+      ]);
+      setCoreInvoices(list || []);
+      setVendorInvoiceRows(vendorRes?.rows || []);
     } catch (err) {
       console.error(err);
       push('Failed to load invoices', 'error');
@@ -301,6 +334,11 @@ export default function Invoices() {
   }, [loadInvoices]);
 
   const openInvoiceEditor = (invoiceId) => {
+    const target = invoices.find((doc) => doc.id === invoiceId);
+    if (target?.vendorInvoice) {
+      push('Vendor fee invoices are read-only.', 'error');
+      return;
+    }
     if (!canManageTransactions) {
       push('You need Admin or Accounts permissions to modify transactions.', 'error');
       return;
@@ -309,6 +347,11 @@ export default function Invoices() {
   };
 
   const handleDelete = async (invoiceId) => {
+    const target = invoices.find((doc) => doc.id === invoiceId);
+    if (target?.vendorInvoice) {
+      push('Vendor fee invoices cannot be deleted here.', 'error');
+      return;
+    }
     if (!canManageTransactions) {
       push('You need Admin or Accounts permissions to delete transactions.', 'error');
       return;
@@ -427,6 +470,10 @@ export default function Invoices() {
   const formatStatusLabel = (status) => STATUS_LABELS[status] || (status ? status.charAt(0).toUpperCase() + status.slice(1) : '-');
 
   const handleStatusChange = async (invoice, nextStatus) => {
+    if (invoice?.vendorInvoice) {
+      push('Vendor fee invoice statuses are managed automatically.', 'error');
+      return;
+    }
     if (!canManageTransactions) {
       push('You need Admin or Accounts permissions to update status.', 'error');
       return;
@@ -447,6 +494,10 @@ export default function Invoices() {
 
   const handleConvertQuote = async (invoice) => {
     if (invoice.type !== 'quote') return;
+    if (invoice.vendorInvoice) {
+      push('Vendor fee invoices cannot be converted.', 'error');
+      return;
+    }
     if (!canManageTransactions) {
       push('You need Admin or Accounts permissions to convert documents.', 'error');
       return;
@@ -477,7 +528,7 @@ export default function Invoices() {
   const toggleSelectAll = (list) => {
     if (!selectAll) {
       // select visible invoices
-      const ids = new Set(list.map((i) => i.id));
+      const ids = new Set(list.filter((invoice) => !invoice.vendorInvoice).map((i) => i.id));
       setSelectedIds(ids);
       setSelectAll(true);
     } else {
@@ -524,6 +575,8 @@ export default function Invoices() {
     if (!confirm(`Open PDF for ${selectedIds.size} documents in new tabs?`)) return;
     
     for (const id of Array.from(selectedIds)) {
+      const target = invoices.find((doc) => doc.id === id);
+      if (target?.vendorInvoice) continue;
       try {
         const linkResp = await api.post(`/invoices/${id}/pdf-link`);
         window.open(linkResp.url, '_blank');
@@ -961,7 +1014,12 @@ export default function Invoices() {
                 </thead>
                 <tbody className="divide-y divide-border text-sm text-foreground">
                   {filteredInvoices.map((invoice) => {
-                    const docType = invoice.type === 'quote' ? 'quote' : 'invoice';
+                    const docType = invoice.type === 'quote'
+                      ? 'quote'
+                      : invoice.type === 'vendor_fee'
+                        ? 'vendor_fee'
+                        : 'invoice';
+                    const isVendorInvoice = invoice.vendorInvoice;
                     const statusOptions = STATUS_OPTIONS[docType] || [];
                     const statusBadgeClass = STATUS_BADGE_CLASSES[invoice.status] || 'bg-muted/20 text-muted-foreground';
                     return (
@@ -971,21 +1029,26 @@ export default function Invoices() {
                             type="checkbox"
                             checked={selectedIds.has(invoice.id)}
                             onChange={() => toggleSelectId(invoice.id)}
+                            disabled={isVendorInvoice}
                           />
                         </td>
                         <td className="p-4 whitespace-nowrap font-semibold">#{invoice.id}</td>
                         <td className="p-4 whitespace-nowrap">
                           <span
                             className={`rounded-full px-2 py-1 text-xs font-semibold uppercase ${
-                              invoice.type === 'quote' ? 'bg-primary/10 text-primary' : 'bg-success text-primary-foreground'
+                              invoice.type === 'quote'
+                                ? 'bg-primary/10 text-primary'
+                                : isVendorInvoice
+                                  ? 'bg-amber-100 text-amber-700'
+                                  : 'bg-success text-primary-foreground'
                             }`}
                           >
-                            {invoice.type || 'invoice'}
+                            {invoice.type === 'vendor_fee' ? 'Vendor fee' : (invoice.type || 'invoice')}
                           </span>
                         </td>
                         <td className="p-4 whitespace-nowrap">{invoice.customer_name || '-'}</td>
                         <td className="p-4 whitespace-nowrap text-muted-foreground">
-                          {new Date(invoice.created_at).toLocaleDateString()}
+                          {invoice.created_at ? new Date(invoice.created_at).toLocaleDateString() : '—'}
                         </td>
                         <td className="p-4 whitespace-nowrap font-semibold">{formatCurrency(invoice.total)}</td>
                         <td className="p-4 whitespace-nowrap">
@@ -993,69 +1056,88 @@ export default function Invoices() {
                             <span className={`w-max rounded-full px-2 py-1 text-xs font-semibold uppercase ${statusBadgeClass}`}>
                               {formatStatusLabel(invoice.status)}
                             </span>
-                            <select
-                              value={invoice.status || ''}
-                              onChange={(e) => handleStatusChange(invoice, e.target.value)}
-                              className="rounded-md border border-border bg-background px-2 py-1 text-xs focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary disabled:bg-muted/20"
-                              disabled={!canManageTransactions || statusUpdatingId === invoice.id}
-                            >
-                              {(!invoice.status || invoice.status === '') && <option value="">Set status</option>}
-                              {statusOptions.map((option) => (
-                                <option key={option.value} value={option.value}>
-                                  {option.label}
-                                </option>
-                              ))}
-                            </select>
-                            {statusUpdatingId === invoice.id && (
-                              <span className="text-[10px] uppercase tracking-wide text-muted-foreground">Updating...</span>
+                            {isVendorInvoice ? (
+                              <>
+                                {invoice.due_date && (
+                                  <span className="text-[11px] text-muted-foreground">
+                                    Due {new Date(invoice.due_date).toLocaleDateString()}
+                                  </span>
+                                )}
+                                <span className="text-[11px] text-muted-foreground">Managed automatically</span>
+                              </>
+                            ) : (
+                              <>
+                                <select
+                                  value={invoice.status || ''}
+                                  onChange={(e) => handleStatusChange(invoice, e.target.value)}
+                                  className="rounded-md border border-border bg-background px-2 py-1 text-xs focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary disabled:bg-muted/20"
+                                  disabled={!canManageTransactions || statusUpdatingId === invoice.id}
+                                >
+                                  {(!invoice.status || invoice.status === '') && <option value="">Set status</option>}
+                                  {statusOptions.map((option) => (
+                                    <option key={option.value} value={option.value}>
+                                      {option.label}
+                                    </option>
+                                  ))}
+                                </select>
+                                {statusUpdatingId === invoice.id && (
+                                  <span className="text-[10px] uppercase tracking-wide text-muted-foreground">Updating...</span>
+                                )}
+                              </>
                             )}
                           </div>
                         </td>
-                        <td className="p-4 whitespace-nowrap text-muted-foreground">{invoice.outlet_name || '-'}</td>
+                        <td className="p-4 whitespace-nowrap text-muted-foreground">{invoice.outlet_name || (isVendorInvoice ? 'Vendor billing' : '-')}</td>
                         <td className="p-4 whitespace-nowrap text-right">
                           <div className="flex items-center justify-end gap-3 text-xs font-semibold">
-                            {canManageTransactions && (
-                              <button
-                                onClick={() => openInvoiceEditor(invoice.id)}
-                                className="text-primary hover:underline"
-                                type="button"
-                              >
-                                Edit
-                              </button>
-                            )}
-                            <button
-                              onClick={async () => {
-                                try {
-                                  const linkResp = await api.post(`/invoices/${invoice.id}/pdf-link`);
-                                  window.open(linkResp.url, '_blank');
-                                } catch (err) {
-                                  push('Failed to open PDF', 'error');
-                                  console.debug(err);
-                                }
-                              }}
-                              className="text-primary hover:underline"
-                              type="button"
-                            >
-                              PDF
-                            </button>
-                            {canManageTransactions && invoice.type === 'quote' && (
-                              <button
-                                onClick={() => handleConvertQuote(invoice)}
-                                className="text-success hover:underline disabled:text-muted-foreground"
-                                disabled={convertingId === invoice.id}
-                                type="button"
-                              >
-                                {convertingId === invoice.id ? 'Converting...' : 'Convert'}
-                              </button>
-                            )}
-                            {canManageTransactions && (
-                              <button
-                                onClick={() => handleDelete(invoice.id)}
-                                className="text-red-500 hover:underline"
-                                type="button"
-                              >
-                                Delete
-                              </button>
+                            {isVendorInvoice ? (
+                              <span className="text-muted-foreground">Read-only</span>
+                            ) : (
+                              <>
+                                {canManageTransactions && (
+                                  <button
+                                    onClick={() => openInvoiceEditor(invoice.id)}
+                                    className="text-primary hover:underline"
+                                    type="button"
+                                  >
+                                    Edit
+                                  </button>
+                                )}
+                                <button
+                                  onClick={async () => {
+                                    try {
+                                      const linkResp = await api.post(`/invoices/${invoice.id}/pdf-link`);
+                                      window.open(linkResp.url, '_blank');
+                                    } catch (err) {
+                                      push('Failed to open PDF', 'error');
+                                      console.debug(err);
+                                    }
+                                  }}
+                                  className="text-primary hover:underline"
+                                  type="button"
+                                >
+                                  PDF
+                                </button>
+                                {canManageTransactions && invoice.type === 'quote' && (
+                                  <button
+                                    onClick={() => handleConvertQuote(invoice)}
+                                    className="text-success hover:underline disabled:text-muted-foreground"
+                                    disabled={convertingId === invoice.id}
+                                    type="button"
+                                  >
+                                    {convertingId === invoice.id ? 'Converting...' : 'Convert'}
+                                  </button>
+                                )}
+                                {canManageTransactions && (
+                                  <button
+                                    onClick={() => handleDelete(invoice.id)}
+                                    className="text-red-500 hover:underline"
+                                    type="button"
+                                  >
+                                    Delete
+                                  </button>
+                                )}
+                              </>
                             )}
                           </div>
                         </td>
@@ -1081,6 +1163,7 @@ export default function Invoices() {
                   </div>
                 )}
                 {filteredInvoices.map((invoice) => {
+                  const isVendorInvoice = invoice.vendorInvoice;
                   const statusBadgeClass = STATUS_BADGE_CLASSES[invoice.status] || 'bg-muted/20 text-muted-foreground';
                   return (
                     <div key={invoice.id} className="rounded-md border border-border bg-background p-4 transition hover:bg-muted/20">
@@ -1097,27 +1180,33 @@ export default function Invoices() {
                           </span>
                         </div>
                         <div className="flex flex-wrap items-center justify-between gap-3 text-xs font-semibold">
-                          <span className="text-muted-foreground">{invoice.outlet_name || '-'}</span>
+                          <span className="text-muted-foreground">{invoice.outlet_name || (isVendorInvoice ? 'Vendor billing' : '-')}</span>
                           <div className="flex flex-wrap items-center gap-3">
-                            <button
-                              onClick={async () => {
-                                try {
-                                  const linkResp = await api.post(`/invoices/${invoice.id}/pdf-link`);
-                                  window.open(linkResp.url, '_blank');
-                                } catch (err) {
-                                  push('Failed to open PDF', 'error');
-                                  console.debug(err);
-                                }
-                              }}
-                              className="text-primary"
-                              type="button"
-                            >
-                              PDF
-                            </button>
-                            {canManageTransactions && (
+                            {isVendorInvoice ? (
+                              <span className="text-muted-foreground">Read-only</span>
+                            ) : (
                               <>
-                                <button onClick={() => openInvoiceEditor(invoice.id)} className="text-primary" type="button">Edit</button>
-                                <button onClick={() => handleDelete(invoice.id)} className="text-red-500" type="button">Delete</button>
+                                <button
+                                  onClick={async () => {
+                                    try {
+                                      const linkResp = await api.post(`/invoices/${invoice.id}/pdf-link`);
+                                      window.open(linkResp.url, '_blank');
+                                    } catch (err) {
+                                      push('Failed to open PDF', 'error');
+                                      console.debug(err);
+                                    }
+                                  }}
+                                  className="text-primary"
+                                  type="button"
+                                >
+                                  PDF
+                                </button>
+                                {canManageTransactions && (
+                                  <>
+                                    <button onClick={() => openInvoiceEditor(invoice.id)} className="text-primary" type="button">Edit</button>
+                                    <button onClick={() => handleDelete(invoice.id)} className="text-red-500" type="button">Delete</button>
+                                  </>
+                                )}
                               </>
                             )}
                           </div>

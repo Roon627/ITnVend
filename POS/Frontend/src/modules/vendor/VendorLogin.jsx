@@ -67,7 +67,7 @@ export default function VendorLogin() {
           <p className="mt-4 text-[10px] font-semibold uppercase tracking-[0.35em] text-rose-300">Vendor console</p>
           <h1 className="mt-2 text-3xl font-black text-slate-900">Sign in to ITnVend</h1>
           <p className="mt-2 text-sm text-slate-500">
-            Manage your catalog, purchase orders, and payouts from a single dashboard.
+            Manage your catalog, purchase orders, and billing from a single dashboard.
           </p>
         </div>
 

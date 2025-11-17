@@ -2,6 +2,8 @@ import { useCallback, useEffect, useState, useRef } from 'react';
 import api from '../lib/api';
 import { isUserListing, isVendorListing } from '../lib/listings';
 
+const isDev = typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.DEV;
+
 export default function useMarketplaceStats({ pollInterval = 30000 } = {}) {
   const [stats, setStats] = useState({ totalProducts: 0, vendors: 0, sellers: 0, vendorProducts: 0, casualProducts: 0 });
   const [loading, setLoading] = useState(true);
@@ -37,7 +39,9 @@ export default function useMarketplaceStats({ pollInterval = 30000 } = {}) {
       });
     } catch (err) {
       // ignore — keep previous stats
-      console.debug('useMarketplaceStats load failed', err?.message || err);
+      if (isDev) {
+        console.debug('useMarketplaceStats load failed', err?.message || err);
+      }
     } finally {
       if (mounted.current) setLoading(false);
     }

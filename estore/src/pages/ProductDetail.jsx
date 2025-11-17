@@ -203,9 +203,9 @@ export default function ProductDetail() {
   };
 
   return (
-    <div className="bg-gradient-to-br from-rose-50 via-white to-sky-50 py-12 pb-20 sm:pb-0">
+    <div className="bg-gradient-to-br from-rose-50 via-white to-sky-50 py-8 pb-16 sm:py-12 sm:pb-0">
       <div className="container mx-auto px-4 sm:px-6">
-        <div className="mb-6 text-sm text-rose-500">
+        <div className="mb-4 text-xs text-rose-500 sm:mb-6 sm:text-sm">
           <Link to="/" className="font-semibold hover:text-rose-600">
             ITnVend Home
           </Link>
@@ -217,9 +217,9 @@ export default function ProductDetail() {
           <span className="text-rose-400">{product.name}</span>
         </div>
 
-        <div className="grid gap-6 rounded-xl border border-white/60 bg-white/95 p-3 sm:gap-8 sm:p-5 lg:grid-cols-[1.05fr_0.95fr]">
-          <div className="relative flex flex-col rounded-2xl bg-gradient-to-br from-white via-rose-50 to-sky-50 p-4 shadow-inner sm:p-6">
-            <AvailabilityTag availabilityStatus={availabilityStatus} className="top-4 left-4" />
+        <div className="grid gap-4 rounded-xl border border-white/60 bg-white/95 p-2 sm:gap-8 sm:p-5 lg:grid-cols-[1.05fr_0.95fr]">
+          <div className="relative flex flex-col rounded-2xl bg-gradient-to-br from-white via-rose-50 to-sky-50 p-3 shadow-inner sm:p-6">
+            <AvailabilityTag availabilityStatus={availabilityStatus} className="top-3 left-3 sm:top-4 sm:left-4" />
             {gallery && gallery.length ? (
               <div className="w-full">
                 <ImageCarousel images={gallery} alt={product.name} />
@@ -229,28 +229,28 @@ export default function ProductDetail() {
                 src={imageSrc}
                 alt={product.name}
                 loading="lazy"
-                className="max-h-[26rem] w-full object-contain drop-shadow-lg"
+                className="max-h-56 w-full object-contain drop-shadow-lg sm:max-h-[26rem]"
               />
             ) : (
-              <div className="flex h-64 w-full items-center justify-center rounded-xl border border-dashed border-rose-200 bg-white text-sm text-rose-300">
+              <div className="flex h-52 w-full items-center justify-center rounded-xl border border-dashed border-rose-200 bg-white text-xs text-rose-300 sm:h-64 sm:text-sm">
                 Image coming soon
               </div>
             )}
             <div className="mt-4 w-full space-y-4">
               {technicalDetails && (
-                <section className="space-y-2 rounded-2xl border border-slate-100 bg-white/95 p-4 text-sm text-slate-700 shadow-sm">
+                <section className="space-y-2 rounded-2xl border border-slate-100 bg-white/95 p-3 text-xs text-slate-700 shadow-sm sm:p-4 sm:text-sm">
                   <div className="flex items-center justify-between gap-2">
-                    <h3 className="text-base font-semibold text-slate-900">Technical details</h3>
-                    <span className="text-xs uppercase tracking-wide text-slate-400">Seller notes</span>
+                    <h3 className="text-sm font-semibold text-slate-900 sm:text-base">Technical details</h3>
+                    <span className="text-[11px] uppercase tracking-wide text-slate-400 sm:text-xs">Seller notes</span>
                   </div>
-                  <pre className="max-h-64 overflow-auto whitespace-pre-wrap rounded-xl bg-slate-50 p-3 text-xs text-slate-600">
+                  <pre className="max-h-56 overflow-auto whitespace-pre-wrap rounded-xl bg-slate-50 p-3 text-[11px] text-slate-600 sm:max-h-64 sm:text-xs">
                     {technicalDetails}
                   </pre>
                 </section>
               )}
               {tagList.length > 0 && (
-                <section className="rounded-2xl border border-slate-100 bg-white p-4 shadow-sm">
-                  <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-400">Tags</h3>
+                <section className="rounded-2xl border border-slate-100 bg-white p-3 shadow-sm sm:p-4">
+                  <h3 className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 sm:text-xs">Tags</h3>
                   <div className="mt-2 flex flex-wrap gap-2">
                     {tagList.map((tag) => (
                       <span key={tag} className="rounded-full bg-rose-50 px-2 py-0.5 text-xs font-semibold text-rose-600">
@@ -264,11 +264,11 @@ export default function ProductDetail() {
           </div>
 
           <div className="flex flex-col gap-4">
-            <header className="space-y-3">
-            <span className="inline-flex items-center gap-2 rounded-full bg-rose-100 px-3 py-1 text-xs font-semibold uppercase tracking-wider text-rose-600">
+            <header className="space-y-2 sm:space-y-3">
+            <span className="inline-flex items-center gap-2 rounded-full bg-rose-100 px-3 py-1 text-[11px] font-semibold uppercase tracking-wider text-rose-600 sm:text-xs">
               {product.category || 'Market item'}
             </span>
-            <h1 className="text-2xl font-extrabold text-slate-900 sm:text-3xl">{product.name}</h1>
+            <h1 className="text-xl font-extrabold text-slate-900 sm:text-3xl">{product.name}</h1>
             {userListing && (
               <span className="inline-flex items-center gap-2 rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-[11px] font-semibold uppercase tracking-wider text-amber-700">
                 Seller listing
@@ -281,9 +281,9 @@ export default function ProductDetail() {
             )}
             <p className="text-xs uppercase tracking-wide text-rose-400">{product.subcategory || ''}</p>
             </header>
-            <div className="rounded-lg bg-rose-50/60 p-4 text-rose-700">
-              <p className="text-xs font-semibold uppercase tracking-wide text-rose-400">Price</p>
-              <p className="mt-1 text-2xl font-bold text-rose-600">{formatCurrency(product.price)}</p>
+            <div className="rounded-lg bg-rose-50/60 p-3 text-rose-700 sm:p-4">
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-rose-400 sm:text-xs">Price</p>
+              <p className="mt-1 text-xl font-bold text-rose-600 sm:text-2xl">{formatCurrency(product.price)}</p>
               {userListing ? (
                 <p className="mt-2 text-xs text-rose-500">Community seller listing — coordinate inspection, payment, and delivery directly with the seller.</p>
               ) : (
@@ -298,45 +298,45 @@ export default function ProductDetail() {
               />
             ) : null}
 
-            <section className="space-y-3 rounded-lg border border-rose-100 bg-white p-4 text-slate-700">
+            <section className="space-y-3 rounded-lg border border-rose-100 bg-white p-3 text-slate-700 sm:p-4">
               <div className="flex items-center justify-between">
-                <h2 className="text-base font-semibold text-slate-900">Details</h2>
+                <h2 className="text-sm font-semibold text-slate-900 sm:text-base">Details</h2>
                 <button
                   type="button"
-                  className="text-sm text-rose-500 hover:text-rose-600"
+                  className="text-xs text-rose-500 hover:text-rose-600 sm:text-sm"
                   onClick={() => window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' })}
                 >
                   Jump to checkout
                 </button>
               </div>
-              <p className="leading-relaxed text-slate-600 text-sm">
+              <p className="text-xs leading-relaxed text-slate-600 sm:text-sm">
                 {descriptionCopy.primary || 'No additional description is available for this item.'}
               </p>
               {descriptionCopy.secondary && (
-                <p className="rounded-md bg-slate-50 p-3 text-sm text-slate-500">{descriptionCopy.secondary}</p>
+                <p className="rounded-md bg-slate-50 p-3 text-xs text-slate-500 sm:text-sm">{descriptionCopy.secondary}</p>
               )}
               {product.notes && (
-                <p className="rounded-md bg-rose-50 p-3 text-sm font-medium text-rose-600">
+                <p className="rounded-md bg-rose-50 p-3 text-xs font-medium text-rose-600 sm:text-sm">
                   Notes: {product.notes}
                 </p>
               )}
             </section>
 
             {metadataEntries.length > 0 && (
-              <section className="space-y-4 rounded-2xl border border-slate-200 bg-white/90 p-4 text-sm text-slate-700 shadow-sm">
-                <h3 className="text-base font-semibold text-slate-900">Product snapshot</h3>
+              <section className="space-y-4 rounded-2xl border border-slate-200 bg-white/90 p-3 text-xs text-slate-700 shadow-sm sm:p-4 sm:text-sm">
+                <h3 className="text-sm font-semibold text-slate-900 sm:text-base">Product snapshot</h3>
                 <div className="grid gap-3 sm:grid-cols-2">
                   {metadataEntries.map((entry) => (
                     <div
                       key={entry.label}
                       className="flex items-start gap-3 rounded-xl border border-slate-100 bg-slate-50/80 p-3 shadow-inner"
                     >
-                      {entry.icon && <div className="rounded-full bg-white p-2 text-xs">{entry.icon}</div>}
+                      {entry.icon && <div className="rounded-full bg-white p-2 text-[11px] sm:text-xs">{entry.icon}</div>}
                       <div>
-                        <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+                        <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 sm:text-xs">
                           {entry.label}
                         </p>
-                        <p className="mt-1 text-sm text-slate-800 break-words">{entry.value}</p>
+                        <p className="mt-1 text-xs text-slate-800 break-words sm:text-sm">{entry.value}</p>
                       </div>
                     </div>
                   ))}
@@ -345,8 +345,8 @@ export default function ProductDetail() {
             )}
 
             {productTypeLabel === 'clothing' && (
-              <section className="space-y-2 rounded-2xl border border-rose-100 bg-rose-50/70 p-4 text-sm text-rose-700">
-                <h3 className="text-base font-semibold text-rose-600">Clothing fit & care</h3>
+              <section className="space-y-2 rounded-2xl border border-rose-100 bg-rose-50/70 p-3 text-xs text-rose-700 sm:p-4 sm:text-sm">
+                <h3 className="text-sm font-semibold text-rose-600 sm:text-base">Clothing fit & care</h3>
                 {clothingSizes && (
                   <div className="rounded-xl bg-white/80 p-3 text-rose-700 shadow-sm">
                     <p className="text-xs font-semibold uppercase tracking-wide text-rose-400">Available sizes</p>
@@ -366,14 +366,14 @@ export default function ProductDetail() {
             )}
 
             {productTypeLabel === 'digital' && (
-              <section className="space-y-3 rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
-                <h3 className="text-base font-semibold text-slate-900">Digital fulfillment</h3>
+              <section className="space-y-3 rounded-2xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-700 sm:p-4 sm:text-sm">
+                <h3 className="text-sm font-semibold text-slate-900 sm:text-base">Digital fulfillment</h3>
                 {digitalDownloadUrl ? (
                   <a
                     href={digitalDownloadUrl}
                     target="_blank"
                     rel="noreferrer"
-                    className="inline-flex items-center justify-center rounded-full bg-rose-500 px-4 py-2 text-xs font-semibold text-white shadow hover:bg-rose-600"
+                    className="inline-flex items-center justify-center rounded-full bg-rose-500 px-3 py-1.5 text-xs font-semibold text-white shadow hover:bg-rose-600"
                   >
                     Download link
                   </a>
@@ -411,9 +411,9 @@ export default function ProductDetail() {
             )}
 
             {vendorListing && (
-              <section className="space-y-3 rounded-2xl border border-emerald-100 bg-emerald-50/70 p-4 text-sm text-emerald-900 shadow-sm sm:p-6">
-                <h2 className="text-base font-semibold text-emerald-700">Marketplace partner</h2>
-                <p>{vendorIntro}</p>
+              <section className="space-y-3 rounded-2xl border border-emerald-100 bg-emerald-50/70 p-3 text-xs text-emerald-900 shadow-sm sm:p-6 sm:text-sm">
+                <h2 className="text-sm font-semibold text-emerald-700 sm:text-base">Marketplace partner</h2>
+                <p className="text-sm sm:text-base">{vendorIntro}</p>
                 {product.vendor_slug && (
                   <Link
                     to={`/vendors/${product.vendor_slug}`}
@@ -427,10 +427,10 @@ export default function ProductDetail() {
             )}
 
             {userListing && (
-              <section className="space-y-3 rounded-2xl border border-amber-100 bg-white/90 p-4 text-slate-700 shadow-sm sm:p-6">
-                <h2 className="text-lg font-semibold text-amber-600">Seller contact</h2>
-                <div className="font-semibold text-slate-900">{sellerContact.name || 'Seller'}</div>
-                <div className="flex flex-col gap-2 text-sm">
+              <section className="space-y-3 rounded-2xl border border-amber-100 bg-white/90 p-3 text-slate-700 shadow-sm sm:p-6">
+                <h2 className="text-base font-semibold text-amber-600 sm:text-lg">Seller contact</h2>
+                <div className="text-sm font-semibold text-slate-900 sm:text-base">{sellerContact.name || 'Seller'}</div>
+                <div className="flex flex-col gap-2 text-xs sm:text-sm">
                   {sellerContact.phone && (
                     <a href={`tel:${sellerContact.phone.replace(/[^0-9+]/g, '')}`} className="inline-flex items-center gap-2 text-amber-700 hover:text-amber-800">
                       <FaPhone className="text-[14px]" />
@@ -471,14 +471,14 @@ export default function ProductDetail() {
                   <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:flex-1 sm:gap-3">
                   <button
                     onClick={() => addToCart(product)}
-                    className="inline-flex items-center justify-center rounded-lg bg-rose-500 px-3.5 py-1.5 text-sm font-semibold text-white shadow focus:outline-none focus:ring-2 focus:ring-rose-200 hover:bg-rose-600 sm:flex-1"
+                    className="inline-flex items-center justify-center rounded-lg bg-rose-500 px-3.5 py-1.5 text-xs font-semibold text-white shadow focus:outline-none focus:ring-2 focus:ring-rose-200 hover:bg-rose-600 sm:flex-1 sm:text-sm"
                     aria-label={`Add ${product.name} to cart`}
                   >
                     Add to cart
                   </button>
                   <button
                     onClick={handleBuyNow}
-                    className="inline-flex items-center justify-center rounded-lg bg-rose-600 px-3.5 py-1.5 text-sm font-semibold text-white shadow focus:outline-none focus:ring-2 focus:ring-rose-200 hover:bg-rose-700 sm:flex-1"
+                    className="inline-flex items-center justify-center rounded-lg bg-rose-600 px-3.5 py-1.5 text-xs font-semibold text-white shadow focus:outline-none focus:ring-2 focus:ring-rose-200 hover:bg-rose-700 sm:flex-1 sm:text-sm"
                   >
                     Buy now
                   </button>
@@ -487,8 +487,8 @@ export default function ProductDetail() {
                     <button
                       type="button"
                       onClick={handlePreorder}
-                    className="inline-flex w-full items-center justify-center rounded-lg border border-rose-200 px-3.5 py-1.5 text-sm font-semibold text-rose-600 transition hover:bg-rose-100 sm:w-auto"
-                    >
+                    className="inline-flex w-full items-center justify-center rounded-lg border border-rose-200 px-3.5 py-1.5 text-xs font-semibold text-rose-600 transition hover:bg-rose-100 sm:w-auto sm:text-sm"
+                  >
                       Preorder via Shop &amp; Ship
                     </button>
                   ) : null}
@@ -497,13 +497,13 @@ export default function ProductDetail() {
               <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:gap-3">
                 <Link
                   to="/market"
-                  className="inline-flex items-center justify-center gap-2 rounded-lg border border-rose-200 px-3 py-1.5 text-xs font-semibold text-rose-600 transition hover:bg-rose-100 sm:text-sm"
+                  className="inline-flex items-center justify-center gap-2 rounded-lg border border-rose-200 px-3 py-1.5 text-[11px] font-semibold text-rose-600 transition hover:bg-rose-100 sm:text-sm"
                 >
                   Back to Market Hub
                 </Link>
                 <Link
                   to="/"
-                  className="inline-flex items-center justify-center gap-2 rounded-lg border border-rose-200 px-3 py-1.5 text-xs font-semibold text-rose-600 transition hover:bg-rose-100 sm:text-sm"
+                  className="inline-flex items-center justify-center gap-2 rounded-lg border border-rose-200 px-3 py-1.5 text-[11px] font-semibold text-rose-600 transition hover:bg-rose-100 sm:text-sm"
                 >
                   Home
                 </Link>
@@ -517,8 +517,8 @@ export default function ProductDetail() {
           </div>
         </div>
         {/* Related products */}
-        <div className="container mx-auto px-4 mt-10 sm:px-6">
-          <h3 className="mb-4 text-2xl font-bold text-slate-900">You may also like</h3>
+        <div className="container mx-auto px-4 mt-8 sm:mt-10 sm:px-6">
+          <h3 className="mb-4 text-xl font-bold text-slate-900 sm:text-2xl">You may also like</h3>
           <RelatedProducts category={product.category} excludeId={product.id} onAdd={addToCart} />
         </div>
       </div>

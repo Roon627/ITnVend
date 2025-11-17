@@ -44,7 +44,7 @@ export default function HighlightsCarousel({ sections = [], formatCurrency, onAd
   const items = activeSection?.items || [];
 
   return (
-    <section className="space-y-4 rounded-3xl border border-rose-100 bg-white/95 p-6 shadow-lg shadow-rose-100/50">
+    <section className="space-y-4 rounded-3xl border border-rose-100 bg-white/95 p-5 shadow-xl shadow-black/5">
       <div className="flex flex-wrap gap-2">
         {tabs.map((tab) => {
           const active = tab.key === activeSection.key;
@@ -53,8 +53,8 @@ export default function HighlightsCarousel({ sections = [], formatCurrency, onAd
               key={tab.key}
               type="button"
               onClick={() => setActiveKey(tab.key)}
-              className={`inline-flex items-center rounded-full px-4 py-1.5 text-xs font-semibold uppercase tracking-[0.2em] transition ${
-                active ? 'bg-rose-500 text-white shadow shadow-rose-200/70' : 'bg-rose-50 text-rose-500 hover:bg-rose-100'
+              className={`inline-flex items-center rounded-full px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.15em] transition sm:px-4 sm:py-1.5 sm:text-xs sm:tracking-[0.2em] ${
+                active ? 'bg-[#111827] text-white shadow' : 'bg-white text-[#111827] border border-[#e5e7eb] hover:border-[#33f5c6]'
               }`}
             >
               {tab.label}
@@ -63,10 +63,10 @@ export default function HighlightsCarousel({ sections = [], formatCurrency, onAd
         })}
       </div>
       {activeSection.description && (
-        <p className="text-sm text-slate-500">{activeSection.description}</p>
+        <p className="text-sm text-[#4b5563]">{activeSection.description}</p>
       )}
       <div className="flex gap-4 overflow-x-auto pb-2 snap-x snap-mandatory scroll-smooth touch-pan-x no-scrollbar">
-        {items.map((item) => {
+        {items.map((item, idx) => {
           const galleryPaths = Array.isArray(item.gallery)
             ? item.gallery
                 .map((entry) => {
@@ -94,10 +94,8 @@ export default function HighlightsCarousel({ sections = [], formatCurrency, onAd
           return (
             <div
               key={`highlight-${activeSection.key}-${item.id}`}
-              // On small screens make each card take most of the viewport width so
-              // users see one product at a time. On larger screens fall back to
-              // the original min-width layout to show multiple cards.
-              className="min-w-full sm:min-w-[240px] snap-center rounded-2xl border border-rose-100 bg-gradient-to-br from-white via-rose-50 to-sky-50 p-4 shadow-sm"
+              className="min-w-full sm:min-w-[240px] snap-center rounded-2xl border border-rose-100 bg-white p-4 shadow-sm hover:shadow-lg transition-transform duration-200 animate-card"
+              style={{ animationDelay: `${idx * 60}ms` }}
             >
               <div className="relative h-36 overflow-hidden rounded-xl">
                 <AvailabilityTag availabilityStatus={item.availability_status || item.availabilityStatus || 'in_stock'} />
@@ -111,22 +109,22 @@ export default function HighlightsCarousel({ sections = [], formatCurrency, onAd
               </div>
               <div className="mt-3 space-y-2">
                 {badge && (
-                  <span className="inline-flex items-center rounded-full bg-rose-100 px-3 py-0.5 text-[10px] font-semibold uppercase tracking-[0.3em] text-rose-500">
+                  <span className="inline-flex items-center rounded-full bg-rose-100 px-3 py-0.5 text-[10px] font-semibold uppercase tracking-[0.3em] text-[#111827]">
                     {badge}
                   </span>
                 )}
-                <div className="text-base font-semibold text-slate-900 line-clamp-2">{item.name}</div>
-                <p className="text-xs text-slate-500 line-clamp-3">
+                <div className="text-base font-semibold text-[#111827] line-clamp-2">{item.name}</div>
+                <p className="text-xs text-[#6b7280] line-clamp-3">
                   {descriptionCopy.primary || 'Curated inventory from the ITnVend network.'}
                 </p>
-                <div className="text-lg font-bold text-rose-500">
+                <div className="text-lg font-bold text-[#111827]">
                   {typeof formatCurrency === 'function' ? formatCurrency(item.price) : `${item.price} MVR`}
                 </div>
                 <div className="flex gap-2">
                   <Link
                       to={`/product/${item.id}`}
                       state={{ preloadedProduct: item }}
-                      className="flex-1 text-center rounded-full border border-rose-200 bg-white px-4 py-2 text-base font-semibold text-rose-600 shadow-sm hover:bg-rose-50"
+                      className="btn-sm btn-sm-outline flex-1 justify-center text-xs sm:text-sm"
                     >
                       View details
                     </Link>
@@ -137,12 +135,12 @@ export default function HighlightsCarousel({ sections = [], formatCurrency, onAd
                         onClick={(e) => {
                           if (!contactLink) e.preventDefault();
                         }}
-                        className="inline-flex items-center justify-center rounded-full border border-amber-300 bg-amber-500 px-4 py-2 text-base font-semibold uppercase tracking-wide text-white shadow-sm hover:bg-amber-400"
+                        className="btn-sm btn-sm-primary inline-flex items-center justify-center px-4"
                       >
                         Contact seller
                       </a>
                     ) : (
-                      <div className="inline-flex items-center justify-center rounded-full border border-slate-200 bg-white/80 px-4 py-2 text-[12px] font-semibold uppercase text-slate-400">
+                      <div className="btn-sm btn-sm-ghost w-full justify-center text-[11px] uppercase">
                         Contact pending
                       </div>
                     )
@@ -151,7 +149,7 @@ export default function HighlightsCarousel({ sections = [], formatCurrency, onAd
                       <button
                         type="button"
                         onClick={() => onAdd(item)}
-                        className="rounded-full border border-rose-500 bg-rose-500 px-4 py-2 text-base font-semibold text-white shadow-sm hover:bg-rose-400"
+                        className="btn-sm btn-sm-primary"
                       >
                         Add
                       </button>

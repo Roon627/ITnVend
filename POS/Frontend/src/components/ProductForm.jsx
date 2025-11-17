@@ -421,10 +421,12 @@ export default function ProductForm({
     try {
       const res = await api.post(endpoint, { name: trimmed });
       const inserted = res?.data || res;
-      const item = normalizeLookupOption(inserted) || {
+      const normalized = normalizeLookupOption(inserted) || {
         id: inserted?.id || inserted?.value || trimmed,
         name: inserted?.name || trimmed,
       };
+      const value = normalized.value ?? normalized.name ?? normalized.id;
+      const item = { ...normalized, value };
       setLocalLookups((prev) => ({
         ...prev,
         [stateKey]: normalizeLookupList([...(prev?.[stateKey] || []), item]),
@@ -456,19 +458,22 @@ export default function ProductForm({
 
   const internalCreateAudience = async (name) => {
     const item = await createLookupEntry({ endpoint: '/audiences', stateKey: 'audiences', name });
-    if (item?.id) update('audience', item.id);
+    const nextValue = item?.value ?? item?.name ?? item?.id;
+    if (nextValue) update('audience', nextValue);
     return !!item;
   };
 
   const internalCreateDeliveryType = async (name) => {
     const item = await createLookupEntry({ endpoint: '/delivery-types', stateKey: 'deliveryTypes', name });
-    if (item?.id) update('deliveryType', item.id);
+    const nextValue = item?.value ?? item?.name ?? item?.id;
+    if (nextValue) update('deliveryType', nextValue);
     return !!item;
   };
 
   const internalCreateWarranty = async (name) => {
     const item = await createLookupEntry({ endpoint: '/warranty-terms', stateKey: 'warrantyTerms', name });
-    if (item?.id) update('warrantyTerm', item.id);
+    const nextValue = item?.value ?? item?.name ?? item?.id;
+    if (nextValue) update('warrantyTerm', nextValue);
     return !!item;
   };
 

@@ -427,11 +427,19 @@ export default function Submissions() {
                     );
                   })()}
                   <div>
-                    <div className="text-xs font-semibold uppercase text-slate-500">Commission rate</div>
+                    <div className="text-xs font-semibold uppercase text-slate-500">Monthly fee</div>
                     <div className="text-gray-700">
-                      {selected?.row?.commission_rate != null
-                        ? `${(selected.row.commission_rate * 100).toFixed(1)}%`
+                      {selected?.row?.monthly_fee != null
+                        ? `MVR ${Number(selected.row.monthly_fee).toFixed(2)}`
                         : '—'}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-xs font-semibold uppercase text-slate-500">Billing start</div>
+                    <div className="text-gray-700">
+                      {selected?.row?.billing_start_date
+                        ? new Date(selected.row.billing_start_date).toLocaleDateString()
+                        : 'Next cycle'}
                     </div>
                   </div>
                   <div className="flex flex-wrap gap-2 pt-2">

@@ -17,24 +17,24 @@ export default function NewArrivalsStrip({ items = [], onView = () => {}, onBrow
 
   return (
     <div className="mb-4">
-      <div className="relative rounded-xl bg-white/90 p-3 shadow-sm border border-rose-100">
+      <div className="relative rounded-xl bg-white p-4 shadow-md border border-rose-100">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="inline-flex items-center rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-700">New arrivals</div>
-            <div className="text-sm text-slate-600">{items.length} new item{items.length > 1 ? 's' : ''}</div>
+            <div className="inline-flex items-center rounded-full bg-rose-100 px-3 py-1 text-xs font-semibold text-[#111827]">New arrivals</div>
+            <div className="text-sm text-[#4b5563]">{items.length} new item{items.length > 1 ? 's' : ''}</div>
           </div>
-          <div className="flex items-center gap-2 flex-col sm:flex-row sm:items-center">
+          <div className="flex items-center gap-2 flex-col sm:flex-row sm:items-center sm:gap-3">
             <button
               type="button"
               onClick={() => onView()}
-              className="inline-flex items-center gap-2 rounded-full border border-rose-200 bg-rose-50 px-3 py-1.5 text-sm font-semibold text-rose-600 w-full sm:w-auto justify-center"
+              className="btn-sm btn-sm-outline w-full sm:w-auto justify-center text-xs sm:text-sm"
             >
               View
             </button>
             <button
               type="button"
               onClick={() => onBrowse()}
-              className="inline-flex items-center gap-2 rounded-full border border-rose-200 bg-rose-50 px-3 py-1.5 text-sm font-semibold text-rose-600 w-full sm:w-auto justify-center"
+              className="btn-sm btn-sm-primary w-full sm:w-auto justify-center text-xs sm:text-sm"
             >
               Browse market
             </button>
@@ -54,12 +54,13 @@ export default function NewArrivalsStrip({ items = [], onView = () => {}, onBrow
             className="flex gap-3 overflow-x-auto no-scrollbar scroll-smooth py-1 pl-12 pr-12"
             style={{ scrollBehavior: 'smooth' }}
           >
-            {items.map((p) => (
+            {items.map((p, idx) => (
                 <Link
                   key={p.id}
                   to={`/product/${p.id}`}
                   state={{ preloadedProduct: p }}
-                  className="min-w-[110px] sm:min-w-[140px] w-[110px] sm:w-[140px] snap-start rounded-lg border bg-white p-2 shadow-sm hover:scale-105 transform transition-all duration-300 hover:z-10 no-underline"
+                  className="min-w-[110px] sm:min-w-[140px] w-[110px] sm:w-[140px] snap-start rounded-lg border border-rose-100 bg-white p-2 shadow-sm hover:shadow-lg transform transition-all duration-300 hover:z-10 no-underline animate-card"
+                  style={{ animationDelay: `${idx * 40}ms` }}
                 >
                   <div className="h-20 sm:h-28 w-full overflow-hidden rounded-md">
                     <img
@@ -68,8 +69,8 @@ export default function NewArrivalsStrip({ items = [], onView = () => {}, onBrow
                       className="h-full w-full object-cover transition-transform duration-300 transform hover:scale-110"
                     />
                   </div>
-                  <div className="mt-2 text-xs font-semibold text-slate-800 line-clamp-2">{p.name}</div>
-                  <div className="mt-1 text-sm text-rose-500 font-bold">{typeof p.price === 'number' ? (formatCurrency ? formatCurrency(p.price) : `MVR ${p.price}`) : p.price}</div>
+                  <div className="mt-2 text-xs font-semibold text-[#111827] line-clamp-2">{p.name}</div>
+                  <div className="mt-1 text-sm text-[#111827] font-bold">{typeof p.price === 'number' ? (formatCurrency ? formatCurrency(p.price) : `MVR ${p.price}`) : p.price}</div>
                 </Link>
             ))}
           </div>

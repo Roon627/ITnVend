@@ -3,6 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import api from '../lib/api';
 import { resolveMediaUrl } from '../lib/media';
 
+const isBrowser = typeof window !== 'undefined';
+
 // Minimal search suggestions component with highlighting, client-side limit, and analytics hook
 export default function SearchSuggestions({ query, onSelect, minChars = 2, limit = 6, enabled = true }) {
   const [items, setItems] = useState([]);
@@ -26,18 +28,20 @@ export default function SearchSuggestions({ query, onSelect, minChars = 2, limit
     if (!enabled || !query || query.length < minChars) {
       setItems([]);
       setOpen(false);
-      return;
+      return undefined;
     }
     setLoading(true);
-    if (debounceRef.current) clearTimeout(debounceRef.current);
+    if (debounceRef.current) {
+      clearTimeout(debounceRef.current);
+    }
     debounceRef.current = setTimeout(async () => {
       try {
-  // Use lowercase query to encourage case-insensitive backend matching and reduce client-side normalization
-  const q = (query || '').toString().toLowerCase();
-  // Prefer server-side limiting if supported; pass `limit` so backend can optimize
-  const res = await api.get('/products', { params: { search: q, limit } });
-  if (!mounted.current) return;
-  const list = Array.isArray(res) ? res : [];
+        // Use lowercase query to encourage case-insensitive backend matching and reduce client-side normalization
+        const q = (query || '').toString().toLowerCase();
+        // Prefer server-side limiting if supported; pass `limit` so backend can optimize
+        const res = await api.get('/products', { params: { search: q, limit } });
+        if (!mounted.current) return;
+        const list = Array.isArray(res) ? res : [];
         setItems(list);
         setOpen(true);
         setActive(-1);
@@ -50,17 +54,23 @@ export default function SearchSuggestions({ query, onSelect, minChars = 2, limit
         if (mounted.current) setLoading(false);
       }
     }, 200);
+    return () => {
+      if (debounceRef.current) {
+        clearTimeout(debounceRef.current);
+        debounceRef.current = null;
+      }
+    };
   }, [query, minChars, limit, enabled]);
 
   const fireAnalytics = useCallback((item) => {
     try {
       const payload = { event: 'search_suggestion_select', suggestionId: item?.id || null, query: query || '' };
       // GTM dataLayer
-      if (window && window.dataLayer && typeof window.dataLayer.push === 'function') {
+      if (isBrowser && window.dataLayer && typeof window.dataLayer.push === 'function') {
         window.dataLayer.push(payload);
       }
       // gtag fallback
-      if (window && typeof window.gtag === 'function') {
+      if (isBrowser && typeof window.gtag === 'function') {
         window.gtag('event', 'search_suggestion_select', payload);
       }
     } catch (error) {
@@ -82,6 +92,7 @@ export default function SearchSuggestions({ query, onSelect, minChars = 2, limit
 
   // Keyboard handling
   useEffect(() => {
+    if (!isBrowser) return undefined;
     function onKey(e) {
       if (!open) return;
       if (e.key === 'ArrowDown') {
@@ -111,6 +122,7 @@ export default function SearchSuggestions({ query, onSelect, minChars = 2, limit
 
   // click away to close
   useEffect(() => {
+    if (!isBrowser) return undefined;
     function onClick(e) {
       if (!containerRef.current) return;
       if (!containerRef.current.contains(e.target)) setOpen(false);

@@ -1,26 +1,27 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { FaClipboardCheck, FaHandshake, FaShippingFast } from 'react-icons/fa';
+import { FaClipboardCheck, FaHandshake } from 'react-icons/fa';
 import api from '../lib/api';
 import { useToast } from '../components/ToastContext';
 
 const STEP_CONTENT = [
   {
-    title: 'Business profile',
-    description: 'Tell us who you are and how we can reach you.',
+    title: 'Identity & branding',
+    description: 'Primary contact, storefront copy, and logo.',
     icon: FaHandshake,
   },
   {
-    title: 'Capabilities & logistics',
-    description: 'Share what you sell and how you operate day to day.',
-    icon: FaShippingFast,
-  },
-  {
-    title: 'Payout details',
-    description: 'Secure settlement method and commission preferences.',
+    title: 'Billing & compliance',
+    description: 'Monthly fee, billing start, and payout notes.',
     icon: FaClipboardCheck,
   },
 ];
+
+const getNextBillingStart = () => {
+  const now = new Date();
+  const next = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+  return next.toISOString().slice(0, 10);
+};
 
 export default function VendorRegister() {
   const [step, setStep] = useState(1);
@@ -32,11 +33,14 @@ export default function VendorRegister() {
     phone: '',
     address: '',
     website: '',
+    tagline: '',
+    public_description: '',
     capabilities: '',
     notes: '',
     bank_details: '',
     logo_file: null,
-    commission_rate: 0.10,
+    monthlyFee: '',
+    billingStartDate: getNextBillingStart(),
   });
   const toast = useToast();
   const navigate = useNavigate();
@@ -79,6 +83,11 @@ export default function VendorRegister() {
       const payload = { ...form, logo_url };
       // remove local file
       delete payload.logo_file;
+      const monthlyFeeValue = form.monthlyFee === '' ? null : Number(form.monthlyFee);
+      payload.monthly_fee = Number.isFinite(monthlyFeeValue) ? monthlyFeeValue : null;
+      payload.billing_start_date = form.billingStartDate || null;
+      delete payload.monthlyFee;
+      delete payload.billingStartDate;
       const result = await api.post('/vendors/register', payload);
       toast.push(result?.message || 'Vendor registered', 'success');
       navigate('/vendors');
@@ -157,67 +166,106 @@ export default function VendorRegister() {
 
           <form onSubmit={handleSubmit} className="space-y-6">
         {step === 1 && (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <label className="text-sm font-medium text-slate-600">
-              Business name
-              <input value={form.legal_name} onChange={(e) => change('legal_name', e.target.value)} className="mt-1 w-full rounded border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" required />
-            </label>
-            <label className="text-sm font-medium text-slate-600">
-              Contact person
-              <input value={form.contact_person} onChange={(e) => change('contact_person', e.target.value)} className="mt-1 w-full rounded border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" />
-            </label>
-            <label className="text-sm font-medium text-slate-600">
-              Email
-              <input type="email" value={form.email} onChange={(e) => change('email', e.target.value)} className="mt-1 w-full rounded border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" required />
-            </label>
-            <label className="text-sm font-medium text-slate-600">
-              Phone
-              <input value={form.phone} onChange={(e) => change('phone', e.target.value)} className="mt-1 w-full rounded border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" />
-            </label>
-          </div>
-        )}
-
-        {step === 2 && (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="space-y-5">
+            <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+              <label className="text-sm font-medium text-slate-600">
+                Legal / company name*
+                <input value={form.legal_name} onChange={(e) => change('legal_name', e.target.value)} className="mt-1 w-full rounded border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" required />
+              </label>
+              <label className="text-sm font-medium text-slate-600">
+                Primary contact
+                <input value={form.contact_person} onChange={(e) => change('contact_person', e.target.value)} className="mt-1 w-full rounded border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              </label>
+              <label className="text-sm font-medium text-slate-600">
+                Email*
+                <input type="email" value={form.email} onChange={(e) => change('email', e.target.value)} className="mt-1 w-full rounded border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" required />
+              </label>
+              <label className="text-sm font-medium text-slate-600">
+                Phone
+                <input value={form.phone} onChange={(e) => change('phone', e.target.value)} className="mt-1 w-full rounded border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              </label>
+            </div>
+            <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+              <label className="text-sm font-medium text-slate-600">
+                Address
+                <input value={form.address} onChange={(e) => change('address', e.target.value)} className="mt-1 w-full rounded border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              </label>
+              <label className="text-sm font-medium text-slate-600">
+                Website
+                <input value={form.website} onChange={(e) => change('website', e.target.value)} placeholder="https://" className="mt-1 w-full rounded border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              </label>
+            </div>
+            <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+              <label className="text-sm font-medium text-slate-600">
+                Tagline
+                <input value={form.tagline} onChange={(e) => change('tagline', e.target.value)} className="mt-1 w-full rounded border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="e.g. Premium AV supplier" />
+              </label>
+              <label className="text-sm font-medium text-slate-600">
+                Public description
+                <input value={form.public_description} onChange={(e) => change('public_description', e.target.value)} className="mt-1 w-full rounded border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="Short description for storefront" />
+              </label>
+            </div>
             <label className="block">
-              <div className="text-sm font-medium">Address</div>
-              <input value={form.address} onChange={(e) => change('address', e.target.value)} className="mt-1 block w-full border rounded px-3 py-2" />
-            </label>
-            <label className="block">
-              <div className="text-sm font-medium">Website</div>
-              <input value={form.website} onChange={(e) => change('website', e.target.value)} placeholder="https://" className="mt-1 block w-full border rounded px-3 py-2" />
-            </label>
-            <label className="block md:col-span-2">
-              <div className="text-sm font-medium">Capabilities / Services</div>
-              <textarea value={form.capabilities} onChange={(e) => change('capabilities', e.target.value)} className="mt-1 block w-full border rounded px-3 py-2" rows={3} />
-            </label>
-            <label className="block md:col-span-2">
-              <div className="text-sm font-medium">Notes</div>
-              <textarea value={form.notes} onChange={(e) => change('notes', e.target.value)} className="mt-1 block w-full border rounded px-3 py-2" rows={2} />
-            </label>
-          </div>
-        )}
-
-        {step === 3 && (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <label className="block md:col-span-2">
-              <div className="text-sm font-medium">Bank / Payment details</div>
-              <textarea value={form.bank_details} onChange={(e) => change('bank_details', e.target.value)} className="mt-1 block w-full border rounded px-3 py-2" rows={3} />
-            </label>
-            <label className="block">
-              <div className="text-sm font-medium">Commission rate (decimal)</div>
-              <input type="number" step="0.01" value={form.commission_rate} onChange={(e) => change('commission_rate', Number(e.target.value))} className="mt-1 block w-full border rounded px-3 py-2" />
+              <div className="text-sm font-medium">Capabilities / services</div>
+              <textarea value={form.capabilities} onChange={(e) => change('capabilities', e.target.value)} className="mt-1 block w-full rounded border px-3 py-2" rows={3} />
             </label>
             <label className="block">
               <div className="text-sm font-medium">Upload logo</div>
               <input type="file" accept="image/*" onChange={(e) => change('logo_file', e.target.files && e.target.files[0])} className="mt-1 block w-full" />
               {form.logo_file && (
-                <div className="mt-2 flex items-center gap-3">
-                  <img src={URL.createObjectURL(form.logo_file)} alt="logo-preview" className="h-16 w-16 object-contain rounded" />
-                  <div className="text-sm text-gray-600">{form.logo_file.name} ({Math.round(form.logo_file.size/1024)} KB)</div>
+                <div className="mt-2 flex items-center gap-3 rounded-xl border border-slate-100 bg-slate-50/70 p-3">
+                  <img src={URL.createObjectURL(form.logo_file)} alt="logo-preview" className="h-16 w-16 rounded object-contain" />
+                  <div className="text-sm text-gray-600">
+                    {form.logo_file.name} ({Math.round(form.logo_file.size / 1024)} KB)
+                  </div>
                 </div>
               )}
             </label>
+            <p className="text-xs text-slate-500">
+              Vendor login credentials are generated automatically when you approve the vendor. We use their email for the username.
+            </p>
+          </div>
+        )}
+
+        {step === 2 && (
+          <div className="space-y-5">
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+              <label className="text-sm font-medium text-slate-600">
+                Monthly fee*
+                <div className="relative mt-1">
+                  <span className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-slate-400">MVR</span>
+              <input
+                type="number"
+                step="0.01"
+                min="0"
+                value={form.monthlyFee}
+                onChange={(e) => change('monthlyFee', e.target.value)}
+                className="w-full rounded border px-3 py-2 pl-14 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    required
+              />
+            </div>
+              </label>
+              <label className="text-sm font-medium text-slate-600">
+                Billing start date
+                <input
+                    type="date"
+                    value={form.billingStartDate}
+                    onChange={(e) => change('billingStartDate', e.target.value)}
+                    className="mt-1 w-full rounded border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+              </label>
+              <label className="text-sm font-medium text-slate-600">
+                Notes / internal flags
+                <input value={form.notes} onChange={(e) => change('notes', e.target.value)} className="mt-1 w-full rounded border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="Optional notes" />
+              </label>
+            </div>
+            <label className="block">
+              <div className="text-sm font-medium">Bank / payout details</div>
+              <textarea value={form.bank_details} onChange={(e) => change('bank_details', e.target.value)} className="mt-1 block w-full rounded border px-3 py-2" rows={3} />
+            </label>
+            <div className="rounded-2xl border border-blue-100 bg-blue-50/60 p-4 text-sm text-blue-700">
+              Vendors must pay their monthly fee within 5 days to keep their dashboard active. The billing automation emails on day 1, 3, and 5, then disables access on day 6.
+            </div>
           </div>
         )}
 
@@ -226,7 +274,7 @@ export default function VendorRegister() {
             {step > 1 && (
               <button type="button" className="rounded-full border border-slate-200 px-4 py-2 text-sm font-semibold" onClick={() => setStep((s) => s - 1)}>Back</button>
             )}
-            {step < 3 && (
+            {step < STEP_CONTENT.length && (
               <button type="button" className="rounded-full bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow hover:bg-blue-700" onClick={() => setStep((s) => s + 1)}>Next</button>
             )}
           </div>

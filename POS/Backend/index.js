@@ -20,11 +20,10 @@ import { sendMail } from './lib/mail.js';
 import validateSlipRouter from './routes/validateSlip.js';
 import validateSlipPublicRouter from './routes/validateSlipPublic.js';
 import slipsRouter from './routes/slips.js';
-import vendorPayoutRouter from './modules/vendor/payout.routes.js';
-import { listPayoutsForVendor } from './modules/vendor/payout.service.js';
 import reportsRouter from './modules/reports/report.routes.js';
 import cookieParser from 'cookie-parser';
 import { createSlipProcessingQueue } from './lib/slipProcessingQueue.js';
+import { generateVendorInvoice, listVendorInvoices, markVendorInvoicePaid, processDailyVendorBilling, reactivateVendorAccount, updateVendorBillingSettings } from './modules/vendor/billing.service.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const backendRoot = path.dirname(__filename);
@@ -78,6 +77,7 @@ const port = process.env.PORT ? parseInt(process.env.PORT, 10) : 4000;
 
 const DB_TYPES = { POSTGRES: 'postgres', SQLITE: 'sqlite' };
 let dbType = process.env.DB_TYPE || null;
+let globalDb = null;
 const DEFAULT_CONCAT_SEPARATOR = "', '";
 function resolveDbType() {
     if (dbType) return dbType;
@@ -412,6 +412,28 @@ function createRateLimiter({ windowMs = 60 * 60 * 1000, max = 20, keyFn = (req) 
     };
 }
 
+function initVendorBillingScheduler(db) {
+    const run = async () => {
+        try {
+            await processDailyVendorBilling(db);
+        } catch (err) {
+            console.error('Vendor billing scheduler failed', err?.message || err);
+        }
+    };
+    const scheduleNextRun = () => {
+        const now = new Date();
+        const next = new Date(now);
+        next.setHours(24, 5, 0, 0); // run shortly after midnight local time
+        const delay = Math.max(next.getTime() - now.getTime(), 60 * 60 * 1000);
+        setTimeout(async () => {
+            await run();
+            scheduleNextRun();
+        }, delay);
+    };
+    run();
+    scheduleNextRun();
+}
+
 function resolveSlipFilePath(row) {
     const raw = row?.storage_path || row?.storage_key || '';
     if (!raw) return null;
@@ -516,8 +538,86 @@ app.use('/uploads', express.static(imagesDir));
 // Slips persistence endpoints (authenticated)
 app.use('/api/slips', authMiddleware, requireRole(['accounts', 'manager', 'admin']), slipsRouter);
 
-// Vendor payouts (admin/manager only)
-app.use('/api/vendors/:id/payouts', authMiddleware, requireRole(['manager','admin']), vendorPayoutRouter);
+// Vendor billing management (admin/manager)
+app.get('/api/vendors/:id/invoices', authMiddleware, requireRole(['manager','admin']), async (req, res) => {
+    const vendorId = Number(req.params.id);
+    if (!vendorId) return res.status(400).json({ error: 'Invalid vendor id' });
+    try {
+        const exists = await db.get('SELECT id FROM vendors WHERE id = ?', [vendorId]);
+        if (!exists) return res.status(404).json({ error: 'Vendor not found' });
+        const limitParam = req.query?.limit ? Number(req.query.limit) : 50;
+        const limit = Number.isFinite(limitParam) ? Math.min(Math.max(limitParam, 1), 500) : 50;
+        const invoices = await listVendorInvoices({ db, vendorId, limit });
+        return res.json({ vendorId, invoices });
+    } catch (err) {
+        console.error('Failed to fetch vendor invoices', err?.message || err);
+        return res.status(500).json({ error: 'Unable to fetch invoices' });
+    }
+});
+
+app.post('/api/vendors/:id/invoices/generate', authMiddleware, requireRole(['manager','admin']), async (req, res) => {
+    const vendorId = Number(req.params.id);
+    if (!vendorId) return res.status(400).json({ error: 'Invalid vendor id' });
+    const { amount, issueDate, metadata } = req.body || {};
+    try {
+        const issue = issueDate ? new Date(issueDate) : new Date();
+        if (Number.isNaN(issue.getTime())) return res.status(400).json({ error: 'Invalid issue date' });
+        const invoice = await generateVendorInvoice({ db, vendorId, amount: amount != null ? Number(amount) : null, issueDate: issue, metadata: metadata || null });
+        await logActivity('vendor', vendorId, 'invoice_generated', req.user?.username || null, `Manual invoice ${invoice.invoice_number}`);
+        return res.status(201).json(invoice);
+    } catch (err) {
+        console.error('Failed to generate vendor invoice', err?.message || err);
+        return res.status(500).json({ error: err?.message || 'Unable to generate invoice' });
+    }
+});
+
+app.post('/api/vendors/:id/invoices/:invoiceId/pay', authMiddleware, requireRole(['manager','admin']), async (req, res) => {
+    const vendorId = Number(req.params.id);
+    const invoiceId = Number(req.params.invoiceId);
+    if (!vendorId || !invoiceId) return res.status(400).json({ error: 'Invalid vendor or invoice id' });
+    try {
+        const paid = await markVendorInvoicePaid({ db, vendorId, invoiceId, paidAt: new Date() });
+        await logActivity('vendor', vendorId, 'invoice_paid', req.user?.username || null, `Invoice ${paid.invoice_number} marked paid via admin`);
+        return res.json(paid);
+    } catch (err) {
+        console.error('Failed to mark vendor invoice paid', err?.message || err);
+        return res.status(500).json({ error: err?.message || 'Unable to mark invoice paid' });
+    }
+});
+
+app.patch('/api/vendors/:id/billing', authMiddleware, requireRole(['manager','admin']), async (req, res) => {
+    const vendorId = Number(req.params.id);
+    if (!vendorId) return res.status(400).json({ error: 'Invalid vendor id' });
+    const monthlyFee = req.body?.monthly_fee ?? req.body?.monthlyFee;
+    const billingStartDate = req.body?.billing_start_date ?? req.body?.billingStartDate ?? null;
+    try {
+        const updated = await updateVendorBillingSettings({
+            db,
+            vendorId,
+            monthlyFee: monthlyFee != null ? Number(monthlyFee) : undefined,
+            billingStartDate: billingStartDate || undefined
+        });
+        await logActivity('vendor', vendorId, 'billing_update', req.user?.username || null, `Updated monthly fee to ${updated?.monthly_fee ?? monthlyFee ?? 'n/a'}`);
+        return res.json(updated);
+    } catch (err) {
+        console.error('Failed to update vendor billing', err?.message || err);
+        return res.status(500).json({ error: err?.message || 'Unable to update billing' });
+    }
+});
+
+app.post('/api/vendors/:id/reactivate', authMiddleware, requireRole(['manager','admin']), async (req, res) => {
+    const vendorId = Number(req.params.id);
+    if (!vendorId) return res.status(400).json({ error: 'Invalid vendor id' });
+    const billingStartDate = req.body?.billing_start_date ?? req.body?.billingStartDate ?? null;
+    try {
+        const vendor = await reactivateVendorAccount({ db, vendorId, billingStartDate });
+        await logActivity('vendor', vendorId, 'reactivated', req.user?.username || null, 'Vendor manually reactivated');
+        return res.json(vendor);
+    } catch (err) {
+        console.error('Failed to reactivate vendor', err?.message || err);
+        return res.status(500).json({ error: err?.message || 'Unable to reactivate vendor' });
+    }
+});
 
 // Reports (admin/manager)
 app.use('/api/reports', authMiddleware, requireRole(['manager','admin']), reportsRouter);
@@ -649,6 +749,24 @@ function normalizeEnum(value, allowed, fallback = null) {
   if (!value) return fallback;
   const normalized = value.toString().toLowerCase();
   return allowed.includes(normalized) ? normalized : fallback;
+}
+
+async function normalizeLookupValue(typeKey, value, baseList = [], fallback = null) {
+    if (!value) return fallback;
+    const baseMatch = normalizeEnum(value, baseList, null);
+    if (baseMatch) return baseMatch;
+    const trimmed = value.toString().trim();
+    if (!trimmed || !db) return fallback;
+    try {
+        const row = await db.get(
+            'SELECT name FROM custom_lookups WHERE type = ? AND LOWER(name) = LOWER(?) LIMIT 1',
+            [typeKey, trimmed]
+        );
+        return row?.name || fallback;
+    } catch (err) {
+        console.error(`normalizeLookupValue failed for ${typeKey}`, err);
+        return fallback;
+    }
 }
 
 function parseJson(value, fallback = null) {
@@ -1206,6 +1324,27 @@ function requireRole(required) {
         }
         // default deny
         return res.status(403).json({ error: 'Forbidden' });
+    };
+}
+
+function requireVendorAccess({ allowInactive = false } = {}) {
+    return async (req, res, next) => {
+        if (!req.user || req.user.role !== 'vendor' || !req.user.vendorId) {
+            return res.status(403).json({ error: 'Forbidden' });
+        }
+        try {
+            const db = req.app?.get('db') || globalDb;
+            const vendor = await db.get('SELECT id, account_active FROM vendors WHERE id = ?', [req.user.vendorId]);
+            if (!vendor) return res.status(404).json({ error: 'Vendor not found' });
+            if (!allowInactive && Number(vendor.account_active) === 0) {
+                return res.status(423).json({ error: 'Your vendor account is temporarily disabled due to unpaid monthly fees. Please contact support.' });
+            }
+            req.vendor = vendor;
+            return next();
+        } catch (err) {
+            console.error('Vendor access check failed', err);
+            return res.status(500).json({ error: 'Internal error' });
+        }
     };
 }
 
@@ -1934,6 +2073,7 @@ app.delete('/api/uploads/admin', authMiddleware, requireRole('admin'), (req, res
 async function startServer() {
     try {
     db = await setupDatabase();
+    globalDb = db;
     dbType = db?.dialect || resolveDbType();
     await ensureCustomLookupTable();
     // expose db on the express app so routes can access it via req.app.get('db')
@@ -1952,6 +2092,7 @@ async function startServer() {
         });
         try { app.set('slipProcessingQueue', slipProcessingQueue); } catch (e) { /* ignore */ }
         await recoverSlipJobs(db, slipProcessingQueue);
+        initVendorBillingScheduler(db);
         // ensure settings has jwt_secret column (safe add)
         try { await db.run("ALTER TABLE settings ADD COLUMN jwt_secret TEXT"); } catch (e) { /* ignore if exists */ }
         // Prefer explicit JWT secret from environment when available
@@ -2283,7 +2424,7 @@ app.post('/api/vendors/login', async (req, res) => {
         const identifier = username || email;
         // find vendor user record joined with vendor to ensure vendor exists
         const row = await db.get(
-            `SELECT vu.id AS vu_id, vu.username AS username, vu.password_hash AS password_hash, vu.vendor_id AS vendor_id, v.email AS vendor_email, v.legal_name
+            `SELECT vu.id AS vu_id, vu.username AS username, vu.password_hash AS password_hash, vu.vendor_id AS vendor_id, v.email AS vendor_email, v.legal_name, v.account_active
              FROM vendor_users vu
              JOIN vendors v ON v.id = vu.vendor_id
              WHERE vu.username = ? OR v.email = ?`,
@@ -2293,6 +2434,9 @@ app.post('/api/vendors/login', async (req, res) => {
         const stored = row.password_hash || '';
         const ok = await bcrypt.compare(password, stored);
         if (!ok) return res.status(401).json({ error: 'Invalid credentials' });
+        if (Number(row.account_active) === 0) {
+            return res.status(423).json({ error: 'Your vendor account is temporarily disabled due to unpaid monthly fees. Please contact support.' });
+        }
 
         const token = jwt.sign({ username: row.username, role: 'vendor', vendorId: row.vendor_id }, process.env.JWT_SECRET || JWT_SECRET || 'changeme', { expiresIn: '30d' });
         return res.json({ token, vendor: { id: row.vendor_id, email: row.vendor_email, legal_name: row.legal_name } });
@@ -2445,11 +2589,10 @@ app.post('/api/vendors/:id/impersonate', authMiddleware, requireRole(['manager',
 });
 
 // Vendor self-service: get own vendor profile
-app.get('/api/vendor/me', authMiddleware, async (req, res) => {
+app.get('/api/vendor/me', authMiddleware, requireVendorAccess({ allowInactive: true }), async (req, res) => {
     try {
-        if (!req.user || req.user.role !== 'vendor' || !req.user.vendorId) return res.status(403).json({ error: 'Forbidden' });
         const vendorId = req.user.vendorId;
-        const vendor = await db.get('SELECT id, slug, legal_name, contact_person, email, phone, address, website, tagline, public_description, logo_url, hero_image, attachments, commission_rate, bank_details FROM vendors WHERE id = ?', [vendorId]);
+        const vendor = await db.get('SELECT id, slug, legal_name, contact_person, email, phone, address, website, tagline, public_description, logo_url, hero_image, attachments, bank_details, monthly_fee, billing_start_date, last_invoice_date, account_active, status FROM vendors WHERE id = ?', [vendorId]);
         if (!vendor) return res.status(404).json({ error: 'Vendor not found' });
         // attach product count
         const productCount = await db.get('SELECT COUNT(*) AS c FROM products WHERE vendor_id = ?', [vendor.id]);
@@ -2463,9 +2606,8 @@ app.get('/api/vendor/me', authMiddleware, async (req, res) => {
 });
 
 // Vendor self-service: recent products
-app.get('/api/vendor/me/products', authMiddleware, async (req, res) => {
+app.get('/api/vendor/me/products', authMiddleware, requireVendorAccess(), async (req, res) => {
     try {
-        if (!req.user || req.user.role !== 'vendor' || !req.user.vendorId) return res.status(403).json({ error: 'Forbidden' });
         const vendorId = req.user.vendorId;
         const rows = await db.all(
             `${PRODUCT_BASE_SELECT} AND p.vendor_id = ? ORDER BY p.created_at DESC LIMIT 20`,
@@ -2479,21 +2621,14 @@ app.get('/api/vendor/me/products', authMiddleware, async (req, res) => {
     }
 });
 
-// Vendor self-service: payouts listing
-app.get('/api/vendor/me/payouts', authMiddleware, async (req, res) => {
+// Vendor self-service: invoice listing
+app.get('/api/vendor/me/invoices', authMiddleware, requireVendorAccess(), async (req, res) => {
     try {
-        if (!req.user || req.user.role !== 'vendor' || !req.user.vendorId) return res.status(403).json({ error: 'Forbidden' });
         const vendorId = req.user.vendorId;
-        // Use payout service to ensure schema and list payouts
-        try {
-            const rows = await listPayoutsForVendor({ db, vendorId });
-            return res.json(rows || []);
-        } catch (e) {
-            console.warn('Failed to list payouts for vendor', e?.message || e);
-            return res.json([]);
-        }
+        const rows = await listVendorInvoices({ db, vendorId, limit: 100 });
+        return res.json(rows || []);
     } catch (err) {
-        console.error('vendor/me/payouts error', err);
+        console.error('vendor/me/invoices error', err);
         return res.status(500).json({ error: 'Internal error' });
     }
 });
@@ -3150,9 +3285,9 @@ app.post('/api/products', authMiddleware, requireRole('cashier'), async (req, re
     const storedImageSource = imageUrl?.trim() || null;
     const technical = technicalDetails || null;
     const normalizedType = type === 'digital' ? 'digital' : 'physical';
-    const normalizedAudience = normalizeEnum(audience, AUDIENCE_OPTIONS);
-    const normalizedDelivery = normalizeEnum(deliveryType, DELIVERY_TYPES);
-    const normalizedWarranty = normalizeEnum(warrantyTerm, WARRANTY_TERMS);
+    const normalizedAudience = await normalizeLookupValue('audience', audience, AUDIENCE_OPTIONS);
+    const normalizedDelivery = await normalizeLookupValue('delivery', deliveryType, DELIVERY_TYPES);
+    const normalizedWarranty = await normalizeLookupValue('warranty', warrantyTerm, WARRANTY_TERMS);
     const normalizedEta = preorderEta && preorderEta.toString().trim() ? preorderEta.toString().trim() : null;
     const normalizedYear = year != null && year !== '' ? parseInt(year, 10) : null;
     const normalizedAutoSku = autoSku === false || autoSku === 0 ? 0 : 1;
@@ -3436,9 +3571,12 @@ app.put('/api/products/:id', authMiddleware, requireRole('cashier'), async (req,
         const normalizedCost = cost != null ? parseFloat(cost) || 0 : (existing.cost ?? 0);
         const normalizedTrack = trackInventory != null ? (trackInventory === false || trackInventory === 0 ? 0 : 1) : (existing.track_inventory ?? 1);
         const normalizedType = type != null ? (type === 'digital' ? 'digital' : 'physical') : (existing.type || 'physical');
-        const normalizedAudience = audience !== undefined ? normalizeEnum(audience, AUDIENCE_OPTIONS) : existing.audience;
-        const normalizedDelivery = deliveryType !== undefined ? normalizeEnum(deliveryType, DELIVERY_TYPES) : existing.delivery_type;
-        const normalizedWarranty = warrantyTerm !== undefined ? normalizeEnum(warrantyTerm, WARRANTY_TERMS) : existing.warranty_term;
+        const normalizedAudience =
+            audience !== undefined ? await normalizeLookupValue('audience', audience, AUDIENCE_OPTIONS) : existing.audience;
+        const normalizedDelivery =
+            deliveryType !== undefined ? await normalizeLookupValue('delivery', deliveryType, DELIVERY_TYPES) : existing.delivery_type;
+        const normalizedWarranty =
+            warrantyTerm !== undefined ? await normalizeLookupValue('warranty', warrantyTerm, WARRANTY_TERMS) : existing.warranty_term;
         const normalizedEta = preorderEta !== undefined ? (preorderEta && preorderEta.toString().trim() ? preorderEta.toString().trim() : null) : existing.preorder_eta;
         const hasDigitalDownload = Object.prototype.hasOwnProperty.call(req.body, 'digitalDownloadUrl') || Object.prototype.hasOwnProperty.call(req.body, 'digital_download_url');
         const normalizedDigitalDownloadUrl = hasDigitalDownload
@@ -3989,9 +4127,8 @@ app.post('/api/products/:id/adjust-stock', authMiddleware, requireRole(['manager
 // Vendor-scoped product management: vendors may create, update and archive their own products.
 // Staff routes remain unchanged. These endpoints enforce ownership by checking product.vendor_id
 // against the authenticated vendor's id.
-app.post('/api/vendor/products', authMiddleware, async (req, res) => {
+app.post('/api/vendor/products', authMiddleware, requireVendorAccess(), async (req, res) => {
     try {
-        if (!req.user || req.user.role !== 'vendor') return res.status(403).json({ error: 'Forbidden' });
         const vendorIdInt = Number(req.user.vendorId);
 
         const {
@@ -4049,9 +4186,9 @@ app.post('/api/vendor/products', authMiddleware, async (req, res) => {
         const storedImageSource = imageUrl?.trim() || null;
         const technical = technicalDetails || null;
         const normalizedType = type === 'digital' ? 'digital' : 'physical';
-        const normalizedAudience = normalizeEnum(audience, AUDIENCE_OPTIONS);
-        const normalizedDelivery = normalizeEnum(deliveryType, DELIVERY_TYPES);
-        const normalizedWarranty = normalizeEnum(warrantyTerm, WARRANTY_TERMS);
+        const normalizedAudience = await normalizeLookupValue('audience', audience, AUDIENCE_OPTIONS);
+        const normalizedDelivery = await normalizeLookupValue('delivery', deliveryType, DELIVERY_TYPES);
+        const normalizedWarranty = await normalizeLookupValue('warranty', warrantyTerm, WARRANTY_TERMS);
         const normalizedEta = preorderEta && preorderEta.toString().trim() ? preorderEta.toString().trim() : null;
         const normalizedYear = year != null && year !== '' ? parseInt(year, 10) : null;
         const normalizedAutoSku = autoSku === false || autoSku === 0 ? 0 : 1;
@@ -4191,9 +4328,8 @@ app.post('/api/vendor/products', authMiddleware, async (req, res) => {
     }
 });
 
-app.put('/api/vendor/products/:id', authMiddleware, async (req, res) => {
+app.put('/api/vendor/products/:id', authMiddleware, requireVendorAccess(), async (req, res) => {
     try {
-        if (!req.user || req.user.role !== 'vendor') return res.status(403).json({ error: 'Forbidden' });
         const id = Number(req.params.id);
         const product = await db.get('SELECT * FROM products WHERE id = ?', [id]);
         if (!product) return res.status(404).json({ error: 'Product not found' });
@@ -4282,9 +4418,8 @@ app.put('/api/vendor/products/:id', authMiddleware, async (req, res) => {
     }
 });
 
-app.delete('/api/vendor/products/:id', authMiddleware, async (req, res) => {
+app.delete('/api/vendor/products/:id', authMiddleware, requireVendorAccess(), async (req, res) => {
     try {
-        if (!req.user || req.user.role !== 'vendor') return res.status(403).json({ error: 'Forbidden' });
         const id = Number(req.params.id);
         const product = await db.get('SELECT * FROM products WHERE id = ?', [id]);
         if (!product) return res.status(404).json({ error: 'Product not found' });
@@ -5199,7 +5334,7 @@ app.post('/api/vendors', async (req, res) => {
     }
 });
 
-// Vendor Registration (more complete) - stores commission rate and bank details
+// Vendor Registration (more complete) - stores billing settings and bank details
 app.post('/api/vendors/register', async (req, res) => {
     const {
         legal_name,
@@ -5212,16 +5347,25 @@ app.post('/api/vendors/register', async (req, res) => {
         notes,
         bank_details,
         logo_url,
-        commission_rate,
         approve,
         tagline,
         public_description,
-        hero_image
+        hero_image,
+        monthly_fee,
+        monthlyFee,
+        billing_start_date,
+        billingStartDate,
+        billing_notes,
+        account_active,
+        accountActive
     } = req.body;
 
     if (!legal_name || !email) return res.status(400).json({ error: 'legal_name and email required' });
 
-    const comm = Number.isFinite(Number(commission_rate)) ? Number(commission_rate) : 0.0;
+    const feeInput = monthly_fee ?? monthlyFee;
+    const monthlyFeeValue = feeInput != null && feeInput !== '' ? Number(feeInput) : 0;
+    const billingStartValue = billing_start_date || billingStartDate || null;
+    const accountActiveFlag = account_active != null ? Number(account_active) : (accountActive != null ? Number(accountActive) : 1);
     const status = approve ? 'active' : 'pending';
     const descriptionValue = public_description || notes || null;
 
@@ -5231,9 +5375,9 @@ app.post('/api/vendors/register', async (req, res) => {
         const result = await db.run(
             `INSERT INTO vendors (
                 legal_name, contact_person, email, phone, address, website, capabilities, notes,
-                bank_details, logo_url, commission_rate, status, slug, tagline, public_description, hero_image
+                bank_details, logo_url, monthly_fee, billing_start_date, account_active, status, slug, tagline, public_description, hero_image
              )
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             [
                 legal_name,
                 contact_person || null,
@@ -5242,10 +5386,12 @@ app.post('/api/vendors/register', async (req, res) => {
                 address || null,
                 website || null,
                 capabilities || null,
-                notes || null,
+                notes || billing_notes || null,
                 bank_details || null,
                 logo_url || null,
-                comm,
+                monthlyFeeValue || 0,
+                billingStartValue,
+                accountActiveFlag ? 1 : 0,
                 status,
                 slug,
                 tagline || null,
@@ -5299,7 +5445,7 @@ app.post('/api/vendors/register', async (req, res) => {
 
         await db.run('COMMIT');
         await logActivity('vendors', vendorId, 'register', req.user?.username || null, JSON.stringify({ email }));
-        res.status(201).json({ id: vendorId, slug, message: 'Vendor registered', commission_rate: comm });
+        res.status(201).json({ id: vendorId, slug, message: 'Vendor registered', monthly_fee: monthlyFeeValue });
     } catch (err) {
         await db.run('ROLLBACK');
         if (String(err?.message || '').includes('UNIQUE constraint failed')) {
@@ -5344,6 +5490,66 @@ app.get('/api/vendors/:id', authMiddleware, requireRole('cashier'), async (req, 
     }
 });
 
+
+// Update vendor details (admin/manager)
+app.put('/api/vendors/:id', authMiddleware, requireRole(['manager','admin']), async (req, res) => {
+    const { id } = req.params;
+    const {
+        legal_name,
+        contact_person,
+        email,
+        phone,
+        address,
+        website,
+        capabilities,
+        notes,
+        tagline,
+        public_description,
+        monthly_fee,
+        billing_start_date
+    } = req.body || {};
+    try {
+        const vendor = await db.get('SELECT * FROM vendors WHERE id = ?', [id]);
+        if (!vendor) return res.status(404).json({ error: 'Vendor not found' });
+        await db.run(
+            `UPDATE vendors SET
+                legal_name = COALESCE(?, legal_name),
+                contact_person = COALESCE(?, contact_person),
+                email = COALESCE(?, email),
+                phone = COALESCE(?, phone),
+                address = COALESCE(?, address),
+                website = COALESCE(?, website),
+                capabilities = COALESCE(?, capabilities),
+                notes = COALESCE(?, notes),
+                tagline = COALESCE(?, tagline),
+                public_description = COALESCE(?, public_description),
+                monthly_fee = COALESCE(?, monthly_fee),
+                billing_start_date = COALESCE(?, billing_start_date)
+             WHERE id = ?`,
+            [
+                legal_name,
+                contact_person,
+                email,
+                phone,
+                address,
+                website,
+                capabilities,
+                notes,
+                tagline,
+                public_description,
+                monthly_fee != null ? Number(monthly_fee) : null,
+                billing_start_date || null,
+                id
+            ]
+        );
+        const updated = await db.get('SELECT * FROM vendors WHERE id = ?', [id]);
+        res.json(updated);
+    } catch (err) {
+        console.error('Failed to update vendor', err);
+        res.status(500).json({ error: err?.message || 'Unable to update vendor' });
+    }
+});
+
 // Update vendor status (approve/reject)
 app.put('/api/vendors/:id/status', authMiddleware, requireRole(['manager','admin']), async (req, res) => {
     const { id } = req.params;
@@ -5369,6 +5575,7 @@ app.put('/api/vendors/:id/status', authMiddleware, requireRole(['manager','admin
         // When vendor becomes active, we no longer create a customer record automatically.
         // Vendors are managed separately from Customers. Continue ensuring vendor user credentials below.
         if (status === 'active') {
+            try { await db.run('UPDATE vendors SET account_active = 1 WHERE id = ?', [id]); } catch (e) { console.warn('Failed to mark vendor active', e?.message || e); }
             // Ensure vendor user credential exists: create vendor_users table if needed and generate temporary password
             try {
                 // Use db.exec for schema statements so the adapter can transform SQL for Postgres
@@ -6928,40 +7135,6 @@ app.post('/api/invoices', async (req, res) => {
             }
         }
 
-        // Vendor commission handling: aggregate sales per supplier and create payable for vendor net amount (deduct commission)
-        // vendorTotals is declared here so it can be used later when creating GL adjustment lines
-        let vendorTotals = {};
-        try {
-            vendorTotals = {}; // vendor_id -> { gross }
-            for (const item of validItems) {
-                if (!item.id) continue;
-                const prod = await db.get('SELECT supplier_id, name FROM products WHERE id = ?', [item.id]);
-                if (prod && prod.supplier_id) {
-                    const vendorId = prod.supplier_id;
-                    const lineTotal = (Number(item.price || 0) * Number(item.quantity || 0)) || 0;
-                    if (!vendorTotals[vendorId]) vendorTotals[vendorId] = { gross: 0 };
-                    vendorTotals[vendorId].gross += lineTotal;
-                }
-            }
-
-            for (const [vendorId, data] of Object.entries(vendorTotals)) {
-                const vendorRow = await db.get('SELECT id, commission_rate FROM vendors WHERE id = ?', [vendorId]);
-                const commRate = vendorRow && vendorRow.commission_rate != null ? Number(vendorRow.commission_rate) : 0.0;
-                const gross = Number(data.gross || 0);
-                const commissionAmount = +(gross * (commRate));
-                const vendorNet = +(gross - commissionAmount);
-
-                // create an accounts_payable record for the vendor net amount
-                await db.run('INSERT INTO accounts_payable (vendor_id, invoice_number, invoice_date, due_date, amount, notes) VALUES (?, ?, ?, ?, ?, ?)',
-                    [vendorId, `INV-${invoiceId}`, new Date().toISOString().split('T')[0], null, vendorNet, `Vendor share for invoice ${invoiceId} (gross ${gross.toFixed(2)}, commission ${commissionAmount.toFixed(2)})`]
-                );
-
-                await logActivity('accounts_payable', null, 'created', req.user?.username || null, `Vendor ${vendorId} payable created for invoice ${invoiceId}`);
-            }
-        } catch (commErr) {
-            console.warn('Vendor commission processing failed for invoice', invoiceId, commErr?.message || commErr);
-        }
-
         // Create accounting journal entries for invoices (not quotes)
         if (type === 'invoice') {
             // Get account IDs
@@ -6995,55 +7168,6 @@ app.post('/api/invoices', async (req, res) => {
                         'INSERT INTO journal_entry_lines (journal_entry_id, account_id, debit, credit, description) VALUES (?, ?, ?, ?, ?)',
                         [journalId, taxesPayable.id, 0, taxAmount, `GST on invoice #${invoiceId}`]
                     );
-                }
-                // If vendor totals were computed, create GL adjustment lines to reflect vendor payables and commission revenue.
-                // Approach: the invoice earlier credited full Sales Revenue for subtotal. For vendor-supplied items we
-                // debit Sales Revenue (to remove vendor gross from company revenue), then credit Accounts Payable
-                // for the vendor net and credit Commission Revenue for the company's commission portion.
-                try {
-                    if (vendorTotals && Object.keys(vendorTotals).length > 0) {
-                        const accountsPayableAcc = await db.get('SELECT id FROM chart_of_accounts WHERE account_code = ?', ['2000']);
-                        const commissionAcc = await db.get('SELECT id FROM chart_of_accounts WHERE account_code = ?', ['4200']);
-                        // commissionAcc falls back to '4200' (Other Income) which exists in seeded COA. accountsPayableAcc should be '2000'.
-                        for (const [vendorId, data] of Object.entries(vendorTotals)) {
-                            const vendorGross = Number(data.gross || 0) || 0;
-                            // re-fetch vendor commission rate (safe)
-                            const vendorRow = await db.get('SELECT id, commission_rate FROM vendors WHERE id = ?', [vendorId]);
-                            const commRate = vendorRow && vendorRow.commission_rate != null ? Number(vendorRow.commission_rate) : 0.0;
-                            const commissionAmount = +(vendorGross * commRate);
-                            const vendorNet = +(vendorGross - commissionAmount);
-
-                            // Debit Sales Revenue to remove vendor gross portion (reduces previously credited sales revenue)
-                            if (salesRevenue) {
-                                await db.run(
-                                    'INSERT INTO journal_entry_lines (journal_entry_id, account_id, debit, credit, description) VALUES (?, ?, ?, ?, ?)',
-                                    [journalId, salesRevenue.id, vendorGross, 0, `Remove vendor-supplied sales (vendor ${vendorId}) for invoice #${invoiceId}`]
-                                );
-                            }
-
-                            // Credit Accounts Payable for vendor net (liability to vendor)
-                            if (accountsPayableAcc) {
-                                await db.run(
-                                    'INSERT INTO journal_entry_lines (journal_entry_id, account_id, debit, credit, description) VALUES (?, ?, ?, ?, ?)',
-                                    [journalId, accountsPayableAcc.id, 0, vendorNet, `Vendor payable (vendor ${vendorId}) for invoice #${invoiceId}`]
-                                );
-                            } else {
-                                console.warn('Accounts Payable account (2000) not found in chart_of_accounts; skipping GL payable line for vendor', vendorId);
-                            }
-
-                            // Credit Commission Revenue for the company's commission portion
-                            if (commissionAcc) {
-                                await db.run(
-                                    'INSERT INTO journal_entry_lines (journal_entry_id, account_id, debit, credit, description) VALUES (?, ?, ?, ?, ?)',
-                                    [journalId, commissionAcc.id, 0, commissionAmount, `Commission revenue (vendor ${vendorId}) for invoice #${invoiceId}`]
-                                );
-                            } else {
-                                console.warn('Commission revenue account (4200) not found in chart_of_accounts; skipping GL commission line for vendor', vendorId);
-                            }
-                        }
-                    }
-                } catch (adjErr) {
-                    console.warn('Failed to create commission GL adjustment lines for invoice', invoiceId, adjErr?.message || adjErr);
                 }
             }
         }

@@ -28,10 +28,10 @@ import NotFound from "./pages/NotFound";
 function PublicLayout({ children }) {
   return (
     <OrderSummaryProvider>
-      <div className="flex min-h-screen flex-col bg-gradient-to-br from-[#fdf6f0] via-[#f6e5f5] to-[#f0dcff] text-slate-800">
+      <div className="flex min-h-screen flex-col bg-[#f7f7f7] text-[#111827]">
         <a
           href="#main-content"
-          className="absolute left-4 top-4 z-50 -translate-y-20 rounded-full bg-white px-4 py-2 text-sm font-semibold text-rose-500 shadow transition focus-visible:translate-y-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-400"
+          className="absolute left-4 top-4 z-50 -translate-y-20 rounded-full bg-white px-4 py-2 text-sm font-semibold text-[#111827] shadow transition focus-visible:translate-y-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-black/30"
         >
           Skip to content
         </a>

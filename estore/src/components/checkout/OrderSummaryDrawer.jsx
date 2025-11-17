@@ -9,7 +9,7 @@ export default function OrderSummaryDrawer({
   deliveryFee = 0,
   discount = 0,
   deliveryLabel = 'Delivery',
-  triggerLabel = 'Order summary',
+  triggerLabel = 'View cart',
 }) {
   const subtotal = items.reduce((sum, item) => sum + item.price * item.quantity, 0);
   const finalTotal = subtotal + deliveryFee - discount;
@@ -18,9 +18,11 @@ export default function OrderSummaryDrawer({
       <button
         type="button"
         onClick={() => onClose(!open)}
-        className="group fixed bottom-6 right-6 z-30 inline-flex items-center gap-2 rounded-full bg-rose-500/95 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-rose-200 transition hover:-translate-y-0.5 hover:bg-rose-600 md:right-10"
+        className="group fixed bottom-24 right-4 z-30 inline-flex items-center gap-2 rounded-full bg-rose-500/95 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-rose-200 transition hover:-translate-y-0.5 hover:bg-rose-600 sm:bottom-6 sm:right-10"
         aria-haspopup="dialog"
         aria-expanded={open}
+        aria-label={triggerLabel}
+        title={triggerLabel}
       >
         <FiShoppingCart className="text-base" aria-hidden="true" />
         <span>{triggerLabel}</span>

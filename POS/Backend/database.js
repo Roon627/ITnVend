@@ -664,7 +664,10 @@ export async function setupDatabase() {
             bank_details TEXT,
             logo_url TEXT,
             attachments TEXT,
-            commission_rate REAL DEFAULT 0.0,
+            monthly_fee REAL DEFAULT 0.0,
+            billing_start_date TEXT,
+            last_invoice_date TEXT,
+            account_active INTEGER DEFAULT 1,
             status TEXT DEFAULT 'pending',
             customer_id INTEGER,
             slug TEXT UNIQUE,
@@ -1013,8 +1016,11 @@ export async function setupDatabase() {
     // Allowed values: 'both' (default) | 'featured'
     await ensureColumn(db, 'settings', 'storefront_header_source', "TEXT DEFAULT 'both'");
 
-    // Vendor extensions: commission rate (default 10%), bank/payment details and logo
-    await ensureColumn(db, 'vendors', 'commission_rate', 'REAL DEFAULT 0.0');
+    // Vendor extensions: monthly billing configuration
+    await ensureColumn(db, 'vendors', 'monthly_fee', 'REAL DEFAULT 0.0');
+    await ensureColumn(db, 'vendors', 'billing_start_date', 'TEXT');
+    await ensureColumn(db, 'vendors', 'last_invoice_date', 'TEXT');
+    await ensureColumn(db, 'vendors', 'account_active', 'INTEGER DEFAULT 1');
     await ensureColumn(db, 'vendors', 'bank_details', 'TEXT');
     await ensureColumn(db, 'vendors', 'logo_url', 'TEXT');
     await ensureColumn(db, 'vendors', 'status', "TEXT DEFAULT 'pending'");
@@ -1026,6 +1032,23 @@ export async function setupDatabase() {
     await ensureColumn(db, 'vendors', 'hero_image', 'TEXT');
     await ensureVendorSlugs(db);
     await db.run('CREATE UNIQUE INDEX IF NOT EXISTS idx_vendors_slug ON vendors(slug)');
+
+    // Vendor billing ledger
+    await db.run(`
+        CREATE TABLE IF NOT EXISTS vendor_invoices (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            vendor_id INTEGER NOT NULL,
+            invoice_number TEXT,
+            fee_amount REAL NOT NULL,
+            status TEXT NOT NULL DEFAULT 'unpaid',
+            issued_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            due_date TEXT,
+            paid_at DATETIME,
+            reminder_stage INTEGER DEFAULT 0,
+            metadata TEXT,
+            FOREIGN KEY (vendor_id) REFERENCES vendors(id)
+        );
+    `);
 
     // Casual sellers / one-time listings (lightweight flow)
     await db.exec(`
@@ -1364,7 +1387,7 @@ export async function setupDatabase() {
 
     // return the opened sqlite database instance
     // Ensure essential Chart of Accounts entries exist (idempotent).
-    // These are required by the commission & vendor payable posting logic.
+    // These are required by the invoicing & vendor billing posting logic.
     // We prefer not to auto-create many accounts, only the minimal ones used in code paths.
     try {
         const ensureCoa = async (code, name, type = 'Revenue', category = 'Revenue') => {
@@ -1383,9 +1406,8 @@ export async function setupDatabase() {
     await ensureCoa('2200', 'Taxes Payable', 'Liability', 'Current Liabilities');
     // Accounts Payable (2000) - used for vendor payable GL lines
     await ensureCoa('2000', 'Accounts Payable', 'Liability', 'Current Liabilities');
-    // Commission revenue (company's share) - if the seeded 4200 doesn't exist create a commission revenue account
-    // Note: the seed normally includes 4200 as Other Income; here we ensure an appropriate revenue account exists
-    await ensureCoa('4200', 'Commission Revenue', 'Revenue', 'Revenue');
+    // Vendor billing revenue (monthly subscription fees) - ensure an appropriate revenue account exists
+    await ensureCoa('4200', 'Vendor Subscription Revenue', 'Revenue', 'Revenue');
     } catch (err) {
         // Do not throw - logging only so DB initialization continues in case of transient issues
         console.warn('Failed to ensure minimal chart_of_accounts entries:', err?.message || err);

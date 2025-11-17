@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useMemo, useState } from 'react';
 import { Link, NavLink, useLocation } from 'react-router-dom';
-import { FaBars, FaShoppingCart, FaTimes, FaStore, FaHandshake, FaPaperPlane, FaListUl, FaUserFriends, FaShieldAlt, FaUserPlus, FaChevronDown, FaShoppingBag } from 'react-icons/fa';
+import { FaBars, FaShoppingCart, FaTimes, FaStore, FaHandshake, FaPaperPlane, FaListUl, FaUserFriends, FaShieldAlt, FaUserPlus, FaChevronDown, FaShoppingBag, FaFire } from 'react-icons/fa';
 import { useCart } from './CartContext';
 import { useSettings } from './SettingsContext';
 import { resolveMediaUrl } from '../lib/media';
@@ -85,20 +85,13 @@ export default function PublicNavbar() {
     }, [isOnMarketPage]);
 
     const cartbadge = cartCount > 0 ? (
-      <span
-        className="ml-2 inline-flex min-w-[20px] items-center justify-center rounded-full bg-rose-500 px-2 text-xs font-semibold leading-none text-white shadow-sm"
-        aria-label={`${cartCount} item${cartCount === 1 ? '' : 's'} in cart`}
-      >
+      <span className="absolute -right-1 -top-1 inline-flex h-5 w-5 items-center justify-center rounded-full bg-[#111827] text-[10px] font-semibold text-white shadow-sm">
         {cartCount}
       </span>
     ) : null;
 
-    // Larger tap target on small screens: default (mobile) uses bigger padding/text, shrink slightly on sm+
-    const cartButtonClasses = [
-      'inline-flex items-center gap-2 rounded-full border border-white/30 bg-white/10 px-4 py-3 text-base font-semibold text-rose-600 backdrop-blur-md',
-      'sm:px-4 sm:py-2 sm:text-sm',
-      'shadow-[0_5px_25px_rgba(244,114,182,0.25)] transition-colors duration-200 hover:border-white/60 hover:shadow-[0_10px_35px_rgba(244,114,182,0.45)]'
-    ].join(' ');
+    const cartButtonClasses =
+      'relative inline-flex h-10 w-10 items-center justify-center rounded-full border border-[#d1d5db] bg-white text-[#111827] shadow-sm transition hover:border-black hover:shadow-lg hover:-translate-y-0.5';
 
     const resolvedLogo = resolveMediaUrl(logoUrl) || DEFAULT_BRAND_LOGO;
     const brandName =
@@ -110,7 +103,7 @@ export default function PublicNavbar() {
     return (
       <>
       {showNotice && (
-        <div className="bg-gradient-to-r from-[#a78bfa] via-[#cba7ff] to-[#f9a8d4] text-white">
+        <div className="bg-black text-white">
           <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3 px-6 py-2 text-sm">
             <div className="flex flex-1 flex-wrap items-center gap-2">
               <span className="font-semibold uppercase tracking-wide">Friendly safety reminder:</span>
@@ -138,30 +131,29 @@ export default function PublicNavbar() {
         </div>
       )}
       <header
-        className={`sticky top-0 z-40 bg-gradient-to-r from-[#f6ecff]/80 via-white/50 to-[#fde7f3]/80 backdrop-blur-md transition-shadow duration-300 ${
-          elevated ? 'shadow-md' : 'shadow-sm'
+        className={`sticky top-0 z-40 bg-white/95 backdrop-blur-md transition-shadow duration-300 ${
+          elevated ? 'shadow-lg shadow-black/10' : 'shadow-sm'
         }`}
       >
-        <div className="mx-auto flex max-w-6xl items-center gap-6 px-6 py-3 lg:py-4">
+        <div className="mx-auto flex max-w-6xl items-center gap-4 px-4 py-2">
             <Link to="/" className="flex items-center gap-3 text-left">
               <img
                 src={resolvedLogo}
                 alt={brandName}
-                className="h-12 w-12 rounded-2xl border border-white/70 bg-white/80 object-contain p-2 shadow-md shadow-rose-200/40"
+                className="h-10 w-10 rounded-2xl border border-[#e5e7eb] bg-white object-contain p-2 shadow"
                 loading="lazy"
               />
-              <span className="flex flex-col leading-tight text-slate-900">
+              <span className="hidden flex-col leading-tight text-[#111827] sm:flex">
                 <span className="text-[12px] font-black tracking-tight uppercase">{brandName}</span>
-                <span className="text-[8px] font-semibold uppercase tracking-[0.35em] text-slate-500">Marketplace</span>
-                <span className="text-[8px] text-rose-400">Retail, subscriptions &amp; smiles in sync</span>
+                <span className="text-[8px] font-semibold uppercase tracking-[0.35em] text-[#6b7280]">Marketplace</span>
               </span>
             </Link>
 
           <nav className="hidden flex-1 items-center justify-center lg:flex">
-            <div className="flex w-full max-w-5xl items-center justify-between gap-2 px-2 py-1 text-[clamp(0.5rem,0.65vw,0.7rem)] font-semibold uppercase tracking-wide">
+            <div className="flex w-full max-w-4xl items-center justify-between gap-1 px-1 py-1 text-[clamp(0.45rem,0.55vw,0.65rem)] font-semibold uppercase tracking-wide text-[#6b7280]">
               {filteredNavLinks.map((item, idx) => (
                 <Fragment key={item.to}>
-                  {idx !== 0 && <span className="h-7 w-[3px] rounded-full bg-gradient-to-b from-rose-400 via-white to-sky-400 opacity-90" />}
+                  {idx !== 0 && <span className="h-6 w-[2px] rounded-full bg-[#e5e7eb]" />}
                   <NavLink
                     to={item.to}
                     title={item.description || item.label}
@@ -169,8 +161,8 @@ export default function PublicNavbar() {
                       [
                         'group inline-flex min-w-0 flex-1 items-center justify-center px-2 py-1 text-center transition-all duration-200 rounded-xl border',
                         isActive
-                          ? 'border-rose-200 bg-gradient-to-b from-white to-rose-50 text-rose-600 shadow-sm'
-                          : 'border-transparent text-slate-600 hover:-translate-y-0.5 hover:border-rose-200 hover:bg-white',
+                          ? 'border-[#111827] bg-[#111827] text-white shadow'
+                          : 'border-transparent text-[#6b7280] hover:-translate-y-0.5 hover:border-[#d1d5db] hover:bg-white hover:text-black',
                       ].join(' ')
                     }
                   >
@@ -185,33 +177,28 @@ export default function PublicNavbar() {
             </div>
           </nav>
 
-          <div className="ml-auto flex items-center gap-3">
-            <div className="relative">
-              <Link to="/cart" className={`${cartButtonClasses} hidden md:inline-flex`}>
-                <FaShoppingCart className="mr-2" aria-hidden="true" />
-                Cart
-                {cartbadge}
-              </Link>
-            </div>
+          <div className="ml-auto flex items-center gap-2">
+            <Link to="/cart" className={`${cartButtonClasses}`}>
+              <FaShoppingCart aria-hidden="true" />
+              {cartbadge}
+            </Link>
 
             {!isOnMarketPage && (
               <Link
                 to="/market"
-                className="hidden items-center gap-3 rounded-2xl px-4 py-2 text-white shadow-md shadow-rose-200/50 transition-transform duration-200 hover:-translate-y-0.5 lg:inline-flex highlight-gradient"
+                className="hidden items-center gap-2 rounded-full bg-black px-3 py-2 text-xs font-semibold uppercase tracking-wide text-white shadow transition-transform duration-200 hover:-translate-y-0.5 lg:inline-flex"
               >
-                <span className="inline-flex h-8 w-8 items-center justify-center rounded-xl bg-white/20 text-white">
-                  <FaShoppingBag />
-                </span>
-                <span className="flex flex-col leading-tight text-left">
-                  <span className="text-xs font-semibold uppercase tracking-wide">Curated picks</span>
-                  <span className="text-[10px] text-white/80">Fresh drops daily</span>
+                <FaShoppingBag className="text-[12px]" />
+                <span className="flex items-center gap-1">
+                  Market
+                  <FaFire className="text-[10px] text-[#f97316]" aria-hidden="true" />
                 </span>
               </Link>
             )}
 
             <button
               type="button"
-              className="inline-flex items-center justify-center rounded-full border border-rose-200 p-2 text-rose-500 shadow-sm transition hover:bg-rose-50 lg:hidden"
+              className="inline-flex items-center justify-center rounded-full border border-[#e5e7eb] p-2 text-[#111827] shadow-sm transition hover:bg-gray-50 lg:hidden"
               onClick={() => setMobileOpen(true)}
               aria-label="Open navigation menu"
             >
@@ -229,34 +216,34 @@ export default function PublicNavbar() {
             />
           )}
           <div
-            className={`fixed inset-x-0 top-0 z-50 origin-top rounded-b-3xl bg-white/95 px-6 pb-6 pt-4 shadow-xl backdrop-blur transition-all duration-300 ${
+            className={`fixed inset-x-0 top-0 z-50 origin-top rounded-b-3xl border-b border-[#e5e7eb] bg-white px-6 pb-6 pt-4 shadow-xl transition-all duration-300 ${
               mobileOpen
                 ? 'pointer-events-auto translate-y-0 opacity-100'
                 : 'pointer-events-none -translate-y-10 opacity-0'
             }`}
           >
             <div className="flex items-center justify-between pb-4">
-              <div className="text-sm font-semibold text-rose-500">
+              <div className="text-sm font-semibold text-[#111827]">
                 {activeLabel ? `Currently viewing: ${activeLabel}` : 'Navigate'}
               </div>
               <button
                 type="button"
-                className="rounded-full border border-rose-200 p-2 text-rose-500 shadow-sm transition hover:bg-rose-50"
+                className="rounded-full border border-[#e5e7eb] p-2 text-[#111827] shadow-sm transition hover:bg-gray-50"
                 onClick={() => setMobileOpen(false)}
                 aria-label="Close navigation menu"
               >
                 <FaTimes />
               </button>
             </div>
-            <nav className="space-y-2 text-base font-semibold text-rose-500">
+            <nav className="space-y-2 text-base font-semibold text-[#111827]">
               {filteredNavLinks.map((item) =>
                 item.children ? (
-                  <div key={item.label} className="space-y-2 rounded-2xl border border-rose-100 bg-white p-3">
-                    <div className="flex items-center gap-2 text-sm font-semibold text-rose-500">
-                      {item.icon && <item.icon size={16} className="text-rose-400" />}
+                  <div key={item.label} className="space-y-2 rounded-2xl border border-[#e5e7eb] bg-white p-3">
+                    <div className="flex items-center gap-2 text-sm font-semibold text-[#6b7280]">
+                      {item.icon && <item.icon size={16} className="text-[#111827]" />}
                       {item.label}
                     </div>
-                    <div className="space-y-2 text-sm font-medium text-slate-600">
+                    <div className="space-y-2 text-sm font-medium text-[#4b5563]">
                       {item.children.map((child) => (
                         <NavLink
                           key={child.to}
@@ -264,13 +251,13 @@ export default function PublicNavbar() {
                           className={({ isActive }) =>
                             `flex flex-col rounded-xl border px-3 py-2 transition ${
                               isActive
-                                ? 'border-rose-300 bg-rose-50 text-rose-600'
-                                : 'border-rose-100 bg-white hover:border-rose-200 hover:bg-rose-50/70'
+                                ? 'border-[#111827] bg-gray-50 text-black'
+                                : 'border-[#e5e7eb] bg-white hover:border-[#111827]/40 hover:bg-gray-50'
                             }`
                           }
                         >
                           <span className="font-semibold">{child.label}</span>
-                          {child.description && <span className="text-xs text-slate-400">{child.description}</span>}
+                          {child.description && <span className="text-xs text-[#6b7280]">{child.description}</span>}
                         </NavLink>
                       ))}
                     </div>
@@ -282,19 +269,19 @@ export default function PublicNavbar() {
                     className={({ isActive }) =>
                       `flex items-center justify-between rounded-2xl border px-4 py-3 transition ${
                         isActive
-                          ? 'border-rose-400 bg-rose-50 text-rose-600 shadow-sm'
-                          : 'border-rose-100 bg-white hover:border-rose-200 hover:bg-rose-50/70'
+                          ? 'border-[#111827] bg-gray-50 text-black shadow-sm'
+                          : 'border-[#e5e7eb] bg-white hover:border-[#111827]/40 hover:bg-gray-50'
                       }`
                     }
                   >
                     <div className="flex flex-col">
                       <span className="flex items-center gap-2 text-sm font-semibold">
-                        {item.icon && <item.icon size={18} className="text-rose-400" />}
+                        {item.icon && <item.icon size={18} className="text-[#111827]" />}
                         {item.label}
                       </span>
-                      {item.description && <span className="text-xs font-normal text-slate-400">{item.description}</span>}
+                      {item.description && <span className="text-xs font-normal text-[#6b7280]">{item.description}</span>}
                     </div>
-                    <span className="inline-flex h-6 w-6 items-center justify-center rounded-full border border-rose-200 text-xs text-rose-400">
+                    <span className="inline-flex h-6 w-6 items-center justify-center rounded-full border border-[#e5e7eb] text-xs text-[#6b7280]">
                       •
                     </span>
                   </NavLink>
@@ -304,13 +291,13 @@ export default function PublicNavbar() {
             <div className="mt-6 grid gap-3">
               <Link
                 to="/market"
-                className="btn-sm btn-sm-primary inline-flex items-center justify-center rounded-full bg-gradient-to-r from-rose-500 to-sky-400 text-white shadow-lg shadow-rose-200/80 transition hover:-translate-y-0.5"
+                className="btn-sm btn-sm-primary inline-flex items-center justify-center rounded-full transition hover:-translate-y-0.5"
               >
                 Explore Market Hub
               </Link>
               <Link
                 to="/contact"
-                className="btn-sm btn-sm-outline inline-flex items-center justify-center rounded-full border border-rose-200 bg-white text-rose-500 transition hover:border-rose-300 hover:text-rose-600"
+                className="btn-sm btn-sm-outline inline-flex items-center justify-center rounded-full transition"
               >
                 Talk to a human
               </Link>
