@@ -25,13 +25,15 @@ export default function ProductCard({ product, onAdd = () => {}, formatCurrency:
   const { formatCurrency } = useSettings();
   const fmt = formatCurrencyProp || formatCurrency || ((n) => n);
 
-  const primaryButton = 'btn-sm btn-sm-primary w-full justify-center text-[11px]';
-  const outlineButton = 'btn-sm btn-sm-outline w-full justify-center text-[11px]';
-  const neutralButton = 'btn-sm btn-sm-ghost w-full justify-center text-[11px]';
+  const buttonBase =
+    'inline-flex items-center justify-center gap-1 rounded-lg px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide transition-colors duration-200';
+  const primaryButton = `${buttonBase} border border-rose-200 bg-rose-500 text-white shadow-sm hover:bg-rose-600`;
+  const outlineButton = `${buttonBase} border border-rose-200 bg-white/90 text-rose-600 hover:bg-rose-50`;
+  const neutralButton = `${buttonBase} border border-slate-200 bg-slate-100 text-slate-500`;
 
   return (
     <>
-      <article className="group mx-auto flex w-full max-w-[340px] flex-col overflow-hidden rounded-2xl border border-rose-100 bg-white text-[#111827] shadow-lg shadow-black/5 transition-all duration-300 hover:-translate-y-1 hover:shadow-2xl animate-card">
+      <article className="group mx-auto flex w-full max-w-[340px] flex-col overflow-hidden rounded-2xl border border-slate-200/40 bg-white text-slate-900 shadow-lg shadow-rose-100/40 transition-all duration-300 hover:-translate-y-1 hover:shadow-xl hover:shadow-rose-200/60">
         <div className="relative aspect-[4/5] w-full overflow-hidden sm:h-56 sm:aspect-auto">
           <AvailabilityTag availabilityStatus={availabilityStatus} />
           {image ? (
@@ -49,11 +51,11 @@ export default function ProductCard({ product, onAdd = () => {}, formatCurrency:
         </div>
 
         <div className="flex flex-1 flex-col p-3 sm:p-4">
-          <h3 className="text-sm font-semibold text-[#111827] line-clamp-2 sm:text-base">{product.name}</h3>
+          <h3 className="text-sm font-semibold text-slate-800 line-clamp-2 sm:text-base">{product.name}</h3>
           
           <div className="mt-auto pt-4">
             <div className="mb-3 text-left">
-              <span className="text-lg font-bold text-[#111827] sm:text-xl">{fmt(product.price)}</span>
+              <span className="text-lg font-bold text-rose-500 sm:text-xl">{fmt(product.price)}</span>
             </div>
             <div className={`grid gap-2 ${userListing ? 'grid-cols-1' : 'grid-cols-2'}`}>
               {userListing ? (
@@ -63,7 +65,7 @@ export default function ProductCard({ product, onAdd = () => {}, formatCurrency:
                     onClick={(e) => {
                       if (!contactLink) e.preventDefault();
                     }}
-                    className="btn-sm btn-sm-primary w-full justify-center text-[11px]"
+                    className={`${buttonBase} border border-amber-200 bg-amber-500 text-white shadow-sm hover:bg-amber-600`}
                     aria-label="Contact seller"
                   >
                     <FaPhone />
