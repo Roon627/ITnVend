@@ -674,8 +674,27 @@ export async function setupDatabase() {
             tagline TEXT,
             public_description TEXT,
             hero_image TEXT,
+            social_links TEXT,
+            social_showcase_enabled INTEGER DEFAULT 1,
+            currency TEXT,
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP
         );
+
+        CREATE TABLE IF NOT EXISTS vendor_profile_requests (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            vendor_id INTEGER NOT NULL,
+            type TEXT NOT NULL,
+            payload TEXT,
+            attachments TEXT,
+            status TEXT DEFAULT 'pending',
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            reviewed_at DATETIME,
+            reviewed_by INTEGER,
+            notes TEXT,
+            FOREIGN KEY (vendor_id) REFERENCES vendors(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_vendor_profile_requests_status ON vendor_profile_requests(status);
+        CREATE INDEX IF NOT EXISTS idx_vendor_profile_requests_vendor ON vendor_profile_requests(vendor_id);
 
         -- Activity logs for audit trail
         CREATE TABLE IF NOT EXISTS activity_logs (
@@ -1030,6 +1049,9 @@ export async function setupDatabase() {
     await ensureColumn(db, 'vendors', 'tagline', 'TEXT');
     await ensureColumn(db, 'vendors', 'public_description', 'TEXT');
     await ensureColumn(db, 'vendors', 'hero_image', 'TEXT');
+    await ensureColumn(db, 'vendors', 'social_links', 'TEXT');
+    await ensureColumn(db, 'vendors', 'social_showcase_enabled', 'INTEGER DEFAULT 1');
+    await ensureColumn(db, 'vendors', 'currency', 'TEXT');
     await ensureVendorSlugs(db);
     await db.run('CREATE UNIQUE INDEX IF NOT EXISTS idx_vendors_slug ON vendors(slug)');
 

@@ -269,6 +269,7 @@ export default function ProductForm({
   onRemoveGalleryItem,
   onMoveGalleryItem,
   galleryUploading = false,
+  allowMarketingFlags = true,
 }) {
   const [form, setForm] = useState(() => buildInitialForm(initial));
   const [errors, setErrors] = useState({});
@@ -1188,7 +1189,7 @@ export default function ProductForm({
       </section>
 
       <section className="rounded-2xl border bg-white p-5 shadow-sm">
-        <div className="grid gap-4 lg:grid-cols-[2fr_1fr]">
+        <div className={`grid gap-4 ${allowMarketingFlags ? 'lg:grid-cols-[2fr_1fr]' : 'lg:grid-cols-1'}`}>
           <div className="space-y-4">
             <div>
               <label className="text-sm font-medium text-slate-600">Description</label>
@@ -1211,6 +1212,7 @@ export default function ProductForm({
               />
             </div>
           </div>
+          {allowMarketingFlags && (
           <div className="rounded-xl border bg-slate-50 p-4">
             <p className="text-sm font-semibold text-slate-700">Highlights</p>
             <label className="mt-3 flex items-center gap-2 text-sm text-slate-600">
@@ -1269,6 +1271,7 @@ export default function ProductForm({
               )}
             </div>
           </div>
+          )}
         </div>
       </section>
 

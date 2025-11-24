@@ -33,7 +33,7 @@ export default function ProductCard({ product, onAdd = () => {}, formatCurrency:
 
   return (
     <>
-      <article className="group mx-auto flex w-full max-w-[340px] flex-col overflow-hidden rounded-2xl border border-slate-200/40 bg-white text-slate-900 shadow-lg shadow-rose-100/40 transition-all duration-300 hover:-translate-y-1 hover:shadow-xl hover:shadow-rose-200/60">
+      <article className="group mx-auto flex w-full max-w-[360px] flex-col overflow-hidden rounded-2xl border border-slate-200/40 bg-white text-slate-900 shadow-lg shadow-rose-100/40 transition-all duration-300 hover:-translate-y-1 hover:shadow-xl hover:shadow-rose-200/60 md:max-w-[380px] xl:max-w-[440px] 2xl:max-w-[480px]">
         <div className="relative aspect-[4/5] w-full overflow-hidden sm:h-56 sm:aspect-auto">
           <AvailabilityTag availabilityStatus={availabilityStatus} />
           {image ? (

@@ -1,11 +1,23 @@
 import { Link } from 'react-router-dom';
-import { FaArrowRight } from 'react-icons/fa';
+import { FaArrowRight, FaFacebookF, FaInstagram, FaLinkedinIn, FaTelegramPlane, FaTiktok, FaTwitter, FaWhatsapp, FaYoutube } from 'react-icons/fa';
 import { resolveMediaUrl } from '../lib/media';
+
+const SOCIAL_ICON_MAP = {
+  instagram: FaInstagram,
+  facebook: FaFacebookF,
+  twitter: FaTwitter,
+  linkedin: FaLinkedinIn,
+  youtube: FaYoutube,
+  tiktok: FaTiktok,
+  whatsapp: FaWhatsapp,
+  telegram: FaTelegramPlane,
+};
 
 export default function VendorCard({ vendor }) {
   if (!vendor) return null;
   const hero = resolveMediaUrl(vendor.hero_image || vendor.logo_url || '');
   const logo = resolveMediaUrl(vendor.logo_url || '');
+  const socials = Object.entries(vendor.social_links || {}).filter(([key, value]) => SOCIAL_ICON_MAP[key] && value);
 
   return (
     <Link
@@ -40,6 +52,24 @@ export default function VendorCard({ vendor }) {
           <h3 className="text-xl font-semibold text-slate-900">{vendor.legal_name}</h3>
           {vendor.tagline && <p className="text-sm text-slate-500 line-clamp-2">{vendor.tagline}</p>}
         </div>
+        {socials.length > 0 && (
+          <div className="flex flex-wrap gap-2">
+            {socials.map(([key, url]) => {
+              const Icon = SOCIAL_ICON_MAP[key];
+              return (
+                <a
+                  key={key}
+                  href={url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex h-9 w-9 items-center justify-center rounded-2xl border border-slate-100 bg-white text-slate-500 shadow-sm transition hover:text-rose-500"
+                >
+                  <Icon />
+                </a>
+              );
+            })}
+          </div>
+        )}
         <div className="flex items-center justify-between text-sm text-slate-500">
           <span>{vendor.product_count || 0} products live</span>
           <span className="inline-flex items-center gap-2 font-semibold text-rose-500 group-hover:gap-3">

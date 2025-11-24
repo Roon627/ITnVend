@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useParams, Link, useNavigate, useLocation } from 'react-router-dom';
-import { FaPhone, FaEnvelope, FaHashtag, FaBarcode, FaBox, FaTags, FaIndustry, FaTruck, FaShieldAlt, FaWarehouse } from 'react-icons/fa';
+import { FaPhone, FaEnvelope, FaHashtag, FaBarcode, FaBox, FaTags, FaIndustry, FaTruck, FaShieldAlt, FaWarehouse, FaFacebookF, FaInstagram, FaLinkedinIn, FaTelegramPlane, FaTiktok, FaTwitter, FaWhatsapp, FaYoutube } from 'react-icons/fa';
 import api from '../lib/api';
 import { useCart } from '../components/CartContext';
 import { useSettings } from '../components/SettingsContext';
@@ -19,6 +19,17 @@ import {
   productDescriptionCopy,
 } from '../lib/listings';
 
+const SOCIAL_ICON_MAP = {
+  instagram: FaInstagram,
+  facebook: FaFacebookF,
+  twitter: FaTwitter,
+  linkedin: FaLinkedinIn,
+  youtube: FaYoutube,
+  tiktok: FaTiktok,
+  whatsapp: FaWhatsapp,
+  telegram: FaTelegramPlane,
+};
+
 export default function ProductDetail() {
   const { id } = useParams();
   const [product, setProduct] = useState(null);
@@ -28,6 +39,9 @@ export default function ProductDetail() {
   const { formatCurrency } = useSettings();
   const navigate = useNavigate();
   const location = useLocation();
+  const vendorSocialEntries = Object.entries(product?.vendor_social_links || {}).filter(
+    ([key, value]) => SOCIAL_ICON_MAP[key] && value
+  );
 
   // If navigation provided a preloaded product (from NewArrivalsStrip), use it immediately
   useEffect(() => {
@@ -423,6 +437,24 @@ export default function ProductDetail() {
                     <span aria-hidden>→</span>
                   </Link>
                 )}
+                {vendorSocialEntries.length > 0 && (
+                  <div className="flex flex-wrap gap-2">
+                    {vendorSocialEntries.map(([key, url]) => {
+                      const Icon = SOCIAL_ICON_MAP[key];
+                      return (
+                        <a
+                          key={key}
+                          href={url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-emerald-100 bg-white/80 text-emerald-700 shadow-sm transition hover:bg-white"
+                        >
+                          <Icon />
+                        </a>
+                      );
+                    })}
+                  </div>
+                )}
               </section>
             )}
 
@@ -471,14 +503,14 @@ export default function ProductDetail() {
                   <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:flex-1 sm:gap-3">
                   <button
                     onClick={() => addToCart(product)}
-                    className="inline-flex items-center justify-center rounded-lg bg-rose-500 px-3.5 py-1.5 text-xs font-semibold text-white shadow focus:outline-none focus:ring-2 focus:ring-rose-200 hover:bg-rose-600 sm:flex-1 sm:text-sm"
+                    className="btn-sm btn-sm-primary w-full justify-center text-xs sm:flex-1"
                     aria-label={`Add ${product.name} to cart`}
                   >
                     Add to cart
                   </button>
                   <button
                     onClick={handleBuyNow}
-                    className="inline-flex items-center justify-center rounded-lg bg-rose-600 px-3.5 py-1.5 text-xs font-semibold text-white shadow focus:outline-none focus:ring-2 focus:ring-rose-200 hover:bg-rose-700 sm:flex-1 sm:text-sm"
+                    className="btn-sm btn-sm-primary w-full justify-center text-xs sm:flex-1"
                   >
                     Buy now
                   </button>
@@ -487,8 +519,8 @@ export default function ProductDetail() {
                     <button
                       type="button"
                       onClick={handlePreorder}
-                    className="inline-flex w-full items-center justify-center rounded-lg border border-rose-200 px-3.5 py-1.5 text-xs font-semibold text-rose-600 transition hover:bg-rose-100 sm:w-auto sm:text-sm"
-                  >
+                    className="btn-sm btn-sm-outline inline-flex w-full items-center justify-center text-xs sm:w-auto"
+                    >
                       Preorder via Shop &amp; Ship
                     </button>
                   ) : null}
@@ -497,13 +529,13 @@ export default function ProductDetail() {
               <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:gap-3">
                 <Link
                   to="/market"
-                  className="inline-flex items-center justify-center gap-2 rounded-lg border border-rose-200 px-3 py-1.5 text-[11px] font-semibold text-rose-600 transition hover:bg-rose-100 sm:text-sm"
+                  className="btn-sm btn-sm-outline inline-flex w-full items-center justify-center gap-2 text-[11px] sm:w-auto sm:text-sm"
                 >
                   Back to Market Hub
                 </Link>
                 <Link
                   to="/"
-                  className="inline-flex items-center justify-center gap-2 rounded-lg border border-rose-200 px-3 py-1.5 text-[11px] font-semibold text-rose-600 transition hover:bg-rose-100 sm:text-sm"
+                  className="btn-sm btn-sm-outline inline-flex w-full items-center justify-center gap-2 text-[11px] sm:w-auto sm:text-sm"
                 >
                   Home
                 </Link>

@@ -122,6 +122,7 @@ export default function ProductForm({
             createAudience={createAudience}
             createDeliveryType={createDeliveryType}
             createWarrantyTerm={createWarrantyTerm}
+            allowMarketingFlags={false}
             extraFields={() => (
               <div className="space-y-4">
                 {/* Stock change reason if stock changed */}

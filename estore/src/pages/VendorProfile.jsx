@@ -6,6 +6,18 @@ import ProductCard from '../components/ProductCard';
 import { mapPreorderFlags } from '../lib/preorder';
 import { useCart } from '../components/CartContext';
 import { useSettings } from '../components/SettingsContext';
+import { FaFacebookF, FaInstagram, FaLinkedinIn, FaTelegramPlane, FaTiktok, FaTwitter, FaWhatsapp, FaYoutube } from 'react-icons/fa';
+
+const SOCIAL_ICON_MAP = {
+  instagram: FaInstagram,
+  facebook: FaFacebookF,
+  twitter: FaTwitter,
+  linkedin: FaLinkedinIn,
+  youtube: FaYoutube,
+  tiktok: FaTiktok,
+  whatsapp: FaWhatsapp,
+  telegram: FaTelegramPlane,
+};
 
 export default function VendorProfile() {
   const { slug } = useParams();
@@ -16,6 +28,8 @@ export default function VendorProfile() {
   const [loadingProducts, setLoadingProducts] = useState(false);
   const { addToCart } = useCart();
   const { formatCurrency } = useSettings();
+  const socialLinks = vendor?.social_links || {};
+  const socialEntries = Object.entries(socialLinks).filter(([key, value]) => SOCIAL_ICON_MAP[key] && value);
 
   useEffect(() => {
     if (!slug) return;
@@ -122,6 +136,24 @@ export default function VendorProfile() {
                     >
                       Become a vendor
                     </Link>
+                    {socialEntries.length > 0 && (
+                      <div className="flex flex-wrap gap-2">
+                        {socialEntries.map(([key, url]) => {
+                          const Icon = SOCIAL_ICON_MAP[key];
+                          return (
+                            <a
+                              key={key}
+                              href={url}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="inline-flex h-9 w-9 items-center justify-center rounded-2xl border border-white/60 bg-white/10 text-white transition hover:bg-white/30"
+                            >
+                              <Icon />
+                            </a>
+                          );
+                        })}
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
@@ -166,14 +198,24 @@ export default function VendorProfile() {
                 </div>
               ) : products.length > 0 ? (
                 <div className="grid gap-6 sm:grid-cols-2 xl:grid-cols-3">
-                  {products.map((product) => (
-                    <ProductCard
-                      key={product.id}
-                      product={product}
-                      onAdd={() => addToCart(product)}
-                      formatCurrency={formatCurrency}
-                    />
-                  ))}
+                  {products.map((product) => {
+                    const createdAt = product.created_at ? new Date(product.created_at) : null;
+                    const isRecent = createdAt ? Date.now() - createdAt.getTime() < 1000 * 60 * 60 * 24 * 30 : false;
+                    return (
+                      <div key={product.id} className="relative">
+                        {isRecent && (
+                          <span className="absolute left-3 top-3 inline-flex items-center rounded-full bg-rose-500 px-2 py-0.5 text-xs font-semibold text-white shadow">
+                            New
+                          </span>
+                        )}
+                        <ProductCard
+                          product={product}
+                          onAdd={() => addToCart(product)}
+                          formatCurrency={formatCurrency}
+                        />
+                      </div>
+                    );
+                  })}
                 </div>
               ) : (
                 <div className="rounded-2xl border border-dashed border-rose-200 bg-white/70 p-10 text-center text-slate-500">

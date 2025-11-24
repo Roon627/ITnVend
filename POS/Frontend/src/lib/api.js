@@ -184,8 +184,16 @@ const apiClient = {
     });
   },
   del: (p, opts = {}) => {
-    const { headers: extraHeaders, ...rest } = opts || {};
-    return fetchWithRetry(p, { method: 'DELETE', headers: extraHeaders, ...rest });
+    const { headers: extraHeaders, body, ...rest } = opts || {};
+    const hasBody = body !== undefined;
+    const headers = { ...(extraHeaders || {}) };
+    if (hasBody && !headers['Content-Type']) headers['Content-Type'] = 'application/json';
+    return fetchWithRetry(p, {
+      method: 'DELETE',
+      headers,
+      body: hasBody ? JSON.stringify(body) : undefined,
+      ...rest,
+    });
   },
   upload: (p, formData, opts = {}) => fetchWithRetry(p, { method: 'POST', body: formData, ...opts }),
   validateSlip: (transactionId, expectedAmount, file) => {

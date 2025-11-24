@@ -39,6 +39,17 @@ async function ensureVendorBillingSchema(db) {
       FOREIGN KEY (vendor_id) REFERENCES vendors(id)
     );
   `);
+  const alterStatements = [
+    `ALTER TABLE vendor_invoices ADD COLUMN void_reason TEXT`,
+    `ALTER TABLE vendor_invoices ADD COLUMN voided_at ${timestampType}`,
+  ];
+  for (const stmt of alterStatements) {
+    try {
+      await db.run(stmt);
+    } catch (err) {
+      // likely already exists; ignore
+    }
+  }
 }
 
 async function fetchVendor(db, vendorId) {
@@ -104,10 +115,24 @@ export async function markVendorInvoicePaid({ db, vendorId, invoiceId, paidAt = 
   await ensureVendorBillingSchema(db);
   const invoice = await db.get('SELECT * FROM vendor_invoices WHERE id = ? AND vendor_id = ?', [invoiceId, vendorId]);
   if (!invoice) throw new Error('Invoice not found');
+  if (invoice.status === 'void') throw new Error('Cannot mark a void invoice as paid');
   if (invoice.status === 'paid') return invoice;
   const paid = toISODate(paidAt);
   await db.run('UPDATE vendor_invoices SET status = ?, paid_at = ?, reminder_stage = 99 WHERE id = ?', ['paid', paid, invoiceId]);
   await db.run('UPDATE vendors SET account_active = 1 WHERE id = ?', [vendorId]);
+  return db.get('SELECT * FROM vendor_invoices WHERE id = ?', [invoiceId]);
+}
+
+export async function voidVendorInvoice({ db, vendorId, invoiceId, reason }) {
+  await ensureVendorBillingSchema(db);
+  const invoice = await db.get('SELECT * FROM vendor_invoices WHERE id = ? AND vendor_id = ?', [invoiceId, vendorId]);
+  if (!invoice) throw new Error('Invoice not found');
+  if (invoice.status === 'paid') throw new Error('Cannot void a paid invoice');
+  const trimmedReason = reason ? reason.toString().trim() : null;
+  await db.run(
+    'UPDATE vendor_invoices SET status = ?, void_reason = ?, voided_at = CURRENT_TIMESTAMP, reminder_stage = 99 WHERE id = ?',
+    ['void', trimmedReason || null, invoiceId]
+  );
   return db.get('SELECT * FROM vendor_invoices WHERE id = ?', [invoiceId]);
 }
 

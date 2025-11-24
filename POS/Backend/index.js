@@ -23,7 +23,7 @@ import slipsRouter from './routes/slips.js';
 import reportsRouter from './modules/reports/report.routes.js';
 import cookieParser from 'cookie-parser';
 import { createSlipProcessingQueue } from './lib/slipProcessingQueue.js';
-import { generateVendorInvoice, listVendorInvoices, markVendorInvoicePaid, processDailyVendorBilling, reactivateVendorAccount, updateVendorBillingSettings } from './modules/vendor/billing.service.js';
+import { generateVendorInvoice, listVendorInvoices, markVendorInvoicePaid, processDailyVendorBilling, reactivateVendorAccount, updateVendorBillingSettings, ensureVendorBillingSchema, voidVendorInvoice } from './modules/vendor/billing.service.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const backendRoot = path.dirname(__filename);
@@ -70,6 +70,7 @@ const io = new Server(server, {
 
 const STOREFRONT_API_KEY = process.env.STOREFRONT_API_KEY || null;
 const STOREFRONT_API_SECRET = process.env.STOREFRONT_API_SECRET || null;
+const DEFAULT_VENDOR_CURRENCY = (process.env.VENDOR_DEFAULT_CURRENCY || 'USD').toUpperCase();
 
 app.set('trust proxy', true);
 // make port configurable so multiple services can run without colliding
@@ -200,6 +201,8 @@ const PRODUCT_BASE_SELECT = `
                 v.slug AS vendor_slug,
                 v.tagline AS vendor_tagline,
                 v.public_description AS vendor_public_description,
+                v.social_links AS vendor_social_links,
+                v.social_showcase_enabled AS vendor_social_showcase_enabled,
                 ci.id AS casual_item_id,
                 ci.status AS casual_status,
                 ci.featured AS casual_featured,
@@ -291,6 +294,10 @@ async function transformProductRows(rows = []) {
             vendor_slug: row.vendor_slug,
             vendor_tagline: row.vendor_tagline,
             vendor_public_description: row.vendor_public_description,
+            vendor_social_links:
+                Number(row.vendor_social_showcase_enabled ?? 1) && row.vendor_social_links
+                    ? parseJson(row.vendor_social_links, null)
+                    : null,
             tags: tagsByProduct[row.id] || [],
             is_casual_listing: isCasual,
             listing_source: listingSource,
@@ -619,6 +626,80 @@ app.post('/api/vendors/:id/reactivate', authMiddleware, requireRole(['manager','
     }
 });
 
+app.get('/api/vendor/invoices/:invoiceId/preview', authMiddleware, requireVendorAccess({ allowInactive: true }), async (req, res) => {
+    try {
+        const invoiceId = Number(req.params.invoiceId);
+        if (!Number.isFinite(invoiceId)) return res.status(400).json({ error: 'Invalid invoice id' });
+        const payload = await buildInvoicePreviewPayload({ vendorId: req.user.vendorId, invoiceId, req });
+        res.json({ html: payload.html, invoice: payload.invoice });
+    } catch (err) {
+        const status = err?.status || 500;
+        res.status(status).json({ error: err?.message || 'Failed to build preview' });
+    }
+});
+
+app.get('/api/vendors/:vendorId/invoices/:invoiceId/preview', authMiddleware, requireRole(['manager','admin']), async (req, res) => {
+    try {
+        const vendorId = Number(req.params.vendorId);
+        const invoiceId = Number(req.params.invoiceId);
+        if (!Number.isFinite(vendorId) || !Number.isFinite(invoiceId)) return res.status(400).json({ error: 'Invalid parameters' });
+        const payload = await buildInvoicePreviewPayload({ vendorId, invoiceId, req });
+        res.json({ html: payload.html, invoice: payload.invoice, vendor: payload.vendor });
+    } catch (err) {
+        const status = err?.status || 500;
+        res.status(status).json({ error: err?.message || 'Failed to build preview' });
+    }
+});
+
+app.get('/api/vendor/invoices/:invoiceId/pdf', authMiddleware, requireVendorAccess({ allowInactive: true }), async (req, res) => {
+    try {
+        const invoiceId = Number(req.params.invoiceId);
+        if (!Number.isFinite(invoiceId)) return res.status(400).json({ error: 'Invalid invoice id' });
+        await ensureVendorBillingSchema(db);
+        const invoice = await db.get('SELECT * FROM vendor_invoices WHERE id = ? AND vendor_id = ?', [invoiceId, req.user.vendorId]);
+        if (!invoice) return res.status(404).json({ error: 'Invoice not found' });
+        const vendor = await db.get('SELECT id, legal_name, email, currency FROM vendors WHERE id = ?', [req.user.vendorId]);
+        const settingsRow = await db.get('SELECT outlet_name, currency FROM settings WHERE id = 1');
+        streamVendorInvoicePdf(res, vendor, invoice, settingsRow);
+    } catch (err) {
+        console.error('Vendor invoice pdf error', err?.message || err);
+        res.status(500).json({ error: 'Failed to render invoice' });
+    }
+});
+
+app.get('/api/vendors/:vendorId/invoices/:invoiceId/pdf', authMiddleware, requireRole(['manager','admin']), async (req, res) => {
+    try {
+        const vendorId = Number(req.params.vendorId);
+        const invoiceId = Number(req.params.invoiceId);
+        if (!Number.isFinite(vendorId) || !Number.isFinite(invoiceId)) return res.status(400).json({ error: 'Invalid parameters' });
+        await ensureVendorBillingSchema(db);
+        const invoice = await db.get('SELECT * FROM vendor_invoices WHERE id = ? AND vendor_id = ?', [invoiceId, vendorId]);
+        if (!invoice) return res.status(404).json({ error: 'Invoice not found' });
+        const vendor = await db.get('SELECT id, legal_name, email, currency FROM vendors WHERE id = ?', [vendorId]);
+        const settingsRow = await db.get('SELECT outlet_name, currency FROM settings WHERE id = 1');
+        streamVendorInvoicePdf(res, vendor, invoice, settingsRow);
+    } catch (err) {
+        console.error('Admin vendor invoice pdf error', err?.message || err);
+        res.status(500).json({ error: 'Failed to render invoice' });
+    }
+});
+
+app.delete('/api/vendors/:vendorId/invoices/:invoiceId', authMiddleware, requireRole(['manager','admin']), async (req, res) => {
+    try {
+        const vendorId = Number(req.params.vendorId);
+        const invoiceId = Number(req.params.invoiceId);
+        if (!Number.isFinite(vendorId) || !Number.isFinite(invoiceId)) return res.status(400).json({ error: 'Invalid parameters' });
+        const reason = req.body?.reason?.toString().trim();
+        if (!reason) return res.status(400).json({ error: 'Reason is required to void an invoice' });
+        const invoice = await voidVendorInvoice({ db, vendorId, invoiceId, reason });
+        await logActivity('vendor', vendorId, 'invoice_voided', req.user?.username || null, `Invoice ${invoice.invoice_number} voided`);
+        res.json(invoice);
+    } catch (err) {
+        console.error('Failed to void vendor invoice', err?.message || err);
+        res.status(500).json({ error: err?.message || 'Unable to void invoice' });
+    }
+});
+
 // Reports (admin/manager)
 app.use('/api/reports', authMiddleware, requireRole(['manager','admin']), reportsRouter);
 
@@ -779,6 +860,359 @@ function parseJson(value, fallback = null) {
     }
 }
 
+const VENDOR_SOCIAL_KEYS = ['instagram', 'facebook', 'twitter', 'linkedin', 'youtube', 'tiktok', 'whatsapp', 'telegram'];
+const SOCIAL_DOMAINS = {
+    instagram: 'https://instagram.com/',
+    facebook: 'https://facebook.com/',
+    twitter: 'https://twitter.com/',
+    linkedin: 'https://www.linkedin.com/company/',
+    youtube: 'https://youtube.com/',
+    tiktok: 'https://www.tiktok.com/@',
+};
+
+function normalizeSocialValue(value, key) {
+    if (value == null) return null;
+    const trimmed = value.toString().trim();
+    if (!trimmed) return null;
+    if (/^https?:\/\//i.test(trimmed)) return trimmed;
+    if (trimmed.startsWith('@')) return trimmed;
+    if (key === 'whatsapp') return trimmed;
+    if (trimmed.includes('.') && !trimmed.includes(' ')) return `https://${trimmed.replace(/^https?:\/\//i, '')}`;
+    if (SOCIAL_DOMAINS[key]) {
+        const handle = trimmed.replace(/^@/, '');
+        return `${SOCIAL_DOMAINS[key]}${handle}`;
+    }
+    return trimmed;
+}
+
+function extractSocialLinksPayload(body = {}) {
+    let base = body?.social_links;
+    if (typeof base === 'string') {
+        base = parseJson(base, {});
+    }
+    if (!base || typeof base !== 'object') {
+        base = {};
+    }
+    const merged = { ...base };
+    let provided = Object.keys(base).length > 0;
+    VENDOR_SOCIAL_KEYS.forEach((key) => {
+        const variations = [
+            key,
+            key.toLowerCase(),
+            `social_${key}`,
+            `${key}_url`,
+            `${key}_handle`,
+            `${key}Url`,
+            `${key}Handle`,
+        ];
+        for (const variant of variations) {
+            if (Object.prototype.hasOwnProperty.call(body, variant)) {
+                merged[key] = body[variant];
+                provided = true;
+                break;
+            }
+        }
+    });
+    const normalized = {};
+    for (const key of VENDOR_SOCIAL_KEYS) {
+        const normalizedValue = normalizeSocialValue(merged[key], key);
+        if (normalizedValue) normalized[key] = normalizedValue;
+    }
+    return { provided, value: Object.keys(normalized).length ? normalized : null };
+}
+
+function hydrateVendorRow(row) {
+    if (!row) return null;
+    const vendor = { ...row };
+    vendor.attachments = parseJson(row.attachments, []);
+    vendor.social_links = parseJson(row.social_links, null);
+    vendor.social_showcase_enabled = Number(row.social_showcase_enabled ?? 1) ? 1 : 0;
+    vendor.currency = normalizeCurrency(row.currency, DEFAULT_VENDOR_CURRENCY);
+    return vendor;
+}
+
+function publicVendorPayload(row) {
+    const vendor = hydrateVendorRow(row);
+    if (!vendor) return null;
+    if (!vendor.social_showcase_enabled) {
+        vendor.social_links = null;
+    }
+    return vendor;
+}
+
+function normalizeCurrency(value, defaultValue = null) {
+    if (value == null) return defaultValue;
+    const trimmed = value.toString().trim().toUpperCase();
+    if (!/^[A-Z]{3}$/.test(trimmed)) return defaultValue;
+    return trimmed;
+}
+
+function ensureVendorCurrency(value) {
+    return normalizeCurrency(value, DEFAULT_VENDOR_CURRENCY);
+}
+
+function persistVendorLogoFromBase64(vendorId, base64Input) {
+    if (!base64Input || typeof base64Input !== 'string' || !base64Input.startsWith('data:')) return null;
+    const match = base64Input.match(/^data:(image\/[^;]+);base64,(.*)$/);
+    if (!match) return null;
+    try {
+        const mime = match[1];
+        const ext = (mime.split('/')[1] || 'png').split('+')[0];
+        const buffer = Buffer.from(match[2], 'base64');
+        const logosDir = path.join(uploadsRoot, 'vendors', String(vendorId), 'logos');
+        fs.mkdirSync(logosDir, { recursive: true });
+        const filename = `logo-${Date.now()}-${Math.round(Math.random() * 1e6)}.${ext}`;
+        const outPath = path.join(logosDir, filename);
+        fs.writeFileSync(outPath, buffer);
+        return `/uploads/vendors/${vendorId}/logos/${filename}`;
+    } catch (err) {
+        console.warn('Failed to persist vendor logo', err?.message || err);
+        return null;
+    }
+}
+
+function persistVendorRequestDocuments(vendorId, docs = []) {
+    const attachmentsMeta = [];
+    if (!Array.isArray(docs) || !docs.length) return attachmentsMeta;
+    const requestsDir = path.join(uploadsRoot, 'vendors', String(vendorId), 'profile-requests');
+    fs.mkdirSync(requestsDir, { recursive: true });
+    for (let i = 0; i < docs.length; i++) {
+        const doc = docs[i];
+        if (!doc) continue;
+        if (doc.path) {
+            attachmentsMeta.push({ name: doc.name || doc.filename || `doc-${i}`, path: doc.path });
+            continue;
+        }
+        let filename = doc.name || doc.filename || `doc-${i}`;
+        let base64Payload = null;
+        if (doc.data && typeof doc.data === 'string') {
+            const match = doc.data.match(/^data:([^;]+);base64,(.*)$/);
+            if (match) {
+                base64Payload = match[2];
+                const ext = (match[1].split('/')[1] || '').split('+')[0];
+                if (ext && !filename.includes('.')) filename = `${filename}.${ext}`;
+            } else {
+                base64Payload = doc.data;
+            }
+        } else if (doc.base64 && typeof doc.base64 === 'string') {
+            base64Payload = doc.base64;
+        }
+        if (!base64Payload) continue;
+        try {
+            const buffer = Buffer.from(base64Payload, 'base64');
+            const safeName = filename.replace(/[^a-z0-9\-_.]/gi, '_');
+            const diskName = `${Date.now()}_${i}_${safeName}`;
+            const dest = path.join(requestsDir, diskName);
+            fs.writeFileSync(dest, buffer);
+            attachmentsMeta.push({ name: filename, path: `/uploads/vendors/${vendorId}/profile-requests/${diskName}` });
+        } catch (err) {
+            console.warn('Failed to persist vendor request document', err?.message || err);
+        }
+    }
+    return attachmentsMeta;
+}
+
+function buildOutletBranding(settings = {}) {
+    return {
+        name: settings?.outlet_name || 'ITnVend',
+        address: settings?.store_address || 'Malé, Maldives',
+        support_email: settings?.support_email || settings?.email_to || 'support@itnvend.com',
+        support_phone: settings?.support_phone || '',
+        logo_url: settings?.logo_url || null,
+        currency: settings?.currency || DEFAULT_VENDOR_CURRENCY,
+    };
+}
+
+function buildPublicUrl(pathOrUrl, baseUrl) {
+    if (!pathOrUrl) return null;
+    if (/^https?:\/\//i.test(pathOrUrl)) return pathOrUrl;
+    if (!baseUrl) return pathOrUrl;
+    const normalizedBase = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
+    if (pathOrUrl.startsWith('/')) return `${normalizedBase}${pathOrUrl}`;
+    return `${normalizedBase}/${pathOrUrl}`;
+}
+
+function renderVendorInvoiceHtml({ vendor, invoice, outlet, publicBase }) {
+    const branding = buildOutletBranding(outlet);
+    const currency = ensureVendorCurrency(vendor?.currency || branding.currency);
+    const amountLabel = formatMoney(invoice?.fee_amount || 0, currency);
+    const issued = invoice?.issued_at ? new Date(invoice.issued_at).toLocaleDateString() : '—';
+    const due = invoice?.due_date ? new Date(invoice.due_date).toLocaleDateString() : '—';
+    const logoUrl = buildPublicUrl(branding.logo_url || vendor?.logo_url, publicBase);
+    const vendorAddress = vendor?.address ? escapeHtml(vendor.address) : '—';
+    const voidBadge = invoice?.status === 'void'
+        ? `<span style="color:#b91c1c;font-weight:600;font-size:12px;">Voided${invoice?.void_reason ? ` — ${escapeHtml(invoice.void_reason)}` : ''}</span>`
+        : '';
+
+    return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Invoice ${escapeHtml(invoice?.invoice_number || invoice?.id)}</title>
+  <style>
+    body { font-family: 'Inter', Arial, sans-serif; color: #111827; background: #f8fafc; margin: 0; padding: 24px; }
+    .card { max-width: 720px; margin: 0 auto; background: #fff; border-radius: 18px; padding: 32px; box-shadow: 0 10px 30px rgba(15,23,42,0.08); }
+    .flex-between { display: flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap; }
+    .muted { color: #64748b; font-size: 14px; }
+    .divider { border-top: 1px solid #e2e8f0; margin: 24px 0; }
+    .pill { display: inline-flex; align-items: center; padding: 4px 12px; border-radius: 9999px; font-size: 12px; font-weight: 600; }
+    .pill-unpaid { background: #fef3c7; color: #92400e; }
+    .pill-paid { background: #d1fae5; color: #065f46; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="flex-between">
+      <div style="display:flex; align-items:center; gap:16px;">
+        ${logoUrl ? `<img src="${logoUrl}" alt="logo" style="width:64px;height:64px;object-fit:contain;border-radius:14px;border:1px solid #e2e8f0;" />` : ''}
+        <div>
+          <h1 style="margin:0;font-size:20px;">${escapeHtml(branding.name)}</h1>
+          <p class="muted" style="margin:4px 0 0 0;">Vendor fee invoice</p>
+        </div>
+      </div>
+      <div style="text-align:right;">
+        <div class="muted">Invoice</div>
+        <div style="font-weight:600;">${escapeHtml(invoice?.invoice_number || invoice?.id)}</div>
+        ${voidBadge}
+      </div>
+    </div>
+
+    <div class="divider"></div>
+
+    <div class="flex-between">
+      <div>
+        <p class="muted" style="margin:0;">Billed to</p>
+        <p style="margin:4px 0 0 0; font-weight:600;">${escapeHtml(vendor?.legal_name || '')}</p>
+        <p class="muted" style="margin:2px 0 0 0;">${vendorAddress}</p>
+        <p class="muted" style="margin:2px 0 0 0;">${escapeHtml(vendor?.email || '')}</p>
+      </div>
+      <div style="text-align:right;">
+        <p class="muted" style="margin:0;">Issued</p>
+        <p style="margin:4px 0 0 0;">${issued}</p>
+        <p class="muted" style="margin:12px 0 0 0;">Due</p>
+        <p style="margin:4px 0 0 0;">${due}</p>
+      </div>
+    </div>
+
+    <div class="divider"></div>
+
+    <div style="padding:16px 24px;border-radius:16px;background:#f1f5f9;">
+      <p class="muted" style="margin:0;">Amount due</p>
+      <p style="margin:4px 0 0 0;font-size:32px;font-weight:700;">${amountLabel}</p>
+      <div style="margin-top:8px;">
+        <span class="pill ${invoice?.status === 'paid' ? 'pill-paid' : 'pill-unpaid'}">${(invoice?.status || 'unpaid').toUpperCase()}</span>
+      </div>
+    </div>
+
+    <div class="divider"></div>
+
+    <div>
+      <p class="muted" style="margin:0 0 8px 0;">Notes</p>
+      <p style="margin:0;">
+        Please include the invoice number <strong>${escapeHtml(invoice?.invoice_number || invoice?.id || '')}</strong> in your transfer reference.
+        Dashboard access stays active when invoices are cleared within five days.
+      </p>
+      ${invoice?.void_reason ? `<p style="margin:12px 0 0 0; color:#b91c1c;">Void reason: ${escapeHtml(invoice.void_reason)}</p>` : ''}
+    </div>
+
+    <div class="divider"></div>
+
+    <div class="flex-between" style="font-size:13px;">
+      <div>
+        <p class="muted" style="margin:0;">${escapeHtml(branding.name)}</p>
+        <p class="muted" style="margin:2px 0 0 0;">${escapeHtml(branding.address)}</p>
+      </div>
+      <div style="text-align:right;">
+        <p class="muted" style="margin:0;">Support</p>
+        ${branding.support_email ? `<p class="muted" style="margin:2px 0 0 0;">${escapeHtml(branding.support_email)}</p>` : ''}
+        ${branding.support_phone ? `<p class="muted" style="margin:2px 0 0 0;">${escapeHtml(branding.support_phone)}</p>` : ''}
+      </div>
+    </div>
+  </div>
+</body>
+</html>`;
+}
+
+async function buildInvoicePreviewPayload({ vendorId, invoiceId, req }) {
+    await ensureVendorBillingSchema(db);
+    const invoice = await db.get('SELECT * FROM vendor_invoices WHERE id = ? AND vendor_id = ?', [invoiceId, vendorId]);
+    if (!invoice) {
+        const err = new Error('Invoice not found');
+        err.status = 404;
+        throw err;
+    }
+    const vendor = await db.get('SELECT id, legal_name, email, address, currency, logo_url FROM vendors WHERE id = ?', [vendorId]);
+    if (!vendor) {
+        const err = new Error('Vendor not found');
+        err.status = 404;
+        throw err;
+    }
+    const settingsRow = await db.get('SELECT outlet_name, store_address, support_email, support_phone, logo_url, currency FROM settings WHERE id = 1');
+    const baseUrl = (process.env.PUBLIC_API_BASE || `${req.protocol}://${req.get('host')}`).replace(/\/$/, '');
+    const html = renderVendorInvoiceHtml({ vendor, invoice, outlet: settingsRow, publicBase: baseUrl });
+    return { invoice, vendor, html };
+}
+
+function formatMoney(amount, currency) {
+    const value = Number(amount || 0);
+    try {
+        return new Intl.NumberFormat('en', { style: 'currency', currency }).format(value);
+    } catch (err) {
+        return `${currency || ''} ${value.toFixed(2)}`;
+    }
+}
+
+function streamVendorInvoicePdf(res, vendor, invoice, settingsRow = null) {
+    const branding = buildOutletBranding(settingsRow);
+    const currency = ensureVendorCurrency(vendor?.currency || branding.currency);
+    const amountLabel = formatMoney(invoice.fee_amount, currency);
+    const filename = `vendor-invoice-${invoice.invoice_number || invoice.id}.pdf`;
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    const doc = new PDFDocument({ margin: 48 });
+    doc.pipe(res);
+
+    const normalizedLogo = normalizeUploadPath(branding.logo_url || vendor?.logo_url);
+    const logoPath = normalizedLogo ? path.resolve(path.join(imagesDir, normalizedLogo.replace(/\//g, path.sep))) : null;
+    if (logoPath && fs.existsSync(logoPath)) {
+        try {
+            doc.image(logoPath, 48, 40, { width: 64, height: 64 });
+        } catch (err) {
+            console.warn('Failed to embed vendor invoice logo', err?.message || err);
+        }
+    }
+
+    doc.fontSize(24).fillColor('#111827').text('Vendor Invoice', 120, 42);
+    doc.fontSize(12).fillColor('#6b7280').text(branding.name, 120, 70);
+
+    doc.moveDown(2.5);
+    doc.fillColor('#111827').fontSize(12);
+    doc.text(`Invoice #: ${invoice.invoice_number || invoice.id}`);
+    doc.text(`Issued: ${invoice.issued_at ? new Date(invoice.issued_at).toLocaleDateString() : '—'}`);
+    doc.text(`Due: ${invoice.due_date ? new Date(invoice.due_date).toLocaleDateString() : '—'}`);
+    doc.text(`Status: ${invoice.status}`);
+    if (invoice.status === 'void' && invoice.void_reason) {
+        doc.fillColor('#b91c1c').text(`Void reason: ${invoice.void_reason}`);
+    }
+    doc.moveDown();
+    doc.fillColor('#111827').text(`Vendor: ${vendor?.legal_name || vendor?.email || ''}`);
+    if (vendor?.address) doc.fillColor('#6b7280').text(vendor.address);
+    if (vendor?.email) doc.fillColor('#6b7280').text(vendor.email);
+
+    doc.moveDown();
+    doc.fillColor('#111827').fontSize(18).text(amountLabel);
+    doc.fontSize(11).fillColor('#6b7280').text('Please include the invoice number in your payment reference. Dashboard access remains active when invoices are cleared within five days.');
+
+    doc.moveDown(1.5);
+    doc.fillColor('#6b7280').text('Issuer', { underline: true });
+    doc.fillColor('#111827').text(branding.name);
+    if (branding.address) doc.fillColor('#6b7280').text(branding.address);
+    if (branding.support_email) doc.text(branding.support_email);
+    if (branding.support_phone) doc.text(branding.support_phone);
+
+    doc.end();
+}
+
 function formatPreorderRow(row, includeSensitive = false) {
     if (!row) return null;
     const cartLinks = parseJson(row.cart_links, []);
@@ -921,6 +1355,20 @@ async function syncProductTags(productId, tags = []) {
   );
   await db.run('UPDATE products SET tags_cache = ? WHERE id = ?', [JSON.stringify(tagRows.map((tag) => tag.name)), productId]);
   return tagRows;
+}
+
+function buildProductInsert(fields) {
+    const entries = Object.entries(fields || {}).filter(([, value]) => value !== undefined);
+    if (!entries.length) {
+        throw new Error('No product fields provided for insert');
+    }
+    const columns = entries.map(([column]) => column);
+    const placeholders = columns.map(() => '?').join(', ');
+    const values = entries.map(([, value]) => value);
+    return {
+        sql: `INSERT INTO products (${columns.join(', ')}) VALUES (${placeholders})`,
+        values,
+    };
 }
 
 async function sendNotificationEmail(subject, html, toOverride, throwOnError = false) {
@@ -2592,16 +3040,171 @@ app.post('/api/vendors/:id/impersonate', authMiddleware, requireRole(['manager',
 app.get('/api/vendor/me', authMiddleware, requireVendorAccess({ allowInactive: true }), async (req, res) => {
     try {
         const vendorId = req.user.vendorId;
-        const vendor = await db.get('SELECT id, slug, legal_name, contact_person, email, phone, address, website, tagline, public_description, logo_url, hero_image, attachments, bank_details, monthly_fee, billing_start_date, last_invoice_date, account_active, status FROM vendors WHERE id = ?', [vendorId]);
+        let vendor = await db.get('SELECT id, slug, legal_name, contact_person, email, phone, address, website, tagline, public_description, logo_url, hero_image, attachments, bank_details, monthly_fee, billing_start_date, last_invoice_date, account_active, status, social_links, social_showcase_enabled, currency FROM vendors WHERE id = ?', [vendorId]);
         if (!vendor) return res.status(404).json({ error: 'Vendor not found' });
+        vendor = hydrateVendorRow(vendor);
         // attach product count
         const productCount = await db.get('SELECT COUNT(*) AS c FROM products WHERE vendor_id = ?', [vendor.id]);
         vendor.product_count = productCount?.c || 0;
-        try { vendor.attachments = vendor.attachments ? (typeof vendor.attachments === 'string' ? JSON.parse(vendor.attachments || '[]') : vendor.attachments) : []; } catch (e) { vendor.attachments = []; }
+        const pendingProfileRequest = await db.get(
+            'SELECT id, type, status, created_at FROM vendor_profile_requests WHERE vendor_id = ? AND status = ? ORDER BY created_at DESC LIMIT 1',
+            [vendor.id, 'pending']
+        );
+        vendor.pending_profile_request = pendingProfileRequest || null;
         return res.json(vendor);
     } catch (err) {
         console.error('vendor/me error', err);
         return res.status(500).json({ error: 'Internal error' });
+    }
+});
+
+app.put('/api/vendor/me', authMiddleware, requireVendorAccess({ allowInactive: true }), async (req, res) => {
+    try {
+        const vendorId = req.user.vendorId;
+        const vendor = await db.get('SELECT * FROM vendors WHERE id = ?', [vendorId]);
+        if (!vendor) return res.status(404).json({ error: 'Vendor not found' });
+        if (req.body?.legal_name && req.body.legal_name !== vendor.legal_name) {
+            return res.status(409).json({
+                error: 'Legal name changes require verification. Submit a request with supporting documents.',
+                requires_verification: true,
+            });
+        }
+
+        const updates = [];
+        const params = [];
+        let emailChanged = false;
+
+        const assign = (column, value, transform = (v) => (v === undefined ? undefined : v)) => {
+            const next = transform(value);
+            if (next === undefined) return;
+            updates.push(`${column} = ?`);
+            params.push(next);
+        };
+
+        assign('contact_person', req.body?.contact_person, (v) => (v === undefined ? undefined : (v || null)));
+
+        let nextEmailForLogin = null;
+        if (req.body?.email !== undefined && req.body.email !== vendor.email) {
+            const trimmedEmail = req.body.email ? req.body.email.toString().trim() : '';
+            if (!trimmedEmail) return res.status(400).json({ error: 'Email cannot be empty' });
+            const existing = await db.get('SELECT id FROM vendors WHERE email = ? AND id != ?', [trimmedEmail, vendorId]);
+            if (existing) return res.status(409).json({ error: 'Email already in use' });
+            updates.push('email = ?');
+            params.push(trimmedEmail);
+            nextEmailForLogin = trimmedEmail;
+            emailChanged = true;
+        }
+
+        assign('phone', req.body?.phone, (v) => (v === undefined ? undefined : (v || null)));
+        assign('address', req.body?.address, (v) => (v === undefined ? undefined : (v || null)));
+        assign('website', req.body?.website, (v) => (v === undefined ? undefined : (v || null)));
+        assign('capabilities', req.body?.capabilities, (v) => (v === undefined ? undefined : (v || null)));
+        assign('notes', req.body?.notes, (v) => (v === undefined ? undefined : (v || null)));
+        assign('tagline', req.body?.tagline, (v) => (v === undefined ? undefined : (v || null)));
+        assign('public_description', req.body?.public_description, (v) => (v === undefined ? undefined : (v || null)));
+        assign('hero_image', req.body?.hero_image, (v) => (v === undefined ? undefined : (v || null)));
+        assign('currency', req.body?.currency, (v) => (v === undefined ? undefined : ensureVendorCurrency(v)));
+
+        const { provided: socialProvided, value: socialLinks } = extractSocialLinksPayload(req.body || {});
+        if (socialProvided) {
+            updates.push('social_links = ?');
+            params.push(socialLinks ? JSON.stringify(socialLinks) : null);
+        }
+
+        let newLogoPath = null;
+        if (req.body?.logo_data) {
+            newLogoPath = persistVendorLogoFromBase64(vendorId, req.body.logo_data);
+        }
+        if (!newLogoPath && req.body?.logo_url) {
+            const trimmed = req.body.logo_url.toString().trim();
+            if (trimmed) {
+                const idx = trimmed.indexOf('/uploads/');
+                newLogoPath = idx >= 0 ? trimmed.slice(idx) : trimmed;
+            }
+        }
+        if (newLogoPath) {
+            updates.push('logo_url = ?');
+            params.push(newLogoPath);
+        }
+
+        if (updates.length === 0) {
+            return res.json(hydrateVendorRow(vendor));
+        }
+
+        await db.run(`UPDATE vendors SET ${updates.join(', ')} WHERE id = ?`, [...params, vendorId]);
+
+        if (emailChanged) {
+            try {
+                await db.exec(`
+                    CREATE TABLE IF NOT EXISTS vendor_users (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        vendor_id INTEGER UNIQUE,
+                        username TEXT UNIQUE,
+                        password_hash TEXT,
+                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                    );
+                `);
+                await db.run('UPDATE vendor_users SET username = ? WHERE vendor_id = ?', [nextEmailForLogin || vendor.email, vendorId]);
+            } catch (err) {
+                console.warn('Failed to sync vendor user email', err?.message || err);
+            }
+        }
+
+        const updated = await db.get('SELECT * FROM vendors WHERE id = ?', [vendorId]);
+        await logActivity('vendor', vendorId, 'self_update', req.user?.username || null, JSON.stringify({ fields: updates.length }));
+        res.json(hydrateVendorRow(updated));
+    } catch (err) {
+        console.error('vendor/me update error', err);
+        return res.status(500).json({ error: 'Internal error' });
+    }
+});
+
+app.post('/api/vendor/me/legal-name-request', authMiddleware, requireVendorAccess({ allowInactive: true }), async (req, res) => {
+    try {
+        const vendorId = req.user.vendorId;
+        const vendor = await db.get('SELECT id, legal_name FROM vendors WHERE id = ?', [vendorId]);
+        if (!vendor) return res.status(404).json({ error: 'Vendor not found' });
+        const desiredName = (req.body?.legal_name || '').toString().trim();
+        if (!desiredName || desiredName.length < 3) {
+            return res.status(400).json({ error: 'Provide the new legal name (minimum 3 characters).' });
+        }
+        if (desiredName === vendor.legal_name) {
+            return res.status(400).json({ error: 'This matches your current legal name.' });
+        }
+        const existing = await db.get(
+            'SELECT id FROM vendor_profile_requests WHERE vendor_id = ? AND status = ? AND type = ?',
+            [vendorId, 'pending', 'legal_name_change']
+        );
+        if (existing) {
+            return res.status(409).json({ error: 'A legal name change request is already pending review.' });
+        }
+        const docs = req.body?.documents || req.body?.attachments || [];
+        if (!Array.isArray(docs) || !docs.length) {
+            return res.status(400).json({ error: 'Upload supporting documents for the verification.' });
+        }
+        const attachmentsMeta = persistVendorRequestDocuments(vendorId, docs);
+        if (!attachmentsMeta.length) {
+            return res.status(400).json({ error: 'Documents could not be processed. Please try again.' });
+        }
+        const payload = {
+            legal_name: desiredName,
+            note: req.body?.note ? String(req.body.note).trim() : null,
+        };
+        const result = await db.run(
+            'INSERT INTO vendor_profile_requests (vendor_id, type, payload, attachments, status) VALUES (?, ?, ?, ?, ?)',
+            [vendorId, 'legal_name_change', JSON.stringify(payload), JSON.stringify(attachmentsMeta), 'pending']
+        );
+        await logActivity('vendor', vendorId, 'legal_name_change_request', req.user?.username || null, JSON.stringify(payload));
+        await queueNotification({
+            title: 'Vendor legal name change requested',
+            message: `${vendor.legal_name} requested renaming to ${desiredName}`,
+            type: 'warning',
+            metadata: { vendorId, requestId: result?.lastID || null },
+        });
+        res.status(201).json({ status: 'pending', request_id: result?.lastID || null });
+    } catch (err) {
+        console.error('vendor legal name request failed', err);
+        return res.status(500).json({ error: 'Unable to submit request' });
     }
 });
 
@@ -3380,64 +3983,52 @@ app.post('/api/products', authMiddleware, requireRole('cashier'), async (req, re
     }
 
     try {
-        const { lastID } = await db.run(
-            `INSERT INTO products (
-                name, price, stock, category, subcategory,
-                image, image_source, description, technical_details,
-                sku, barcode, cost, track_inventory, preorder_enabled,
-                preorder_release_date, preorder_notes, short_description, type,
-                brand_id, category_id, subcategory_id, subsubcategory_id,
-                material_id, color_id, audience, delivery_type, digital_download_url,
-                digital_license_key, digital_activation_limit, digital_expiry, digital_support_url, warranty_term,
-                preorder_eta, year, auto_sku, availability_status, vendor_id,
-                highlight_active, highlight_label, highlight_priority, new_arrival, gallery
-            )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-            [
-                name,
-                normalizedPrice,
-                normalizedStock,
-                categoryName || category || null,
-                subcategoryName || subcategory || null,
-                storedImage,
-                storedImageSource,
-                description || null,
-                technical,
-                finalSku || null,
-                trimmedBarcode,
-                normalizedCost,
-                normalizedTrack,
-                preorderEnabled,
-                preorderDate,
-                preorderMessage,
-                shortDescription ? shortDescription.trim() : null,
-                normalizedType,
-                brandIdInt,
-                resolvedCategoryId,
-                resolvedSubcategoryId,
-                resolvedSubsubcategoryId,
-                materialIdInt,
-                colorIdInt,
-                normalizedAudience,
-                normalizedDelivery,
-                normalizedDigitalDownloadUrl,
-                normalizedDigitalLicenseKey,
-                normalizedDigitalActivationLimit,
-                normalizedDigitalExpiry,
-                normalizedDigitalSupportUrl,
-                normalizedWarranty,
-                normalizedEta,
-                normalizedYear,
-                normalizedAutoSku,
-                normalizedAvailabilityStatus,
-                vendorIdInt,
-                normalizedHighlightActive,
-                normalizedHighlightLabel,
-                normalizedHighlightPriority,
-                normalizedNewArrival,
-                galleryValue,
-            ]
-        );
+        const insertFields = {
+            name,
+            price: normalizedPrice,
+            stock: normalizedStock,
+            category: categoryName || category || null,
+            subcategory: subcategoryName || subcategory || null,
+            image: storedImage,
+            image_source: storedImageSource,
+            description: description || null,
+            technical_details: technical,
+            sku: finalSku || null,
+            barcode: trimmedBarcode,
+            cost: normalizedCost,
+            track_inventory: normalizedTrack,
+            preorder_enabled: preorderEnabled,
+            preorder_release_date: preorderDate,
+            preorder_notes: preorderMessage,
+            short_description: shortDescription ? shortDescription.trim() : null,
+            type: normalizedType,
+            brand_id: brandIdInt,
+            category_id: resolvedCategoryId,
+            subcategory_id: resolvedSubcategoryId,
+            subsubcategory_id: resolvedSubsubcategoryId,
+            material_id: materialIdInt,
+            color_id: colorIdInt,
+            audience: normalizedAudience,
+            delivery_type: normalizedDelivery,
+            digital_download_url: normalizedDigitalDownloadUrl,
+            digital_license_key: normalizedDigitalLicenseKey,
+            digital_activation_limit: normalizedDigitalActivationLimit,
+            digital_expiry: normalizedDigitalExpiry,
+            digital_support_url: normalizedDigitalSupportUrl,
+            warranty_term: normalizedWarranty,
+            preorder_eta: normalizedEta,
+            year: normalizedYear,
+            auto_sku: normalizedAutoSku,
+            availability_status: normalizedAvailabilityStatus,
+            vendor_id: vendorIdInt,
+            highlight_active: normalizedHighlightActive,
+            highlight_label: normalizedHighlightLabel,
+            highlight_priority: normalizedHighlightPriority,
+            new_arrival: normalizedNewArrival,
+            gallery: galleryValue,
+        };
+        const { sql, values } = buildProductInsert(insertFields);
+        const { lastID } = await db.run(sql, values);
 
         let vendorNameForResponse = null;
         if (vendorIdInt) {
@@ -4164,10 +4755,6 @@ app.post('/api/vendor/products', authMiddleware, requireVendorAccess(), async (r
             category,
             subcategory,
             availabilityStatus,
-            highlightActive,
-            highlightLabel,
-            highlightPriority,
-            newArrival,
             gallery,
             digitalDownloadUrl,
             digitalLicenseKey,
@@ -4254,64 +4841,52 @@ app.post('/api/vendor/products', authMiddleware, requireVendorAccess(), async (r
             if (existingSku) return res.status(409).json({ error: 'SKU already in use' });
         }
 
-        const insert = await db.run(
-            `INSERT INTO products (
-                name, price, stock, category, subcategory,
-                image, image_source, description, technical_details,
-                sku, barcode, cost, track_inventory, preorder_enabled,
-                preorder_release_date, preorder_notes, short_description, type,
-                brand_id, category_id, subcategory_id, subsubcategory_id,
-                material_id, color_id, audience, delivery_type, digital_download_url,
-                digital_license_key, digital_activation_limit, digital_expiry, digital_support_url, warranty_term,
-                preorder_eta, year, auto_sku, availability_status, vendor_id,
-                highlight_active, highlight_label, highlight_priority, new_arrival, gallery
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            `,
-            [
-                name,
-                normalizedPrice,
-                normalizedStock,
-                categoryName || category || null,
-                subcategoryName || subcategory || null,
-                storedImage,
-                storedImageSource,
-                description || null,
-                technical,
-                finalSku || null,
-                trimmedBarcode,
-                normalizedCost,
-                normalizedTrack,
-                preorderEnabled,
-                preorderDate,
-                preorderMessage,
-                shortDescription ? shortDescription.trim() : null,
-                normalizedType,
-                brandIdInt,
-                resolvedCategoryId,
-                resolvedSubcategoryId,
-                resolvedSubsubcategoryId,
-                materialIdInt,
-                colorIdInt,
-                normalizedAudience,
-                normalizedDelivery,
-                normalizedDigitalDownloadUrl,
-                normalizedDigitalLicenseKey,
-                normalizedDigitalActivationLimit,
-                normalizedDigitalExpiry,
-                normalizedDigitalSupportUrl,
-                normalizedWarranty,
-                normalizedEta,
-                normalizedYear,
-                normalizedAutoSku,
-                normalizedAvailabilityStatus,
-                vendorIdInt,
-                highlightActive === true || highlightActive === 1 ? 1 : 0,
-                typeof highlightLabel === 'string' && highlightLabel.trim() ? highlightLabel.trim().slice(0,60) : null,
-                Number.isFinite(parseInt(highlightPriority,10)) ? parseInt(highlightPriority,10) : 0,
-                newArrival === true || newArrival === 1 ? 1 : 0,
-                galleryValue
-            ]
-        );
+        const insertFields = {
+            name,
+            price: normalizedPrice,
+            stock: normalizedStock,
+            category: categoryName || category || null,
+            subcategory: subcategoryName || subcategory || null,
+            image: storedImage,
+            image_source: storedImageSource,
+            description: description || null,
+            technical_details: technical,
+            sku: finalSku || null,
+            barcode: trimmedBarcode,
+            cost: normalizedCost,
+            track_inventory: normalizedTrack,
+            preorder_enabled: preorderEnabled,
+            preorder_release_date: preorderDate,
+            preorder_notes: preorderMessage,
+            short_description: shortDescription ? shortDescription.trim() : null,
+            type: normalizedType,
+            brand_id: brandIdInt,
+            category_id: resolvedCategoryId,
+            subcategory_id: resolvedSubcategoryId,
+            subsubcategory_id: resolvedSubsubcategoryId,
+            material_id: materialIdInt,
+            color_id: colorIdInt,
+            audience: normalizedAudience,
+            delivery_type: normalizedDelivery,
+            digital_download_url: normalizedDigitalDownloadUrl,
+            digital_license_key: normalizedDigitalLicenseKey,
+            digital_activation_limit: normalizedDigitalActivationLimit,
+            digital_expiry: normalizedDigitalExpiry,
+            digital_support_url: normalizedDigitalSupportUrl,
+            warranty_term: normalizedWarranty,
+            preorder_eta: normalizedEta,
+            year: normalizedYear,
+            auto_sku: normalizedAutoSku,
+            availability_status: normalizedAvailabilityStatus,
+            vendor_id: vendorIdInt,
+            highlight_active: 0,
+            highlight_label: null,
+            highlight_priority: 0,
+            new_arrival: 0,
+            gallery: galleryValue,
+        };
+        const { sql, values } = buildProductInsert(insertFields);
+        const insert = await db.run(sql, values);
 
         const tagRows = await syncProductTags(insert.lastID, tags);
         await cacheService.invalidateProducts();
@@ -5242,17 +5817,36 @@ app.patch('/api/preorders/:id', authMiddleware, requireRole(['accounts', 'manage
 
 // Vendor Onboarding Route
 app.post('/api/vendors', async (req, res) => {
-    const { legal_name, contact_person, email, phone, address, website, capabilities, notes, tagline, public_description } = req.body;
+    const { legal_name, contact_person, email, phone, address, website, capabilities, notes, tagline, public_description, currency } = req.body;
     if (!legal_name || !email) {
         return res.status(400).json({ error: 'Legal name and email are required.' });
     }
     try {
         const slug = await getUniqueVendorSlug(legal_name || email || contact_person || `vendor-${Date.now()}`);
         const descriptionValue = public_description || notes || null;
+        const normalizedCurrency = ensureVendorCurrency(currency);
+        const { value: socialLinks } = extractSocialLinksPayload(req.body);
+        const socialShowcaseInput = req.body?.social_showcase_enabled ?? req.body?.socialShowcaseEnabled;
+        const socialShowcase = socialShowcaseInput == null ? 1 : (Number(socialShowcaseInput) ? 1 : 0);
         const result = await db.run(
-            `INSERT INTO vendors (legal_name, contact_person, email, phone, address, website, capabilities, notes, slug, tagline, public_description)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)` ,
-            [legal_name, contact_person, email, phone, address, website, capabilities, notes, slug, tagline || null, descriptionValue]
+            `INSERT INTO vendors (legal_name, contact_person, email, phone, address, website, capabilities, notes, slug, tagline, public_description, social_links, social_showcase_enabled, currency)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)` ,
+            [
+                legal_name,
+                contact_person,
+                email,
+                phone,
+                address,
+                website,
+                capabilities,
+                notes,
+                slug,
+                tagline || null,
+                descriptionValue,
+                socialLinks ? JSON.stringify(socialLinks) : null,
+                socialShowcase,
+                normalizedCurrency
+            ]
         );
         const vendorId = result.lastID;
     // Optional: accept logo_url (already-uploaded) or logo_data (base64) and save as vendor logo for onboarding flow
@@ -5357,7 +5951,8 @@ app.post('/api/vendors/register', async (req, res) => {
         billingStartDate,
         billing_notes,
         account_active,
-        accountActive
+        accountActive,
+        currency
     } = req.body;
 
     if (!legal_name || !email) return res.status(400).json({ error: 'legal_name and email required' });
@@ -5368,6 +5963,10 @@ app.post('/api/vendors/register', async (req, res) => {
     const accountActiveFlag = account_active != null ? Number(account_active) : (accountActive != null ? Number(accountActive) : 1);
     const status = approve ? 'active' : 'pending';
     const descriptionValue = public_description || notes || null;
+    const { value: socialLinks } = extractSocialLinksPayload(req.body);
+    const socialShowcaseInput = req.body?.social_showcase_enabled ?? req.body?.socialShowcaseEnabled;
+    const socialShowcase = socialShowcaseInput == null ? 1 : (Number(socialShowcaseInput) ? 1 : 0);
+    const normalizedCurrency = ensureVendorCurrency(currency);
 
     try {
         await db.run('BEGIN TRANSACTION');
@@ -5375,9 +5974,9 @@ app.post('/api/vendors/register', async (req, res) => {
         const result = await db.run(
             `INSERT INTO vendors (
                 legal_name, contact_person, email, phone, address, website, capabilities, notes,
-                bank_details, logo_url, monthly_fee, billing_start_date, account_active, status, slug, tagline, public_description, hero_image
+                bank_details, logo_url, monthly_fee, billing_start_date, account_active, status, slug, tagline, public_description, hero_image, social_links, social_showcase_enabled, currency
              )
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             [
                 legal_name,
                 contact_person || null,
@@ -5397,6 +5996,9 @@ app.post('/api/vendors/register', async (req, res) => {
                 tagline || null,
                 descriptionValue,
                 hero_image || null,
+                socialLinks ? JSON.stringify(socialLinks) : null,
+                socialShowcase,
+                normalizedCurrency
             ]
         );
         const vendorId = result.lastID;
@@ -5465,7 +6067,7 @@ app.get('/api/vendors', authMiddleware, requireRole('cashier'), async (req, res)
         } else {
             rows = await db.all('SELECT * FROM vendors ORDER BY created_at DESC');
         }
-        res.json(rows);
+        res.json((rows || []).map(hydrateVendorRow));
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
@@ -5475,15 +6077,11 @@ app.get('/api/vendors', authMiddleware, requireRole('cashier'), async (req, res)
 app.get('/api/vendors/:id', authMiddleware, requireRole('cashier'), async (req, res) => {
     const { id } = req.params;
     try {
-        const vendor = await db.get('SELECT * FROM vendors WHERE id = ?', [id]);
+        let vendor = await db.get('SELECT * FROM vendors WHERE id = ?', [id]);
         if (!vendor) return res.status(404).json({ error: 'Vendor not found' });
+        vendor = hydrateVendorRow(vendor);
         const productCount = await db.get('SELECT COUNT(*) as c FROM products WHERE vendor_id = ?', [vendor.id]);
         vendor.product_count = productCount?.c || 0;
-        try {
-            vendor.attachments = vendor.attachments ? (typeof vendor.attachments === 'string' ? JSON.parse(vendor.attachments || '[]') : vendor.attachments) : [];
-        } catch (e) {
-            vendor.attachments = [];
-        }
         res.json(vendor);
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -5511,39 +6109,48 @@ app.put('/api/vendors/:id', authMiddleware, requireRole(['manager','admin']), as
     try {
         const vendor = await db.get('SELECT * FROM vendors WHERE id = ?', [id]);
         if (!vendor) return res.status(404).json({ error: 'Vendor not found' });
-        await db.run(
-            `UPDATE vendors SET
-                legal_name = COALESCE(?, legal_name),
-                contact_person = COALESCE(?, contact_person),
-                email = COALESCE(?, email),
-                phone = COALESCE(?, phone),
-                address = COALESCE(?, address),
-                website = COALESCE(?, website),
-                capabilities = COALESCE(?, capabilities),
-                notes = COALESCE(?, notes),
-                tagline = COALESCE(?, tagline),
-                public_description = COALESCE(?, public_description),
-                monthly_fee = COALESCE(?, monthly_fee),
-                billing_start_date = COALESCE(?, billing_start_date)
-             WHERE id = ?`,
-            [
-                legal_name,
-                contact_person,
-                email,
-                phone,
-                address,
-                website,
-                capabilities,
-                notes,
-                tagline,
-                public_description,
-                monthly_fee != null ? Number(monthly_fee) : null,
-                billing_start_date || null,
-                id
-            ]
-        );
+
+        const updates = [];
+        const params = [];
+        const assign = (column, value, transform = (v) => (v === undefined ? undefined : v)) => {
+            const next = transform(value);
+            if (next === undefined) return;
+            updates.push(`${column} = ?`);
+            params.push(next);
+        };
+
+        assign('legal_name', legal_name, (v) => (v === undefined ? undefined : (v || null)));
+        assign('contact_person', contact_person, (v) => (v === undefined ? undefined : (v || null)));
+        assign('email', email, (v) => (v === undefined ? undefined : (v || null)));
+        assign('phone', phone, (v) => (v === undefined ? undefined : (v || null)));
+        assign('address', address, (v) => (v === undefined ? undefined : (v || null)));
+        assign('website', website, (v) => (v === undefined ? undefined : (v || null)));
+        assign('capabilities', capabilities, (v) => (v === undefined ? undefined : (v || null)));
+        assign('notes', notes, (v) => (v === undefined ? undefined : (v || null)));
+        assign('tagline', tagline, (v) => (v === undefined ? undefined : (v || null)));
+        assign('public_description', public_description, (v) => (v === undefined ? undefined : (v || null)));
+        assign('monthly_fee', monthly_fee, (v) => (v === undefined || v === null || v === '' ? undefined : Number(v)));
+        assign('billing_start_date', billing_start_date, (v) => (v === undefined ? undefined : (v || null)));
+        assign('currency', req.body?.currency, (v) => (v === undefined ? undefined : ensureVendorCurrency(v)));
+
+        const { provided: socialProvided, value: socialLinks } = extractSocialLinksPayload(req.body || {});
+        if (socialProvided) {
+            updates.push('social_links = ?');
+            params.push(socialLinks ? JSON.stringify(socialLinks) : null);
+        }
+        if (req.body?.social_showcase_enabled !== undefined || req.body?.socialShowcaseEnabled !== undefined) {
+            const flag = req.body?.social_showcase_enabled ?? req.body?.socialShowcaseEnabled;
+            updates.push('social_showcase_enabled = ?');
+            params.push(flag === undefined || flag === null ? 1 : (Number(flag) ? 1 : 0));
+        }
+
+        if (!updates.length) {
+            return res.json(hydrateVendorRow(vendor));
+        }
+
+        await db.run(`UPDATE vendors SET ${updates.join(', ')} WHERE id = ?`, [...params, id]);
         const updated = await db.get('SELECT * FROM vendors WHERE id = ?', [id]);
-        res.json(updated);
+        res.json(hydrateVendorRow(updated));
     } catch (err) {
         console.error('Failed to update vendor', err);
         res.status(500).json({ error: err?.message || 'Unable to update vendor' });
@@ -5626,6 +6233,72 @@ app.put('/api/vendors/:id/status', authMiddleware, requireRole(['manager','admin
     } catch (err) {
         try { await db.run('ROLLBACK'); } catch {}
         res.status(500).json({ error: err.message });
+    }
+});
+
+app.get('/api/vendor-profile-requests', authMiddleware, requireRole(['manager','admin']), async (req, res) => {
+    try {
+        const status = (req.query.status || 'pending').toString().toLowerCase();
+        const vendorId = req.query.vendorId ? parseInt(req.query.vendorId, 10) : null;
+        const params = [];
+        let whereClause = '1=1';
+        if (status && status !== 'all') {
+            whereClause += ' AND r.status = ?';
+            params.push(status);
+        }
+        if (Number.isInteger(vendorId)) {
+            whereClause += ' AND r.vendor_id = ?';
+            params.push(vendorId);
+        }
+        const rows = await db.all(
+            `SELECT r.*, v.legal_name, v.email, v.slug
+             FROM vendor_profile_requests r
+             JOIN vendors v ON v.id = r.vendor_id
+             WHERE ${whereClause}
+             ORDER BY r.created_at DESC
+             LIMIT 200`,
+            params
+        );
+        const normalized = (rows || []).map((row) => ({
+            ...row,
+            payload: parseJson(row.payload, {}),
+            attachments: parseJson(row.attachments, []),
+        }));
+        res.json(normalized);
+    } catch (err) {
+        console.error('Failed to list vendor profile requests', err);
+        res.status(500).json({ error: 'Failed to list requests' });
+    }
+});
+
+app.post('/api/vendor-profile-requests/:id/decision', authMiddleware, requireRole(['manager','admin']), async (req, res) => {
+    const id = parseInt(req.params.id, 10);
+    if (!Number.isInteger(id)) return res.status(400).json({ error: 'Invalid request id' });
+    const { status, note } = req.body || {};
+    if (!['approved', 'rejected'].includes(status)) return res.status(400).json({ error: 'Invalid status' });
+    try {
+        const request = await db.get(
+            `SELECT r.*, v.legal_name, v.attachments, v.id as vendor_id
+             FROM vendor_profile_requests r
+             JOIN vendors v ON v.id = r.vendor_id
+             WHERE r.id = ?`,
+            [id]
+        );
+        if (!request) return res.status(404).json({ error: 'Request not found' });
+        if (request.status !== 'pending') return res.status(409).json({ error: 'Request already processed' });
+        const payload = parseJson(request.payload, {});
+        if (status === 'approved' && request.type === 'legal_name_change' && payload?.legal_name) {
+            await db.run('UPDATE vendors SET legal_name = ? WHERE id = ?', [payload.legal_name, request.vendor_id]);
+        }
+        await db.run(
+            'UPDATE vendor_profile_requests SET status = ?, reviewed_at = CURRENT_TIMESTAMP, reviewed_by = ?, notes = ? WHERE id = ?',
+            [status, req.user?.staffId || null, note || null, id]
+        );
+        await logActivity('vendor', request.vendor_id, `profile_request_${status}`, req.user?.username || null, JSON.stringify({ requestId: id, type: request.type }));
+        res.json({ id, status });
+    } catch (err) {
+        console.error('Failed to process vendor profile request', err);
+        res.status(500).json({ error: 'Failed to update request' });
     }
 });
 
@@ -5741,6 +6414,7 @@ app.get('/api/public/vendors', async (req, res) => {
         }
         const rows = await db.all(
             `SELECT v.id, v.slug, v.legal_name, v.tagline, v.public_description, v.logo_url, v.website, v.hero_image,
+                    v.social_links, v.social_showcase_enabled,
                     COUNT(p.id) AS product_count
              FROM vendors v
              LEFT JOIN products p ON p.vendor_id = v.id
@@ -5753,7 +6427,8 @@ app.get('/api/public/vendors', async (req, res) => {
         // Normalize logo_url to absolute URLs when necessary so external sites (estore) can load images
         const base = (process.env.PUBLIC_API_BASE || `${req.protocol}://${req.get('host')}`).replace(/\/$/, '');
         const normalized = (rows || []).map(r => {
-            const copy = { ...r };
+            const vendorPayload = publicVendorPayload(r);
+            const copy = { ...vendorPayload, hero_image: vendorPayload?.hero_image, product_count: r.product_count };
             try {
                 if (copy.logo_url && typeof copy.logo_url === 'string' && copy.logo_url.startsWith('/uploads/')) {
                     copy.logo_url = `${base}${copy.logo_url}`;
@@ -5769,19 +6444,14 @@ app.get('/api/public/vendors', async (req, res) => {
 
 app.get('/api/public/vendors/:slug', async (req, res) => {
     try {
-        const vendor = await db.get(
-            'SELECT id, slug, legal_name, contact_person, email, phone, address, website, tagline, public_description, logo_url, hero_image, attachments FROM vendors WHERE slug = ? AND status = ?',
+        let vendor = await db.get(
+            'SELECT id, slug, legal_name, contact_person, email, phone, address, website, tagline, public_description, logo_url, hero_image, attachments, social_links, social_showcase_enabled FROM vendors WHERE slug = ? AND status = ?',
             [req.params.slug, 'active']
         );
         if (!vendor) return res.status(404).json({ error: 'Vendor not found' });
+        vendor = publicVendorPayload(vendor);
         const productCount = await db.get('SELECT COUNT(*) as c FROM products WHERE vendor_id = ?', [vendor.id]);
         vendor.product_count = productCount?.c || 0;
-        // parse attachments JSON if present and normalize any /uploads/ paths to absolute URLs
-        try {
-            vendor.attachments = vendor.attachments ? (typeof vendor.attachments === 'string' ? JSON.parse(vendor.attachments || '[]') : vendor.attachments) : [];
-        } catch (e) {
-            vendor.attachments = [];
-        }
         try {
             const base = (process.env.PUBLIC_API_BASE || `${req.protocol}://${req.get('host')}`).replace(/\/$/, '');
             if (vendor.logo_url && typeof vendor.logo_url === 'string' && vendor.logo_url.startsWith('/uploads/')) {
@@ -5804,6 +6474,8 @@ app.get('/api/public/vendors/:slug', async (req, res) => {
 });
 
 function mapProductForPublic(row) {
+    const vendorSocialLinksRaw = parseJson(row.vendor_social_links, null);
+    const vendorSocialLinks = Number(row.vendor_social_showcase_enabled ?? 1) ? vendorSocialLinksRaw : null;
     return {
         id: row.id,
         name: row.name,
@@ -5825,6 +6497,8 @@ function mapProductForPublic(row) {
         vendor_slug: row.vendor_slug,
         vendor_tagline: row.vendor_tagline,
         vendor_public_description: row.vendor_public_description,
+        vendor_social_links: vendorSocialLinks,
+        created_at: row.created_at,
         gallery: row.gallery ? parseGalleryFromRow(row.gallery) : [],
     };
 }
@@ -5834,7 +6508,7 @@ app.get('/api/public/vendors/:slug/products', async (req, res) => {
         const vendor = await db.get('SELECT id FROM vendors WHERE slug = ? AND status = ?', [req.params.slug, 'active']);
         if (!vendor) return res.status(404).json({ error: 'Vendor not found' });
         const rows = await db.all(
-            `SELECT p.*, v.slug AS vendor_slug, v.legal_name AS vendor_name
+            `SELECT p.*, v.slug AS vendor_slug, v.legal_name AS vendor_name, v.social_links AS vendor_social_links, v.social_showcase_enabled AS vendor_social_showcase_enabled
              FROM products p
              LEFT JOIN vendors v ON p.vendor_id = v.id
              WHERE p.vendor_id = ?

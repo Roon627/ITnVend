@@ -17,6 +17,8 @@ const STEP_CONTENT = [
   },
 ];
 
+const CURRENCY_OPTIONS = ['MVR', 'USD', 'EUR', 'GBP', 'INR', 'AED', 'AUD', 'CAD', 'SGD'];
+
 const getNextBillingStart = () => {
   const now = new Date();
   const next = new Date(now.getFullYear(), now.getMonth() + 1, 1);
@@ -41,6 +43,7 @@ export default function VendorRegister() {
     logo_file: null,
     monthlyFee: '',
     billingStartDate: getNextBillingStart(),
+    currency: 'USD',
   });
   const toast = useToast();
   const navigate = useNavigate();
@@ -86,6 +89,7 @@ export default function VendorRegister() {
       const monthlyFeeValue = form.monthlyFee === '' ? null : Number(form.monthlyFee);
       payload.monthly_fee = Number.isFinite(monthlyFeeValue) ? monthlyFeeValue : null;
       payload.billing_start_date = form.billingStartDate || null;
+      payload.currency = form.currency;
       delete payload.monthlyFee;
       delete payload.billingStartDate;
       const result = await api.post('/vendors/register', payload);
@@ -229,7 +233,7 @@ export default function VendorRegister() {
 
         {step === 2 && (
           <div className="space-y-5">
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
               <label className="text-sm font-medium text-slate-600">
                 Monthly fee*
                 <div className="relative mt-1">
@@ -244,6 +248,20 @@ export default function VendorRegister() {
                     required
               />
             </div>
+              </label>
+              <label className="text-sm font-medium text-slate-600">
+                Currency
+                <select
+                  value={form.currency}
+                  onChange={(e) => change('currency', e.target.value)}
+                  className="mt-1 w-full rounded border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  {CURRENCY_OPTIONS.map((code) => (
+                    <option key={code} value={code}>
+                      {code}
+                    </option>
+                  ))}
+                </select>
               </label>
               <label className="text-sm font-medium text-slate-600">
                 Billing start date

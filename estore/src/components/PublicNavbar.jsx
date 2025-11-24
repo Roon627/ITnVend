@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useMemo, useState } from 'react';
 import { Link, NavLink, useLocation } from 'react-router-dom';
-import { FaBars, FaShoppingCart, FaTimes, FaStore, FaHandshake, FaPaperPlane, FaListUl, FaUserFriends, FaShieldAlt, FaUserPlus, FaChevronDown, FaShoppingBag } from 'react-icons/fa';
+import { FaBars, FaShoppingCart, FaTimes, FaStore, FaHandshake, FaPaperPlane, FaListUl, FaUserFriends, FaShieldAlt, FaUserPlus, FaChevronDown, FaShoppingBag, FaFire } from 'react-icons/fa';
 import { useCart } from './CartContext';
 import { useSettings } from './SettingsContext';
 import { resolveMediaUrl } from '../lib/media';
@@ -86,18 +86,16 @@ export default function PublicNavbar() {
 
     const cartbadge = cartCount > 0 ? (
       <span
-        className="ml-2 inline-flex min-w-[20px] items-center justify-center rounded-full bg-rose-500 px-2 text-xs font-semibold leading-none text-white shadow-sm"
+        className="absolute -right-1 -top-1 inline-flex h-5 w-5 items-center justify-center rounded-full bg-[#0f2b1d] text-[10px] font-semibold text-white shadow-sm"
         aria-label={`${cartCount} item${cartCount === 1 ? '' : 's'} in cart`}
       >
         {cartCount}
       </span>
     ) : null;
 
-    // Larger tap target on small screens: default (mobile) uses bigger padding/text, shrink slightly on sm+
     const cartButtonClasses = [
-      'inline-flex items-center gap-2 rounded-full border border-white/30 bg-white/10 px-4 py-3 text-base font-semibold text-rose-600 backdrop-blur-md',
-      'sm:px-4 sm:py-2 sm:text-sm',
-      'shadow-[0_5px_25px_rgba(244,114,182,0.25)] transition-colors duration-200 hover:border-white/60 hover:shadow-[0_10px_35px_rgba(244,114,182,0.45)]'
+      'relative inline-flex h-10 w-10 items-center justify-center rounded-full border border-white/40 bg-white/10 text-white shadow-sm transition',
+      'hover:border-white hover:bg-white/20 hover:-translate-y-0.5'
     ].join(' ');
 
     const resolvedLogo = resolveMediaUrl(logoUrl) || DEFAULT_BRAND_LOGO;
@@ -110,7 +108,7 @@ export default function PublicNavbar() {
     return (
       <>
       {showNotice && (
-        <div className="bg-gradient-to-r from-[#a78bfa] via-[#cba7ff] to-[#f9a8d4] text-white">
+        <div className="bg-gradient-to-r from-[#0f2b1d] via-[#1a472f] to-[#0f2b1d] text-white">
           <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3 px-6 py-2 text-sm">
             <div className="flex flex-1 flex-wrap items-center gap-2">
               <span className="font-semibold uppercase tracking-wide">Friendly safety reminder:</span>
@@ -138,30 +136,30 @@ export default function PublicNavbar() {
         </div>
       )}
       <header
-        className={`sticky top-0 z-40 bg-gradient-to-r from-[#f6ecff]/80 via-white/50 to-[#fde7f3]/80 backdrop-blur-md transition-shadow duration-300 ${
+        className={`sticky top-0 z-40 bg-gradient-to-r from-[#0f2b1d]/95 via-[#0c2115]/95 to-[#0a1a11]/95 text-white transition-shadow duration-300 ${
           elevated ? 'shadow-md' : 'shadow-sm'
         }`}
       >
-        <div className="mx-auto flex max-w-6xl items-center gap-6 px-6 py-3 lg:py-4">
-            <Link to="/" className="flex items-center gap-3 text-left">
+        <div className="mx-auto flex max-w-6xl items-center gap-6 px-6 py-2.5 lg:py-3">
+            <Link to="/" className="flex items-center gap-3 text-left text-white">
               <img
                 src={resolvedLogo}
                 alt={brandName}
-                className="h-12 w-12 rounded-2xl border border-white/70 bg-white/80 object-contain p-2 shadow-md shadow-rose-200/40"
+                className="h-12 w-12 rounded-2xl border border-white/50 bg-white/80 object-contain p-2 shadow-md shadow-black/30"
                 loading="lazy"
               />
-              <span className="flex flex-col leading-tight text-slate-900">
+              <span className="flex flex-col leading-tight text-white">
                 <span className="text-[12px] font-black tracking-tight uppercase">{brandName}</span>
-                <span className="text-[8px] font-semibold uppercase tracking-[0.35em] text-slate-500">Marketplace</span>
-                <span className="text-[8px] text-rose-400">Retail, subscriptions &amp; smiles in sync</span>
+                <span className="text-[8px] font-semibold uppercase tracking-[0.35em] text-[#b5ccbc]">Marketplace</span>
+                <span className="text-[8px] text-[#e2efe6]">Retail, subscriptions &amp; smiles in sync</span>
               </span>
             </Link>
 
           <nav className="hidden flex-1 items-center justify-center lg:flex">
-            <div className="flex w-full max-w-5xl items-center justify-between gap-2 px-2 py-1 text-[clamp(0.5rem,0.65vw,0.7rem)] font-semibold uppercase tracking-wide">
+            <div className="flex w-full max-w-5xl items-center justify-between gap-2 px-2 py-1 text-[clamp(0.5rem,0.65vw,0.7rem)] font-semibold uppercase tracking-wide text-[#cedfd4]">
               {filteredNavLinks.map((item, idx) => (
                 <Fragment key={item.to}>
-                  {idx !== 0 && <span className="h-7 w-[3px] rounded-full bg-gradient-to-b from-rose-400 via-white to-sky-400 opacity-90" />}
+                  {idx !== 0 && <span className="h-7 w-[3px] rounded-full bg-gradient-to-b from-transparent via-[#c9d6cc] to-transparent opacity-90" />}
                   <NavLink
                     to={item.to}
                     title={item.description || item.label}
@@ -169,8 +167,8 @@ export default function PublicNavbar() {
                       [
                         'group inline-flex min-w-0 flex-1 items-center justify-center px-2 py-1 text-center transition-all duration-200 rounded-xl border',
                         isActive
-                          ? 'border-rose-200 bg-gradient-to-b from-white to-rose-50 text-rose-600 shadow-sm'
-                          : 'border-transparent text-slate-600 hover:-translate-y-0.5 hover:border-rose-200 hover:bg-white',
+                          ? 'border-white/40 bg-white/15 text-white shadow-[0_8px_20px_rgba(0,0,0,0.25)]'
+                          : 'border-transparent text-[#bfcec3] hover:-translate-y-0.5 hover:border-white/30 hover:bg-white/10 hover:text-white',
                       ].join(' ')
                     }
                   >
@@ -186,10 +184,9 @@ export default function PublicNavbar() {
           </nav>
 
           <div className="ml-auto flex items-center gap-3">
-            <div className="relative">
-              <Link to="/cart" className={`${cartButtonClasses} hidden md:inline-flex`}>
-                <FaShoppingCart className="mr-2" aria-hidden="true" />
-                Cart
+            <div>
+              <Link to="/cart" className={`${cartButtonClasses} hidden md:inline-flex`} aria-label={`Cart with ${cartCount} items`}>
+                <FaShoppingCart aria-hidden="true" />
                 {cartbadge}
               </Link>
             </div>
@@ -202,9 +199,9 @@ export default function PublicNavbar() {
                 <span className="inline-flex h-8 w-8 items-center justify-center rounded-xl bg-white/20 text-white">
                   <FaShoppingBag />
                 </span>
-                <span className="flex flex-col leading-tight text-left">
-                  <span className="text-xs font-semibold uppercase tracking-wide">Curated picks</span>
-                  <span className="text-[10px] text-white/80">Fresh drops daily</span>
+                <span className="text-xs font-semibold uppercase tracking-wide">
+                  Market
+                  <FaFire className="ml-1 inline text-[10px]" aria-hidden="true" />
                 </span>
               </Link>
             )}
@@ -236,27 +233,27 @@ export default function PublicNavbar() {
             }`}
           >
             <div className="flex items-center justify-between pb-4">
-              <div className="text-sm font-semibold text-rose-500">
+              <div className="text-sm font-semibold text-[#0f2b1d]">
                 {activeLabel ? `Currently viewing: ${activeLabel}` : 'Navigate'}
               </div>
               <button
                 type="button"
-                className="rounded-full border border-rose-200 p-2 text-rose-500 shadow-sm transition hover:bg-rose-50"
+                className="rounded-full border border-[#c9d6cc] p-2 text-[#0f2b1d] shadow-sm transition hover:bg-[#eef5f0]"
                 onClick={() => setMobileOpen(false)}
                 aria-label="Close navigation menu"
               >
                 <FaTimes />
               </button>
             </div>
-            <nav className="space-y-2 text-base font-semibold text-rose-500">
+            <nav className="space-y-2 text-base font-semibold text-[#10321f]">
               {filteredNavLinks.map((item) =>
                 item.children ? (
-                  <div key={item.label} className="space-y-2 rounded-2xl border border-rose-100 bg-white p-3">
-                    <div className="flex items-center gap-2 text-sm font-semibold text-rose-500">
-                      {item.icon && <item.icon size={16} className="text-rose-400" />}
+                  <div key={item.label} className="space-y-2 rounded-2xl border border-[#d7e4da] bg-white p-3">
+                    <div className="flex items-center gap-2 text-sm font-semibold text-[#4f5c52]">
+                      {item.icon && <item.icon size={16} className="text-[#0f2b1d]" />}
                       {item.label}
                     </div>
-                    <div className="space-y-2 text-sm font-medium text-slate-600">
+                    <div className="space-y-2 text-sm font-medium text-[#4b5a4d]">
                       {item.children.map((child) => (
                         <NavLink
                           key={child.to}
@@ -264,13 +261,13 @@ export default function PublicNavbar() {
                           className={({ isActive }) =>
                             `flex flex-col rounded-xl border px-3 py-2 transition ${
                               isActive
-                                ? 'border-rose-300 bg-rose-50 text-rose-600'
-                                : 'border-rose-100 bg-white hover:border-rose-200 hover:bg-rose-50/70'
+                                ? 'border-[#0f2b1d] bg-[#edf5ef] text-[#0f2b1d]'
+                                : 'border-[#d7e4da] bg-white hover:border-[#0f2b1d]/40 hover:bg-[#f3f7f4]'
                             }`
                           }
                         >
                           <span className="font-semibold">{child.label}</span>
-                          {child.description && <span className="text-xs text-slate-400">{child.description}</span>}
+                          {child.description && <span className="text-xs text-[#6a776b]">{child.description}</span>}
                         </NavLink>
                       ))}
                     </div>
@@ -282,19 +279,19 @@ export default function PublicNavbar() {
                     className={({ isActive }) =>
                       `flex items-center justify-between rounded-2xl border px-4 py-3 transition ${
                         isActive
-                          ? 'border-rose-400 bg-rose-50 text-rose-600 shadow-sm'
-                          : 'border-rose-100 bg-white hover:border-rose-200 hover:bg-rose-50/70'
+                          ? 'border-[#0f2b1d] bg-[#edf5ef] text-[#0f2b1d] shadow-sm'
+                          : 'border-[#d7e4da] bg-white hover:border-[#0f2b1d]/40 hover:bg-[#f3f7f4]'
                       }`
                     }
                   >
                     <div className="flex flex-col">
                       <span className="flex items-center gap-2 text-sm font-semibold">
-                        {item.icon && <item.icon size={18} className="text-rose-400" />}
+                        {item.icon && <item.icon size={18} className="text-[#0f2b1d]" />}
                         {item.label}
                       </span>
-                      {item.description && <span className="text-xs font-normal text-slate-400">{item.description}</span>}
+                      {item.description && <span className="text-xs font-normal text-[#6a776b]">{item.description}</span>}
                     </div>
-                    <span className="inline-flex h-6 w-6 items-center justify-center rounded-full border border-rose-200 text-xs text-rose-400">
+                    <span className="inline-flex h-6 w-6 items-center justify-center rounded-full border border-[#d7e4da] text-xs text-[#4f5a50]">
                       •
                     </span>
                   </NavLink>
@@ -304,13 +301,13 @@ export default function PublicNavbar() {
             <div className="mt-6 grid gap-3">
               <Link
                 to="/market"
-                className="btn-sm btn-sm-primary inline-flex items-center justify-center rounded-full bg-gradient-to-r from-rose-500 to-sky-400 text-white shadow-lg shadow-rose-200/80 transition hover:-translate-y-0.5"
+                className="btn-sm btn-sm-primary inline-flex items-center justify-center rounded-full bg-gradient-to-r from-[#1b4c31] to-[#0f2b1d] text-white shadow-lg shadow-black/30 transition hover:-translate-y-0.5"
               >
                 Explore Market Hub
               </Link>
               <Link
                 to="/contact"
-                className="btn-sm btn-sm-outline inline-flex items-center justify-center rounded-full border border-rose-200 bg-white text-rose-500 transition hover:border-rose-300 hover:text-rose-600"
+                className="btn-sm btn-sm-outline inline-flex items-center justify-center rounded-full border border-[#c9d6cc] bg-white text-[#0f2b1d] transition hover:border-[#0f2b1d] hover:text-[#0f2b1d]"
               >
                 Talk to a human
               </Link>

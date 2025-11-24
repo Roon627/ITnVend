@@ -27,14 +27,14 @@ export default function NewArrivalsStrip({ items = [], onView = () => {}, onBrow
             <button
               type="button"
               onClick={() => onView()}
-              className="inline-flex items-center gap-2 rounded-full border border-rose-200 bg-rose-50 px-3 py-1.5 text-sm font-semibold text-rose-600 w-full sm:w-auto justify-center"
+              className="btn-sm btn-sm-outline w-full sm:w-auto justify-center text-xs"
             >
               View
             </button>
             <button
               type="button"
               onClick={() => onBrowse()}
-              className="inline-flex items-center gap-2 rounded-full border border-rose-200 bg-rose-50 px-3 py-1.5 text-sm font-semibold text-rose-600 w-full sm:w-auto justify-center"
+              className="btn-sm btn-sm-primary w-full sm:w-auto justify-center text-xs"
             >
               Browse market
             </button>

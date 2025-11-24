@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, useCallback } from 'react';
 import { FaEnvelopeOpenText, FaExternalLinkAlt, FaHistory, FaSync, FaTimes } from 'react-icons/fa';
-import { api } from '../lib/api';
+import api from '../lib/api';
 import Modal from '../components/Modal';
 import { useToast } from '../components/ToastContext';
 
@@ -83,31 +83,7 @@ export default function Preorders() {
 
   const filteredOptions = useMemo(() => STATUS_OPTIONS, []);
 
-  useEffect(() => {
-    loadPreorders(statusFilter);
-  }, [statusFilter, loadPreorders]);
-
-  useEffect(() => {
-    if (selectedId == null && preorders.length > 0) {
-      setSelectedId(preorders[0].id);
-    }
-  }, [preorders, selectedId]);
-
-  useEffect(() => {
-    if (selectedId != null) {
-      loadDetail(selectedId);
-    } else {
-      setDetail(null);
-    }
-  }, [selectedId, loadDetail]);
-
-  useEffect(() => {
-    if (!customerMessage.trim()) {
-      setNotifyCustomer(false);
-    }
-  }, [customerMessage]);
-
-const loadPreorders = useCallback(async (status) => {
+  const loadPreorders = useCallback(async (status) => {
     setLoading(true);
     try {
       const params = status !== 'all' ? { status } : {};
@@ -138,6 +114,31 @@ const loadPreorders = useCallback(async (status) => {
       setDetailLoading(false);
     }
   }, [toast]);
+
+  useEffect(() => {
+    loadPreorders(statusFilter);
+  }, [statusFilter, loadPreorders]);
+
+  useEffect(() => {
+    if (selectedId == null && preorders.length > 0) {
+      setSelectedId(preorders[0].id);
+    }
+  }, [preorders, selectedId]);
+
+  useEffect(() => {
+    if (selectedId != null) {
+      loadDetail(selectedId);
+    } else {
+      setDetail(null);
+    }
+  }, [selectedId, loadDetail]);
+
+  useEffect(() => {
+    if (!customerMessage.trim()) {
+      setNotifyCustomer(false);
+    }
+  }, [customerMessage]);
+
 
   async function handleUpdate(event) {
     event.preventDefault();
@@ -511,8 +512,6 @@ const loadPreorders = useCallback(async (status) => {
     </div>
   );
 }
-
-
 
 
 

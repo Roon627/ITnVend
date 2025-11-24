@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { FaBuilding, FaEnvelope, FaGlobe, FaKey } from 'react-icons/fa';
 import api, { setAuthToken } from '../lib/api';
 import { useToast } from '../components/ToastContext';
@@ -33,10 +34,17 @@ export default function Vendors() {
   const [billingForm, setBillingForm] = useState({ monthlyFee: '', billingStartDate: '' });
   const [billingLoading, setBillingLoading] = useState(false);
 
-  const [editModalOpen, setEditModalOpen] = useState(false);
-  const [editVendor, setEditVendor] = useState(null);
-  const [editSaving, setEditSaving] = useState(false);
   const [invoiceActionId, setInvoiceActionId] = useState(null);
+  const [voidingInvoiceId, setVoidingInvoiceId] = useState(null);
+  const [invoicePreview, setInvoicePreview] = useState(null);
+  const [invoicePreviewLoading, setInvoicePreviewLoading] = useState(false);
+  const billingCurrency = billingVendor?.currency || 'USD';
+  const [profileRequests, setProfileRequests] = useState([]);
+  const [requestsLoading, setRequestsLoading] = useState(false);
+  const [requestModal, setRequestModal] = useState(null);
+  const [requestDecisionNote, setRequestDecisionNote] = useState('');
+  const [requestSaving, setRequestSaving] = useState(false);
+  const navigate = useNavigate();
   const vendorPortalBase = useMemo(() => {
     if (VENDOR_PORTAL_SOURCE) return VENDOR_PORTAL_SOURCE.replace(/\/$/, '');
     if (typeof window !== 'undefined' && window.location?.origin) {
@@ -62,6 +70,24 @@ export default function Vendors() {
     fetchVendors();
   }, [fetchVendors]);
 
+  const loadProfileRequests = useCallback(async () => {
+    setRequestsLoading(true);
+    try {
+      const res = await api.get('/vendor-profile-requests', { params: { status: 'pending' } });
+      setProfileRequests(res || []);
+    } catch (err) {
+      console.error('Failed to load vendor profile requests', err);
+      toast.push('Failed to load vendor profile requests', 'error');
+      setProfileRequests([]);
+    } finally {
+      setRequestsLoading(false);
+    }
+  }, [toast]);
+
+  useEffect(() => {
+    loadProfileRequests();
+  }, [loadProfileRequests]);
+
   async function updateStatus(id, nextStatus) {
     try {
       await api.put(`/vendors/${id}/status`, { status: nextStatus });
@@ -81,6 +107,32 @@ export default function Vendors() {
     } catch (err) {
       console.error('Failed to resend credentials', err);
       toast.push(err?.data?.error || err?.message || 'Failed to resend credentials', 'error');
+    }
+  }
+
+  function openRequestReview(request) {
+    setRequestDecisionNote('');
+    setRequestModal(request);
+  }
+
+  async function handleRequestDecision(decision) {
+    if (!requestModal) return;
+    setRequestSaving(true);
+    try {
+      await api.post(`/vendor-profile-requests/${requestModal.id}/decision`, {
+        status: decision,
+        note: requestDecisionNote || undefined,
+      });
+      toast.push(`Request ${decision}`, 'success');
+      setRequestModal(null);
+      setRequestDecisionNote('');
+      loadProfileRequests();
+      fetchVendors();
+    } catch (err) {
+      console.error('Failed to update profile request', err);
+      toast.push(err?.data?.error || err?.message || 'Failed to update request', 'error');
+    } finally {
+      setRequestSaving(false);
     }
   }
 
@@ -165,54 +217,9 @@ export default function Vendors() {
     setBillingForm({ monthlyFee: '', billingStartDate: '' });
   };
 
-  function openEditModal(vendor) {
-    setEditVendor({
-      id: vendor.id,
-      legal_name: vendor.legal_name || '',
-      contact_person: vendor.contact_person || '',
-      email: vendor.email || '',
-      phone: vendor.phone || '',
-      address: vendor.address || '',
-      website: vendor.website || '',
-      capabilities: vendor.capabilities || '',
-      notes: vendor.notes || '',
-      tagline: vendor.tagline || '',
-      public_description: vendor.public_description || '',
-      monthly_fee: vendor.monthly_fee != null ? Number(vendor.monthly_fee).toFixed(2) : '',
-      billing_start_date: vendor.billing_start_date ? vendor.billing_start_date.slice(0, 10) : '',
-    });
-    setEditModalOpen(true);
-  }
-
-  async function saveVendorDetails() {
-    if (!editVendor) return;
-    setEditSaving(true);
-    try {
-      const payload = {
-        legal_name: editVendor.legal_name,
-        contact_person: editVendor.contact_person,
-        email: editVendor.email,
-        phone: editVendor.phone,
-        address: editVendor.address,
-        website: editVendor.website,
-        capabilities: editVendor.capabilities,
-        notes: editVendor.notes,
-        tagline: editVendor.tagline,
-        public_description: editVendor.public_description,
-        monthly_fee: editVendor.monthly_fee === '' ? null : Number(editVendor.monthly_fee),
-        billing_start_date: editVendor.billing_start_date || null,
-      };
-      await api.put(`/vendors/${editVendor.id}`, payload);
-      toast.push('Vendor updated', 'success');
-      setEditModalOpen(false);
-      setEditVendor(null);
-      fetchVendors();
-    } catch (err) {
-      console.error('Failed to update vendor', err);
-      toast.push(err?.data?.error || err?.message || 'Failed to update vendor', 'error');
-    } finally {
-      setEditSaving(false);
-    }
+  function openEditPage(vendor) {
+    if (!vendor?.id) return;
+    navigate(`/vendors/${vendor.id}/edit`);
   }
 
 
@@ -292,6 +299,61 @@ export default function Vendors() {
     }
   }
 
+  async function previewInvoice(inv) {
+    if (!billingVendor || !inv) return;
+    setInvoicePreview({ invoice: inv, html: '' });
+    setInvoicePreviewLoading(true);
+    try {
+      const res = await api.get(`/vendors/${billingVendor.id}/invoices/${inv.id}/preview`);
+      setInvoicePreview({ invoice: inv, html: res?.html || '' });
+    } catch (err) {
+      console.error('Failed to preview invoice', err);
+      toast.push(err?.data?.error || err?.message || 'Failed to preview invoice', 'error');
+      setInvoicePreview(null);
+    } finally {
+      setInvoicePreviewLoading(false);
+    }
+  }
+
+  async function downloadInvoice(inv) {
+    if (!billingVendor || !inv) return;
+    try {
+      const token = typeof window !== 'undefined' ? localStorage.getItem('ITnvend_token') : null;
+      const headers = token ? { Authorization: `Bearer ${token}` } : {};
+      const res = await fetch(`/api/vendors/${billingVendor.id}/invoices/${inv.id}/pdf`, { headers });
+      if (!res.ok) throw new Error('Download failed');
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `${inv.invoice_number || `invoice-${inv.id}`}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error('Failed to download invoice', err);
+      toast.push('Failed to download invoice', 'error');
+    }
+  }
+
+  async function voidInvoice(inv) {
+    if (!billingVendor || !inv) return;
+    const reason = window.prompt('Provide a reason for voiding this invoice:');
+    if (!reason) return;
+    setVoidingInvoiceId(inv.id);
+    try {
+      await api.del(`/vendors/${billingVendor.id}/invoices/${inv.id}`, { body: { reason } });
+      toast.push('Invoice voided', 'success');
+      loadBillingInvoices(billingVendor.id);
+    } catch (err) {
+      console.error('Failed to void invoice', err);
+      toast.push(err?.data?.error || err?.message || 'Failed to void invoice', 'error');
+    } finally {
+      setVoidingInvoiceId(null);
+    }
+  }
+
   async function reactivateVendorFromModal() {
     if (!billingVendor) return;
     try {
@@ -353,6 +415,51 @@ export default function Vendors() {
         </div>
       </section>
 
+      <section className="rounded-2xl border border-slate-100 bg-white/90 p-6 shadow-sm">
+        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div>
+            <h2 className="text-xl font-semibold text-slate-900">Profile verifications</h2>
+            <p className="text-sm text-slate-500">Legal name change requests submitted by approved vendors.</p>
+          </div>
+          <div className="rounded-full border border-slate-200 px-4 py-1 text-sm text-slate-600">
+            Pending: {profileRequests.length}
+          </div>
+        </div>
+        {requestsLoading ? (
+          <div className="mt-4 text-sm text-slate-500">Checking for pending requests…</div>
+        ) : profileRequests.length === 0 ? (
+          <div className="mt-4 text-sm text-slate-500">No profile updates awaiting review.</div>
+        ) : (
+          <div className="mt-4 grid gap-3 md:grid-cols-2">
+            {profileRequests.map((request) => {
+              const nextName = request.payload?.legal_name || '—';
+              return (
+                <article key={request.id} className="rounded-2xl border border-amber-100 bg-amber-50/70 p-4 shadow-inner shadow-amber-100">
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <p className="text-xs font-semibold uppercase tracking-wide text-amber-500">Vendor</p>
+                      <p className="text-base font-semibold text-amber-900">{request.legal_name}</p>
+                      <p className="text-sm text-amber-800">Requested: <span className="font-semibold">{nextName}</span></p>
+                      <p className="text-xs text-amber-600">Submitted {new Date(request.created_at).toLocaleDateString()}</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => openRequestReview(request)}
+                      className="rounded-full border border-amber-200 bg-white px-3 py-1 text-xs font-semibold text-amber-700 hover:border-amber-300"
+                    >
+                      Review
+                    </button>
+                  </div>
+                  <p className="mt-3 text-xs text-amber-700">
+                    {request.attachments?.length || 0} document{request.attachments?.length === 1 ? '' : 's'} attached
+                  </p>
+                </article>
+              );
+            })}
+          </div>
+        )}
+      </section>
+
       <section className="rounded-2xl border border-white/60 bg-white/90 p-6 shadow-xl shadow-blue-100/50 backdrop-blur">
         {loading ? (
           <div className="py-10 text-center text-sm text-slate-500">Loading vendor applications…</div>
@@ -386,6 +493,7 @@ export default function Vendors() {
                       <span>{vendor.contact_person || 'No contact listed'}</span>
                       {vendor.phone && <span className="text-xs text-slate-400">• {vendor.phone}</span>}
                     </div>
+                    <div className="text-xs uppercase tracking-wide text-slate-400">Currency · {vendor.currency || 'USD'}</div>
                     {vendor.capabilities && (
                       <p className="text-xs text-slate-500 line-clamp-2">{vendor.capabilities}</p>
                     )}
@@ -411,7 +519,7 @@ export default function Vendors() {
                       ) : (
                         <>
                           <button type="button" onClick={() => resendCredentialsUI(vendor.id)} className="rounded-full border px-4 py-2 text-sm font-semibold">Resend credentials</button>
-                          <button type="button" onClick={() => openEditModal(vendor)} className="rounded-full border px-4 py-2 text-sm font-semibold">Edit details</button>
+                          <button type="button" onClick={() => openEditPage(vendor)} className="rounded-full border px-4 py-2 text-sm font-semibold">Edit details</button>
                           <button type="button" onClick={() => openBillingModal(vendor)} className="rounded-full border px-4 py-2 text-sm font-semibold">Billing</button>
                           <button type="button" onClick={() => sendPasswordReset(vendor)} className="rounded-full border px-4 py-2 text-sm font-semibold">Send password reset</button>
                           <button type="button" onClick={() => impersonateVendor(vendor.id)} className="rounded-full bg-blue-600 text-white px-4 py-2 text-sm font-semibold">Login as vendor</button>
@@ -504,68 +612,72 @@ export default function Vendors() {
         </div>
       </Modal>
 
-      <Modal open={editModalOpen} onClose={() => setEditModalOpen(false)}>
-        <div className="w-full max-w-3xl rounded-2xl border border-slate-200 bg-white p-5">
+      <Modal open={!!requestModal} onClose={() => setRequestModal(null)}>
+        <div className="w-full max-w-xl rounded-2xl border border-amber-200 bg-white p-5">
           <div className="flex items-center justify-between">
-            <h3 className="text-lg font-semibold">Edit vendor — {editVendor?.legal_name || ''}</h3>
-            <button onClick={() => setEditModalOpen(false)} className="text-sm text-slate-500">Close</button>
+            <h3 className="text-lg font-semibold">Review request — {requestModal?.legal_name || ''}</h3>
+            <button onClick={() => setRequestModal(null)} className="text-sm text-slate-500">Close</button>
           </div>
-          <form className="mt-4 grid gap-4 md:grid-cols-2" onSubmit={(e) => { e.preventDefault(); saveVendorDetails(); }}>
-            <label className="text-sm font-medium text-slate-600">
-              Legal name
-              <input value={editVendor?.legal_name || ''} onChange={(e) => setEditVendor((prev) => ({ ...prev, legal_name: e.target.value }))} className="mt-1 w-full rounded border border-slate-200 px-3 py-2" required />
-            </label>
-            <label className="text-sm font-medium text-slate-600">
-              Contact person
-              <input value={editVendor?.contact_person || ''} onChange={(e) => setEditVendor((prev) => ({ ...prev, contact_person: e.target.value }))} className="mt-1 w-full rounded border border-slate-200 px-3 py-2" />
-            </label>
-            <label className="text-sm font-medium text-slate-600">
-              Email
-              <input type="email" value={editVendor?.email || ''} onChange={(e) => setEditVendor((prev) => ({ ...prev, email: e.target.value }))} className="mt-1 w-full rounded border border-slate-200 px-3 py-2" />
-            </label>
-            <label className="text-sm font-medium text-slate-600">
-              Phone
-              <input value={editVendor?.phone || ''} onChange={(e) => setEditVendor((prev) => ({ ...prev, phone: e.target.value }))} className="mt-1 w-full rounded border border-slate-200 px-3 py-2" />
-            </label>
-            <label className="text-sm font-medium text-slate-600 md:col-span-2">
-              Address
-              <input value={editVendor?.address || ''} onChange={(e) => setEditVendor((prev) => ({ ...prev, address: e.target.value }))} className="mt-1 w-full rounded border border-slate-200 px-3 py-2" />
-            </label>
-            <label className="text-sm font-medium text-slate-600">
-              Website
-              <input value={editVendor?.website || ''} onChange={(e) => setEditVendor((prev) => ({ ...prev, website: e.target.value }))} className="mt-1 w-full rounded border border-slate-200 px-3 py-2" />
-            </label>
-            <label className="text-sm font-medium text-slate-600">
-              Monthly fee (MVR)
-              <input type="number" step="0.01" value={editVendor?.monthly_fee || ''} onChange={(e) => setEditVendor((prev) => ({ ...prev, monthly_fee: e.target.value }))} className="mt-1 w-full rounded border border-slate-200 px-3 py-2" />
-            </label>
-            <label className="text-sm font-medium text-slate-600">
-              Billing start date
-              <input type="date" value={editVendor?.billing_start_date || ''} onChange={(e) => setEditVendor((prev) => ({ ...prev, billing_start_date: e.target.value }))} className="mt-1 w-full rounded border border-slate-200 px-3 py-2" />
-            </label>
-            <label className="text-sm font-medium text-slate-600 md:col-span-2">
-              Capabilities / scope
-              <textarea value={editVendor?.capabilities || ''} onChange={(e) => setEditVendor((prev) => ({ ...prev, capabilities: e.target.value }))} rows="2" className="mt-1 w-full rounded border border-slate-200 px-3 py-2" />
-            </label>
-            <label className="text-sm font-medium text-slate-600 md:col-span-2">
-              Notes (internal)
-              <textarea value={editVendor?.notes || ''} onChange={(e) => setEditVendor((prev) => ({ ...prev, notes: e.target.value }))} rows="2" className="mt-1 w-full rounded border border-slate-200 px-3 py-2" />
-            </label>
-            <label className="text-sm font-medium text-slate-600">
-              Tagline
-              <input value={editVendor?.tagline || ''} onChange={(e) => setEditVendor((prev) => ({ ...prev, tagline: e.target.value }))} className="mt-1 w-full rounded border border-slate-200 px-3 py-2" />
-            </label>
-            <label className="text-sm font-medium text-slate-600 md:col-span-2">
-              Public description
-              <textarea value={editVendor?.public_description || ''} onChange={(e) => setEditVendor((prev) => ({ ...prev, public_description: e.target.value }))} rows="3" className="mt-1 w-full rounded border border-slate-200 px-3 py-2" />
-            </label>
-            <div className="md:col-span-2 flex flex-col gap-2 sm:flex-row sm:justify-end">
-              <button type="button" onClick={() => setEditModalOpen(false)} className="rounded-full border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-600">Cancel</button>
-              <button type="submit" disabled={editSaving} className="rounded-full bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow disabled:opacity-50">{editSaving ? 'Saving…' : 'Save changes'}</button>
+          {requestModal ? (
+            <div className="mt-4 space-y-4">
+              <div className="rounded-xl border border-amber-100 bg-amber-50/80 p-3">
+                <p className="text-xs font-semibold uppercase tracking-wide text-amber-500">Requested legal name</p>
+                <p className="text-lg font-semibold text-amber-900">{requestModal.payload?.legal_name || '—'}</p>
+              </div>
+              <div>
+                <p className="text-sm font-semibold text-slate-700">Documents</p>
+                {requestModal.attachments?.length ? (
+                  <ul className="mt-2 space-y-1 text-sm text-slate-600">
+                    {requestModal.attachments.map((doc, idx) => (
+                      <li key={`${doc.path || idx}`} className="flex items-center justify-between gap-2 rounded-lg border border-slate-100 px-3 py-2">
+                        <span>{doc.name || `Document ${idx + 1}`}</span>
+                        {doc.path && (
+                          <a href={doc.path} target="_blank" rel="noreferrer" className="text-xs font-semibold text-blue-600 hover:underline">
+                            View
+                          </a>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="mt-1 text-sm text-slate-500">No documents attached.</p>
+                )}
+              </div>
+              <div>
+                <label className="text-sm font-medium text-slate-700">
+                  Reviewer note
+                  <textarea
+                    value={requestDecisionNote}
+                    onChange={(e) => setRequestDecisionNote(e.target.value)}
+                    rows={3}
+                    className="mt-1 w-full rounded border border-slate-200 px-3 py-2 text-sm"
+                    placeholder="Optional note for audit trail"
+                  />
+                </label>
+              </div>
+              <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
+                <button
+                  type="button"
+                  disabled={requestSaving}
+                  onClick={() => handleRequestDecision('rejected')}
+                  className="rounded-full border border-rose-200 bg-white px-4 py-2 text-sm font-semibold text-rose-600 disabled:opacity-50"
+                >
+                  {requestSaving ? 'Processing…' : 'Reject'}
+                </button>
+                <button
+                  type="button"
+                  disabled={requestSaving}
+                  onClick={() => handleRequestDecision('approved')}
+                  className="rounded-full bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow disabled:opacity-50"
+                >
+                  {requestSaving ? 'Processing…' : 'Approve'}
+                </button>
+              </div>
             </div>
-          </form>
+          ) : null}
         </div>
       </Modal>
+
 
       <Modal open={billingModalOpen} onClose={closeBillingModal}>
         <div className="w-full max-w-3xl rounded-2xl border border-slate-200 bg-white p-5">
@@ -620,37 +732,93 @@ export default function Vendors() {
                     </tr>
                   </thead>
                   <tbody>
-                    {billingInvoices.map((inv) => (
-                      <tr key={inv.id} className="border-t text-slate-600">
-                        <td className="px-2 py-2">{inv.invoice_number || inv.id}</td>
-                        <td className="px-2 py-2">MVR {Number(inv.fee_amount || 0).toFixed(2)}</td>
-                        <td className="px-2 py-2">
-                          <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${inv.status === 'paid' ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'}`}>
-                            {inv.status || 'unpaid'}
-                          </span>
-                        </td>
-                        <td className="px-2 py-2">{inv.due_date ? new Date(inv.due_date).toLocaleDateString() : '—'}</td>
-                        <td className="px-2 py-2">
-                          {inv.status === 'paid' ? (
-                            <span className="text-xs text-slate-400">Settled</span>
-                          ) : (
-                            <button
-                              type="button"
-                              onClick={() => markInvoicePaid(inv)}
-                              disabled={invoiceActionId === inv.id}
-                              className="rounded-full border border-slate-200 px-3 py-1 text-xs font-semibold text-slate-700 hover:border-emerald-200 hover:text-emerald-600 disabled:cursor-not-allowed disabled:opacity-60"
-                            >
-                              {invoiceActionId === inv.id ? 'Marking…' : 'Mark paid'}
-                            </button>
-                          )}
-                        </td>
-                      </tr>
-                    ))}
+                    {billingInvoices.map((inv) => {
+                      const status = (inv.status || 'unpaid').toLowerCase();
+                      const statusClass =
+                        status === 'paid'
+                          ? 'bg-emerald-50 text-emerald-700'
+                          : status === 'void'
+                          ? 'bg-rose-50 text-rose-700'
+                          : 'bg-amber-50 text-amber-700';
+                      return (
+                        <tr key={inv.id} className="border-t text-slate-600">
+                          <td className="px-2 py-2">
+                            <div className="font-semibold">{inv.invoice_number || inv.id}</div>
+                            {inv.void_reason && <div className="text-[11px] text-rose-500">Voided: {inv.void_reason}</div>}
+                          </td>
+                          <td className="px-2 py-2">
+                            {billingCurrency} {Number(inv.fee_amount || 0).toFixed(2)}
+                          </td>
+                          <td className="px-2 py-2">
+                            <span className={`rounded-full px-2 py-0.5 text-xs font-semibold capitalize ${statusClass}`}>
+                              {status}
+                            </span>
+                          </td>
+                          <td className="px-2 py-2">{inv.due_date ? new Date(inv.due_date).toLocaleDateString() : '—'}</td>
+                          <td className="px-2 py-2">
+                            <div className="flex flex-wrap gap-2">
+                              <button
+                                type="button"
+                                onClick={() => previewInvoice(inv)}
+                                className="rounded-full border border-slate-200 px-3 py-1 text-xs font-semibold text-slate-700 hover:border-blue-200 hover:text-blue-600"
+                              >
+                                Preview
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => downloadInvoice(inv)}
+                                className="rounded-full border border-slate-200 px-3 py-1 text-xs font-semibold text-slate-700 hover:border-blue-200 hover:text-blue-600"
+                              >
+                                Download
+                              </button>
+                              {status !== 'paid' && status !== 'void' && (
+                                <button
+                                  type="button"
+                                  onClick={() => markInvoicePaid(inv)}
+                                  disabled={invoiceActionId === inv.id}
+                                  className="rounded-full border border-slate-200 px-3 py-1 text-xs font-semibold text-emerald-700 hover:border-emerald-200 hover:text-emerald-600 disabled:cursor-not-allowed disabled:opacity-60"
+                                >
+                                  {invoiceActionId === inv.id ? 'Marking…' : 'Mark paid'}
+                                </button>
+                              )}
+                              {status !== 'void' && (
+                                <button
+                                  type="button"
+                                  onClick={() => voidInvoice(inv)}
+                                  disabled={voidingInvoiceId === inv.id}
+                                  className="rounded-full border border-rose-200 px-3 py-1 text-xs font-semibold text-rose-600 hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-60"
+                                >
+                                  {voidingInvoiceId === inv.id ? 'Voiding…' : 'Void'}
+                                </button>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
             )}
           </div>
+        </div>
+      </Modal>
+
+      <Modal open={Boolean(invoicePreview)} onClose={() => setInvoicePreview(null)}>
+        <div className="w-full max-w-3xl rounded-2xl border border-slate-200 bg-white p-5">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-lg font-semibold">Invoice preview — {invoicePreview?.invoice?.invoice_number || invoicePreview?.invoice?.id || ''}</h3>
+            <button onClick={() => setInvoicePreview(null)} className="text-sm text-slate-500">Close</button>
+          </div>
+          {invoicePreviewLoading ? (
+            <div className="py-10 text-center text-sm text-slate-500">Loading preview…</div>
+          ) : invoicePreview?.html ? (
+            <div className="max-h-[70vh] overflow-auto rounded-xl border border-slate-100">
+              <div dangerouslySetInnerHTML={{ __html: invoicePreview.html }} />
+            </div>
+          ) : (
+            <div className="py-6 text-sm text-slate-500">No preview available.</div>
+          )}
         </div>
       </Modal>
     </div>

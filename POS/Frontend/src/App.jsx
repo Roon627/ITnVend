@@ -9,6 +9,7 @@ import Settings from './pages/Settings/Settings';
 import VendorRegister from './pages/VendorRegister';
 import CasualSeller from './pages/CasualSeller';
 import Vendors from './pages/Vendors';
+import VendorEdit from './pages/VendorEdit';
 import OneTimeSellers from './pages/OneTimeSellers';
 import Submissions from './pages/Submissions';
 import Staff from './pages/Staff';
@@ -26,6 +27,7 @@ import ContactOnly from './pages/ContactOnly';
 import VendorLogin from './modules/vendor/VendorLogin';
 import VendorDashboard from './modules/vendor/VendorDashboard';
 import VendorProducts from './pages/vendor/VendorProducts';
+import VendorSettings from './pages/vendor/VendorSettings';
 import ManageLookups from './pages/ManageLookups';
 import AddProduct from './pages/AddProduct';
 import EditProduct from './pages/EditProduct';
@@ -93,6 +95,7 @@ function App() {
       <Route path="/invoices" element={<Invoices />} />
   <Route path="/vendors" element={<RoleGuard minRole="manager"><Vendors /></RoleGuard>} />
   <Route path="/vendors/register" element={<RoleGuard minRole="manager"><VendorRegister /></RoleGuard>} />
+  <Route path="/vendors/:id/edit" element={<RoleGuard minRole="manager"><VendorEdit /></RoleGuard>} />
   <Route path="/casual-seller" element={<RoleGuard minRole="cashier"><CasualSeller /></RoleGuard>} />
   <Route path="/casual-items" element={<RoleGuard minRole="manager"><OneTimeSellers /></RoleGuard>} />
   <Route path="/submissions" element={<RoleGuard minRole="cashier"><Submissions /></RoleGuard>} />
@@ -124,6 +127,7 @@ function App() {
           <Route path="/vendor/login" element={<VendorLogin />} />
           <Route path="/vendor/dashboard" element={<VendorOnly><VendorDashboard /></VendorOnly>} />
           <Route path="/vendor/products" element={<VendorOnly><VendorProducts /></VendorOnly>} />
+          <Route path="/vendor/settings" element={<VendorOnly><VendorSettings /></VendorOnly>} />
           <Route path="/vendor/reset-password" element={<ResetPassword />} />
           <Route path="/vendor/forgot-password" element={<ForgotPassword />} />
           <Route path="/contact" element={<ContactOnly />} />
