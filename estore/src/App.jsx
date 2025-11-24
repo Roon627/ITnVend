@@ -1,29 +1,31 @@
+import { Suspense, lazy } from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
-import Home from "./pages/Home";
-import PublicProducts from "./pages/PublicProducts";
-import ProductDetail from "./pages/ProductDetail";
-import AccountDetails from "./pages/AccountDetails";
-import Cart from "./pages/Cart";
-import Checkout from "./pages/Checkout";
-import OrderConfirmation from "./pages/OrderConfirmation";
-import VendorOnboarding from "./pages/VendorOnboarding";
-import SellWithUs from "./pages/SellWithUs";
-import Privacy from "./pages/Privacy";
-import UsePolicy from "./pages/UsePolicy";
-import UseGlobal from "./pages/UseGlobal";
-import UseMV from "./pages/UseMV";
-import Contact from "./pages/Contact";
-import ShopAndShip from "./pages/ShopAndShip";
-import Socials from "./pages/Socials";
 import Footer from "./components/Footer";
 import PublicNavbar from "./components/PublicNavbar";
+import PublicFallback from "./components/PublicFallback";
 import { OrderSummaryProvider } from "./components/checkout/OrderSummaryContext";
-import VendorProfile from "./pages/VendorProfile";
-import VendorDirectory from "./pages/VendorDirectory";
-import ResetPassword from "./pages/ResetPassword";
-import VendorResetPassword from "./pages/VendorResetPassword";
-import VendorLogin from "./pages/VendorLogin";
-import NotFound from "./pages/NotFound";
+const Home = lazy(() => import("./pages/Home"));
+const PublicProducts = lazy(() => import("./pages/PublicProducts"));
+const ProductDetail = lazy(() => import("./pages/ProductDetail"));
+const AccountDetails = lazy(() => import("./pages/AccountDetails"));
+const Cart = lazy(() => import("./pages/Cart"));
+const Checkout = lazy(() => import("./pages/Checkout"));
+const OrderConfirmation = lazy(() => import("./pages/OrderConfirmation"));
+const VendorOnboarding = lazy(() => import("./pages/VendorOnboarding"));
+const SellWithUs = lazy(() => import("./pages/SellWithUs"));
+const Privacy = lazy(() => import("./pages/Privacy"));
+const UsePolicy = lazy(() => import("./pages/UsePolicy"));
+const UseGlobal = lazy(() => import("./pages/UseGlobal"));
+const UseMV = lazy(() => import("./pages/UseMV"));
+const Contact = lazy(() => import("./pages/Contact"));
+const ShopAndShip = lazy(() => import("./pages/ShopAndShip"));
+const Socials = lazy(() => import("./pages/Socials"));
+const VendorProfile = lazy(() => import("./pages/VendorProfile"));
+const VendorDirectory = lazy(() => import("./pages/VendorDirectory"));
+const ResetPassword = lazy(() => import("./pages/ResetPassword"));
+const VendorResetPassword = lazy(() => import("./pages/VendorResetPassword"));
+const VendorLogin = lazy(() => import("./pages/VendorLogin"));
+const NotFound = lazy(() => import("./pages/NotFound"));
 
 function PublicLayout({ children }) {
   return (
@@ -37,7 +39,7 @@ function PublicLayout({ children }) {
         </a>
         <PublicNavbar />
         <main id="main-content" className="flex-1">
-          {children}
+          <Suspense fallback={<PublicFallback />}>{children}</Suspense>
         </main>
         <Footer />
       </div>

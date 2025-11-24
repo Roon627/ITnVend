@@ -570,7 +570,7 @@ export default function Customers() {
 
   const handleCreateBill = (customer, event) => {
     event?.stopPropagation();
-    navigate(`/invoices/create?customer_id=${customer.id}`);
+    navigate(`/pos?customer_id=${customer.id}`);
   };
 
   // Approve / reject handlers for vendor and casual item requests

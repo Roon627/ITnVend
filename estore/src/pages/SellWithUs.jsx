@@ -52,6 +52,13 @@ const PRODUCT_TYPES = [
 
 const currentYear = new Date().getFullYear();
 
+const SELL_STEPS = [
+  { id: 1, title: 'Seller info', description: 'Who you are' },
+  { id: 2, title: 'Listing details', description: 'What you are selling' },
+  { id: 3, title: 'Payment & uploads', description: 'Fees and documents' },
+  { id: 4, title: 'Review', description: 'Confirm everything' },
+];
+
 const DEFAULT_FORM = {
   name: '',
   email: '',
@@ -264,6 +271,52 @@ export default function SellWithUs() {
     };
   }, [form.price, form.feature]);
 
+  const totalSteps = SELL_STEPS.length;
+  const isFinalStep = step === totalSteps;
+  const showSidebar = step === totalSteps;
+
+  const validateStepData = (currentStep) => {
+    if (currentStep === 1) {
+      if (!form.name || (!form.email && !form.phone)) {
+        toast.push('Add your name plus at least one contact detail before continuing.', 'error');
+        return false;
+      }
+      return true;
+    }
+    if (currentStep === 2) {
+      if (!form.productTitle) {
+        toast.push('Give your product a title so buyers know what you are listing.', 'error');
+        return false;
+      }
+      if (form.price === '') {
+        toast.push('Enter a selling price (can be zero for enquiries).', 'error');
+        return false;
+      }
+      return true;
+    }
+    if (currentStep === 3) {
+      if (!form.agreeTerms) {
+        toast.push('Agree to the marketplace terms before submitting.', 'error');
+        return false;
+      }
+      if (feeBreakdown.subtotal > 0 && !slipFile) {
+        toast.push(`Upload a payment slip for the ${feeBreakdown.subtotal} MVR fee.`, 'error');
+        return false;
+      }
+      return true;
+    }
+    return true;
+  };
+
+  const handleNextStep = () => {
+    if (!validateStepData(step)) return;
+    setStep((prev) => Math.min(totalSteps, prev + 1));
+  };
+
+  const handlePrevStep = () => {
+    setStep((prev) => Math.max(1, prev - 1));
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!form.name || !form.productTitle) {
@@ -400,6 +453,7 @@ export default function SellWithUs() {
       toast.push(msg, 'error');
     } finally {
       setSubmitting(false);
+      setStep(1);
     }
   };
 
@@ -737,8 +791,63 @@ export default function SellWithUs() {
               placeholder="Override the suggested listing tag"
             />
           </div>
+        </div>
+      </div>
+    </>
+  );
+
+  const sellerDetailsSection = (
+    <>
+      <div>
+        <p className="text-xs uppercase tracking-wide text-slate-400">Seller details</p>
+        <div className="mt-3 grid gap-4 md:grid-cols-2">
           <label className="text-sm font-medium text-slate-600">
-            Internal notes for reviewer
+            Name*
+            <input
+              name="name"
+              value={form.name}
+              onChange={handleChange}
+              required
+              className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 focus:border-rose-400 focus:outline-none focus:ring-2 focus:ring-rose-100"
+              placeholder="Your full name"
+            />
+          </label>
+          <label className="text-sm font-medium text-slate-600">
+            Email
+            <input
+              name="email"
+              type="email"
+              value={form.email}
+              onChange={handleChange}
+              className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 focus:border-rose-400 focus:outline-none focus:ring-2 focus:ring-rose-100"
+              placeholder="email@example.com"
+            />
+          </label>
+          <label className="text-sm font-medium text-slate-600">
+            Phone
+            <input
+              name="phone"
+              value={form.phone}
+              onChange={handleChange}
+              className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 focus:border-rose-400 focus:outline-none focus:ring-2 focus:ring-rose-100"
+              placeholder="(+960) 7xx xxxx"
+            />
+          </label>
+          <label className="text-sm font-medium text-slate-600">
+            Condition
+            <select
+              name="condition"
+              value={form.condition}
+              onChange={handleChange}
+              className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 focus:border-rose-400 focus:outline-none focus:ring-2 focus:ring-rose-100"
+            >
+              <option>New</option>
+              <option>Like New</option>
+              <option>Used</option>
+            </select>
+          </label>
+          <label className="text-sm font-medium text-slate-600 md:col-span-2">
+            Reviewer note
             <textarea
               name="vendorNotes"
               value={form.vendorNotes}
@@ -750,12 +859,118 @@ export default function SellWithUs() {
           </label>
         </div>
       </div>
+        <div className="rounded-2xl border border-dashed border-rose-200 bg-rose-50/50 p-4 text-sm text-slate-600">
+        <p className="font-semibold text-rose-600">Next up: listing details</p>
+        <p className="mt-1">
+          Continue to describe the product, set pricing, upload media, and finalize the submission.
+        </p>
+        <p className="mt-2 text-xs text-rose-500">
+          Listings priced above {LISTING_THRESHOLD} MVR include a friendly {LISTING_FEE_AMOUNT} MVR maintenance fee that keeps the Market Hub tidy. You can settle it later in the Payment step.
+        </p>
+      </div>
     </>
   );
 
+  const paymentSection = (
+    <>
+      <div className="rounded-2xl border border-slate-200 bg-white/80 p-5 shadow-sm space-y-4">
+        <div>
+          <p className="text-xs uppercase tracking-wide text-slate-400">Marketplace terms</p>
+          <label className="mt-3 flex items-start gap-3 text-sm text-slate-700">
+            <input
+              type="checkbox"
+              name="agreeTerms"
+              checked={form.agreeTerms}
+              onChange={handleChange}
+              className="mt-1 rounded border-slate-300 text-rose-500"
+            />
+            <span>
+              I understand ITnVend Market Hub is a listing platform only. I will handle inspections, payments, delivery, and any disputes directly with the buyer, and I accept that the buyer will see the same notice before contacting me.
+            </span>
+          </label>
+          <p className="mt-2 text-xs text-slate-500">
+            We encourage clear receipts and written agreements between you and the buyer. ITnVend staff may remove listings that violate policy but we do not mediate peer-to-peer transactions.
+          </p>
+        </div>
+        <div className="rounded-2xl border border-dashed border-rose-200 bg-rose-50/40 p-4">
+          <p className="text-sm font-semibold text-rose-600">Attachments</p>
+          <div className="mt-3 space-y-4">
+            <label className="flex flex-col items-center justify-center rounded-2xl border-2 border-dashed border-rose-200 bg-white/70 px-4 py-6 text-center text-sm text-slate-600 cursor-pointer">
+              <FaCamera className="mb-2 text-rose-400" />
+              <span>Upload product photos</span>
+              <input type="file" accept="image/*" multiple onChange={handlePhotos} className="hidden" />
+            </label>
+            <label className="flex flex-col items-center justify-center rounded-2xl border-2 border-dashed border-emerald-200 bg-white/70 px-4 py-6 text-center text-sm text-slate-600 cursor-pointer">
+              <FaCloudUploadAlt className="mb-2 text-emerald-400" />
+              <span>Payment slip (required if fees apply)</span>
+              <input type="file" accept="image/*,application/pdf" onChange={handleSlip} className="hidden" />
+            </label>
+            {slipPreview && (
+              <div className="rounded-xl border border-emerald-100 bg-white/80 p-3 text-sm text-slate-600">
+                <p className="font-semibold text-emerald-700">Slip preview</p>
+                <img src={slipPreview} alt="Payment slip preview" className="mt-2 max-h-40 w-full rounded-lg object-cover" />
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    </>
+  );
+
+  const reviewSection = (
+    <div className="space-y-5">
+      <div className="rounded-2xl border border-slate-100 bg-slate-50/70 p-4">
+        <div className="flex items-center justify-between">
+          <p className="text-xs uppercase tracking-wide text-slate-400">Seller</p>
+          <button type="button" onClick={() => setStep(1)} className="text-xs font-semibold text-rose-500 hover:text-rose-600">Edit</button>
+        </div>
+        <ul className="mt-3 space-y-1 text-sm text-slate-600">
+          <li><span className="font-semibold">Name:</span> {form.name || '—'}</li>
+          <li><span className="font-semibold">Email:</span> {form.email || '—'}</li>
+          <li><span className="font-semibold">Phone:</span> {form.phone || '—'}</li>
+        </ul>
+      </div>
+      <div className="rounded-2xl border border-slate-100 bg-slate-50/70 p-4">
+        <div className="flex items-center justify-between">
+          <p className="text-xs uppercase tracking-wide text-slate-400">Listing</p>
+          <button type="button" onClick={() => setStep(2)} className="text-xs font-semibold text-rose-500 hover:text-rose-600">Edit</button>
+        </div>
+        <ul className="mt-3 space-y-1 text-sm text-slate-600">
+          <li><span className="font-semibold">Title:</span> {form.productTitle || '—'}</li>
+          <li><span className="font-semibold">Price:</span> {form.price !== '' ? `${Number(form.price || 0).toLocaleString()} MVR` : '—'}</li>
+          <li><span className="font-semibold">Category:</span> {form.category || '—'}{form.subcategory ? ` › ${form.subcategory}` : ''}</li>
+          <li><span className="font-semibold">Stock:</span> {form.stock || 1}</li>
+        </ul>
+      </div>
+      <div className="rounded-2xl border border-slate-100 bg-slate-50/70 p-4 space-y-3">
+        <div className="flex items-center justify-between">
+          <p className="text-xs uppercase tracking-wide text-slate-400">Fees & documents</p>
+          <button type="button" onClick={() => setStep(3)} className="text-xs font-semibold text-rose-500 hover:text-rose-600">Edit</button>
+        </div>
+        <div className="text-sm text-slate-600 space-y-1">
+          <div className="flex items-center justify-between">
+            <span>Listing fee</span>
+            <span className="font-semibold">{feeBreakdown.listingFee} MVR</span>
+          </div>
+          <div className="flex items-center justify-between">
+            <span>Featured placement</span>
+            <span className="font-semibold">{feeBreakdown.featureFee} MVR</span>
+          </div>
+          <div className="flex items-center justify-between border-t pt-2">
+            <span>Total due</span>
+            <span className="font-semibold">{feeBreakdown.subtotal} MVR</span>
+          </div>
+          <div className="pt-3 text-xs text-slate-500">
+            Photos uploaded: {photos.length} · Payment slip: {slipFile ? 'Attached' : 'Not yet'}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-rose-50 px-4 py-8 lg:px-8">
-      <div className="mx-auto max-w-6xl space-y-8">
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-rose-50 px-3 py-6 sm:px-6 lg:px-8">
+      <div className="mx-auto w-full max-w-screen-2xl space-y-8">
         <section className="rounded-2xl border border-rose-100 bg-white/90 p-6 shadow-lg shadow-rose-100/40">
           <div className="flex flex-col gap-6 items-start">
             <div className="space-y-4">
@@ -777,30 +992,28 @@ export default function SellWithUs() {
                 ))}
               </ul>
             </div>
-            <div className="w-full overflow-x-auto sm:overflow-visible [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-              <div className="flex min-w-fit gap-3 sm:grid sm:min-w-0 sm:grid-cols-3">
-                {(
-                  stats && (stats.totalProducts || stats.vendors || stats.sellers) ? [
-                    { label: 'Total products', value: stats.totalProducts },
-                    { label: 'Approved vendors', value: stats.vendors },
-                    { label: 'Peer sellers', value: stats.sellers },
-                  ] : HIGHLIGHTS
-                ).map((stat) => (
-                  <div key={stat.label} className="flex min-w-[140px] flex-col items-center justify-center rounded-2xl border border-rose-100 bg-white px-4 py-3 text-center shadow-sm">
-                    <div className="text-xl font-semibold text-slate-900">{stat.value}</div>
-                    <div className="text-xs uppercase tracking-wide text-slate-500">{stat.label}</div>
-                  </div>
-                ))}
-              </div>
+            <div className="grid grid-cols-3 gap-2 text-center text-[10px] sm:text-sm">
+              {(
+                stats && (stats.totalProducts || stats.vendors || stats.sellers) ? [
+                  { label: 'Total products', value: stats.totalProducts },
+                  { label: 'Approved vendors', value: stats.vendors },
+                  { label: 'Peer sellers', value: stats.sellers },
+                ] : HIGHLIGHTS
+              ).map((stat) => (
+                <div key={stat.label} className="flex flex-col items-center justify-center rounded-2xl border border-rose-100 bg-white px-2 py-2 shadow-sm">
+                  <div className="text-sm font-semibold text-slate-900 sm:text-lg">{stat.value}</div>
+                  <div className="text-[10px] uppercase tracking-wide text-slate-500">{stat.label}</div>
+                </div>
+              ))}
             </div>
           </div>
         </section>
 
-        <div className="grid gap-6 lg:grid-cols-[2fr,1fr] lg:items-start">
+        <div className={`grid gap-6 lg:items-start ${showSidebar ? 'lg:grid-cols-[2.5fr,1fr] xl:grid-cols-[3fr,1.1fr]' : ''}`}>
           <div className="order-2 space-y-4 lg:order-1">
-            <div className="flex flex-col gap-2 rounded-2xl border border-rose-100 bg-rose-50/80 p-4 sm:flex-row sm:items-center sm:justify-between">
-              {[{ id: 1, title: 'Seller info', description: 'Who you are' }, { id: 2, title: 'Listing details', description: "What you're selling" }].map((stepItem) => (
-                <div key={stepItem.id} className={`flex flex-1 min-w-[160px] flex-col rounded-2xl border px-3 py-2 text-xs ${step === stepItem.id ? 'border-rose-300 bg-white shadow-sm' : 'border-transparent text-slate-500'}`}>
+            <div className="grid grid-cols-2 gap-2 rounded-2xl border border-rose-100 bg-rose-50/80 p-3 sm:grid-cols-4">
+              {SELL_STEPS.map((stepItem) => (
+                <div key={stepItem.id} className={`flex flex-col rounded-2xl border px-3 py-2 text-xs ${step === stepItem.id ? 'border-rose-300 bg-white shadow-sm' : 'border-transparent text-slate-500'}`}>
                   <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Step {stepItem.id}</span>
                   <span className="text-sm font-semibold text-rose-600">{stepItem.title}</span>
                   <span className="text-[10px] text-slate-500">{stepItem.description}</span>
@@ -809,135 +1022,44 @@ export default function SellWithUs() {
             </div>
             <section className="rounded-2xl border border-white/70 bg-white/95 p-6 shadow-xl shadow-rose-100/30">
               <form onSubmit={handleSubmit} className="space-y-6">
-              {step === 1 ? (
-                <>
-              <div>
-                <p className="text-xs uppercase tracking-wide text-slate-400">Seller details</p>
-                <div className="mt-3 grid gap-4 md:grid-cols-2">
-                  <label className="text-sm font-medium text-slate-600">
-                    Name*
-                    <input
-                      name="name"
-                      value={form.name}
-                      onChange={handleChange}
-                      required
-                      className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 focus:border-rose-400 focus:outline-none focus:ring-2 focus:ring-rose-100"
-                      placeholder="Your full name"
-                    />
-                  </label>
-                  <label className="text-sm font-medium text-slate-600">
-                    Email
-                    <input
-                      name="email"
-                      type="email"
-                      value={form.email}
-                      onChange={handleChange}
-                      className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 focus:border-rose-400 focus:outline-none focus:ring-2 focus:ring-rose-100"
-                      placeholder="email@example.com"
-                    />
-                  </label>
-                  <label className="text-sm font-medium text-slate-600">
-                    Phone
-                    <input
-                      name="phone"
-                      value={form.phone}
-                      onChange={handleChange}
-                      className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 focus:border-rose-400 focus:outline-none focus:ring-2 focus:ring-rose-100"
-                      placeholder="(+960) 7xx xxxx"
-                    />
-                  </label>
-                  <label className="text-sm font-medium text-slate-600">
-                    Condition
-                    <select
-                      name="condition"
-                      value={form.condition}
-                      onChange={handleChange}
-                      className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 focus:border-rose-400 focus:outline-none focus:ring-2 focus:ring-rose-100"
-                    >
-                      <option>New</option>
-                      <option>Like New</option>
-                      <option>Used</option>
-                    </select>
-                  </label>
-                </div>
-              </div>
-
-              <div className="rounded-2xl border border-dashed border-rose-200 bg-rose-50/50 p-4 text-sm text-slate-600">
-                <p className="font-semibold text-rose-600">Next up: listing details</p>
-                <p className="mt-1">
-                  Continue to step 2 to describe the product, set pricing, upload media, and finalize the submission.
-                </p>
-              </div>
-
-              <div className="sticky bottom-[72px] z-10 flex flex-col gap-3 border-t bg-white/95 pb-3 pt-4 sm:static sm:border-transparent sm:bg-transparent sm:pb-0">
-                <span className="text-xs text-slate-400">Step 1 of 2</span>
-                <div className="flex flex-col gap-2 sm:flex-row">
-                  <button type="button" onClick={() => navigate('/')} className="rounded-full border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-600">Cancel</button>
-                  <button type="button" onClick={() => setStep(2)} className="rounded-full bg-rose-500 px-4 py-2 text-sm font-semibold text-white shadow">Continue</button>
-                </div>
-              </div>
-            </>
-          ) : (
-            <>
-              {listingDetailsSection}
-              <div className="rounded-2xl border border-slate-200 bg-white/80 p-5 shadow-sm">
-                <p className="text-xs uppercase tracking-wide text-slate-400">Marketplace terms</p>
-                <label className="mt-3 flex items-start gap-3 text-sm text-slate-700">
-                  <input
-                    type="checkbox"
-                    name="agreeTerms"
-                    checked={form.agreeTerms}
-                    onChange={handleChange}
-                    className="mt-1 rounded border-slate-300 text-rose-500"
-                  />
-                  <span>
-                    I understand ITnVend Market Hub is a listing platform only. I will handle inspections, payments, delivery, and any disputes directly with the buyer, and I accept that the buyer will see the same notice before contacting me.
+                {step === 1 && sellerDetailsSection}
+                {step === 2 && listingDetailsSection}
+                {step === 3 && paymentSection}
+                {step === 4 && reviewSection}
+                <div className="sticky bottom-[72px] z-10 flex flex-col gap-3 border-t bg-white/95 pb-3 pt-4 sm:static sm:border-transparent sm:bg-transparent sm:pb-0">
+                  <span className="text-xs text-slate-400">
+                    Step {step} of {totalSteps}
                   </span>
-                </label>
-                <p className="mt-2 text-xs text-slate-500">
-                  We encourage clear receipts and written agreements between you and the buyer. ITnVend staff may remove listings that violate policy but we do not mediate peer-to-peer transactions.
-                </p>
-              </div>
-
-              <div>
-                <p className="text-xs uppercase tracking-wide text-slate-400">Attachments</p>
-                <div className="mt-3 space-y-4">
-                  <label className="flex flex-col items-center justify-center rounded-2xl border-2 border-dashed border-rose-200 bg-rose-50/40 px-4 py-6 text-center text-sm text-slate-600 cursor-pointer">
-                    <FaCamera className="mb-2 text-rose-400" />
-                    <span>Upload product photos</span>
-                    <input type="file" accept="image/*" multiple onChange={handlePhotos} className="hidden" />
-                  </label>
-                  <label className="flex flex-col items-center justify-center rounded-2xl border-2 border-dashed border-emerald-200 bg-emerald-50/40 px-4 py-6 text-center text-sm text-slate-600 cursor-pointer">
-                    <FaCloudUploadAlt className="mb-2 text-emerald-400" />
-                    <span>Payment slip (required if fees apply)</span>
-                    <input type="file" accept="image/*,application/pdf" onChange={handleSlip} className="hidden" />
-                  </label>
+                  <div className="flex flex-col gap-2 sm:flex-row">
+                    {step > 1 ? (
+                      <button type="button" onClick={handlePrevStep} className="rounded-full border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-600">
+                        Back
+                      </button>
+                    ) : (
+                      <button type="button" onClick={() => navigate('/')} className="rounded-full border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-600">
+                        Cancel
+                      </button>
+                    )}
+                    {!isFinalStep ? (
+                      <button type="button" onClick={handleNextStep} className="rounded-full bg-rose-500 px-4 py-2 text-sm font-semibold text-white shadow hover:bg-rose-400">
+                        Continue
+                      </button>
+                    ) : (
+                      <button
+                        type="submit"
+                        disabled={submitting}
+                        className="rounded-full bg-rose-500 px-4 py-2 text-sm font-semibold text-white shadow hover:bg-rose-400 disabled:cursor-not-allowed disabled:opacity-70"
+                      >
+                        {submitting ? 'Submitting…' : 'Submit listing'}
+                      </button>
+                    )}
+                  </div>
                 </div>
-              </div>
-
-              <div className="sticky bottom-[72px] z-10 flex flex-col gap-3 border-t bg-white/95 pb-3 pt-4 sm:static sm:border-transparent sm:bg-transparent sm:pb-0">
-                <button
-                  type="submit"
-                  disabled={submitting}
-                  className="btn-sm btn-sm-primary rounded-full bg-rose-500 text-sm font-semibold text-white shadow-lg shadow-rose-200/60 transition hover:bg-rose-400 disabled:cursor-not-allowed disabled:opacity-70"
-                >
-                  {submitting ? 'Submitting.' : 'Submit listing'}
-                </button>
-                <div className="flex flex-col gap-2 sm:flex-row">
-                  <button type="button" onClick={() => setStep(1)} className="rounded-full border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-600">
-                    Back to seller info
-                  </button>
-                  <button type="button" onClick={() => navigate('/')} className="text-sm text-slate-500 hover:text-slate-700">
-                    Cancel and go back
-                  </button>
-                </div>
-              </div>
-            </>
-          )}
-        </form>
-      </section>
+              </form>
+            </section>
           </div>
 
+          {showSidebar && (
           <aside className="order-1 rounded-2xl border border-white/60 bg-white/95 p-6 shadow-lg shadow-rose-100/30 space-y-6 lg:order-2">
             <div>
               <p className="text-xs uppercase tracking-wide text-slate-400">Fee summary</p>
@@ -955,9 +1077,9 @@ export default function SellWithUs() {
                   <span>{feeBreakdown.subtotal} MVR</span>
                 </div>
               </div>
-              <p className="mt-2 text-xs text-slate-500">
-                Listings priced above {LISTING_THRESHOLD} MVR incur a {LISTING_FEE_AMOUNT} MVR verification fee. Attach a bank transfer slip when a fee applies for instant approval.
-              </p>
+                <p className="mt-2 text-xs text-slate-500">
+                  Friendly heads-up: listings above {LISTING_THRESHOLD} MVR include a {LISTING_FEE_AMOUNT} MVR maintenance fee. It keeps our merch team caffeinated and your listing polished.
+                </p>
             </div>
 
             <div>
@@ -1018,6 +1140,7 @@ export default function SellWithUs() {
               </div>
             </div>
           </aside>
+          )}
         </div>
       </div>
     </div>

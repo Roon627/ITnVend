@@ -39,6 +39,7 @@ export default function VendorEdit() {
     currency: 'USD',
     social_links: {},
     social_showcase_enabled: 1,
+    verified: false,
   });
 
   useEffect(() => {
@@ -65,6 +66,7 @@ export default function VendorEdit() {
           currency: data.currency || 'USD',
           social_links: data.social_links || {},
           social_showcase_enabled: data.social_showcase_enabled !== 0,
+          verified: data.verified === 1,
         });
       } catch (err) {
         toast.push(err?.data?.error || 'Failed to load vendor', 'error');
@@ -104,6 +106,7 @@ export default function VendorEdit() {
         monthly_fee: form.monthly_fee === '' ? null : Number(form.monthly_fee),
         social_showcase_enabled: form.social_showcase_enabled ? 1 : 0,
         billing_start_date: form.billing_start_date || null,
+        verified: form.verified ? 1 : 0,
       };
       await api.put(`/vendors/${id}`, payload);
       toast.push('Vendor updated', 'success');
@@ -179,6 +182,25 @@ export default function VendorEdit() {
                 ))}
               </select>
             </label>
+          </section>
+
+          <section className="rounded-3xl border border-emerald-100 bg-emerald-50/60 p-5">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <p className="text-sm font-semibold text-emerald-900">Verification badge</p>
+                <p className="text-xs text-emerald-700">
+                  Verified vendors have provided compliance docs and maintain on-time payments. Their badge appears on storefront cards.
+                </p>
+              </div>
+              <label className="inline-flex items-center gap-2 text-xs font-semibold text-emerald-800">
+                <input
+                  type="checkbox"
+                  checked={!!form.verified}
+                  onChange={(e) => updateField('verified', e.target.checked)}
+                />
+                Mark as verified
+              </label>
+            </div>
           </section>
 
           <section className="grid gap-4">

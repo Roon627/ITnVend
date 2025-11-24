@@ -10,6 +10,7 @@ import VendorCard from '../components/VendorCard';
 
 const CATEGORY_LIMIT = 6;
 const TRENDING_VENDOR_LIMIT = 6;
+const VERIFIED_VENDOR_LIMIT = 6;
 
 const VALUE_PILLARS = [
   { title: 'POS besties', copy: 'Every Market Hub item talks directly to the POS so inventory, carts, and invoices stay in perfect harmony.' },
@@ -21,6 +22,7 @@ export default function Home() {
   const [products, setProducts] = useState([]);
   const [categories, setCategories] = useState([]);
   const [trendingVendors, setTrendingVendors] = useState([]);
+  const [verifiedVendors, setVerifiedVendors] = useState([]);
   const { addToCart, cartCount } = useCart();
   const { formatCurrency } = useSettings();
 
@@ -54,6 +56,15 @@ export default function Home() {
         setTrendingVendors(Array.isArray(list) ? list : []);
       })
       .catch(() => setTrendingVendors([]));
+  }, []);
+
+  useEffect(() => {
+    api
+      .get('/public/vendors', { params: { verified: 1, sort: 'recent', limit: VERIFIED_VENDOR_LIMIT } })
+      .then((list) => {
+        setVerifiedVendors(Array.isArray(list) ? list : []);
+      })
+      .catch(() => setVerifiedVendors([]));
   }, []);
 
   const hasCatalogue = useMemo(() => categories.length > 0, [categories]);
@@ -137,27 +148,27 @@ export default function Home() {
               </Link>
             </div>
 
-            <div className="mt-10 grid gap-6 sm:grid-cols-2 xl:grid-cols-3">
+            <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
               {hasCatalogue ? (
                 categories.map((category) => (
                   <Link
                     key={category.name}
                     to={`/market?category=${encodeURIComponent(category.name)}`}
-                    className="group flex flex-col gap-3 rounded-3xl border border-rose-200 bg-white p-6 shadow-lg shadow-rose-100 transition hover:-translate-y-1 hover:border-rose-400/70 hover:shadow-rose-200"
+                    className="group flex flex-col gap-2 rounded-2xl border border-rose-200 bg-white p-5 text-sm shadow-lg shadow-rose-100 transition hover:-translate-y-0.5 hover:border-rose-400/70 hover:shadow-rose-200 sm:p-6"
                   >
                     <div className="flex items-center justify-between">
-                      <span className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-rose-100 text-rose-500">
+                      <span className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-rose-100 text-rose-500">
                         <FaChartLine />
                       </span>
-                      <span className="text-xs uppercase tracking-wide text-rose-300">Tap to view</span>
+                      <span className="text-[11px] uppercase tracking-wide text-rose-300">Tap to view</span>
                     </div>
-                    <h3 className="text-xl font-semibold text-slate-900">{category.name}</h3>
-                    <p className="text-sm text-slate-500">
+                    <h3 className="text-lg font-semibold text-slate-900">{category.name}</h3>
+                    <p className="text-xs text-slate-500">
                       {category.subcategories.length > 0
                         ? `${category.subcategories.slice(0, 3).join(', ')}${category.subcategories.length > 3 ? '…' : ''}`
                         : 'Curated inventory ready for deployment.'}
                     </p>
-                    <div className="mt-4 inline-flex items-center gap-2 text-sm font-semibold text-rose-500 group-hover:text-rose-600">
+                    <div className="mt-3 inline-flex items-center gap-2 text-xs font-semibold text-rose-500 group-hover:text-rose-600">
                       View category
                       <FaArrowRight />
                     </div>
@@ -171,6 +182,34 @@ export default function Home() {
             </div>
           </div>
         </section>
+
+        {verifiedVendors.length > 0 && (
+          <section className="bg-white py-14">
+            <div className="container mx-auto px-6">
+              <div className="mb-8 flex flex-wrap items-center justify-between gap-4">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.4em] text-emerald-300">Verified partners</p>
+                  <h2 className="mt-2 text-3xl font-bold text-slate-900 sm:text-4xl">Vendors you should meet</h2>
+                  <p className="mt-2 max-w-2xl text-sm text-slate-500">
+                    These storefronts submitted compliance docs and keep their invoices tidy. Tap through to browse their curated Market Hub products.
+                  </p>
+                </div>
+                <Link
+                  to="/vendors"
+                  className="btn-sm btn-sm-outline inline-flex items-center gap-2 rounded-full border border-emerald-200 text-emerald-600 transition hover:bg-emerald-50"
+                >
+                  View all vendors
+                  <FaArrowRight />
+                </Link>
+              </div>
+              <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-3">
+                {verifiedVendors.map((vendor) => (
+                  <VendorCard key={vendor.id} vendor={vendor} />
+                ))}
+              </div>
+            </div>
+          </section>
+        )}
 
         <section className="bg-white py-16">
           <div className="container mx-auto px-6">

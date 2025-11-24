@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { FaBuilding, FaEnvelope, FaGlobe, FaKey } from 'react-icons/fa';
+import { FaBuilding, FaEnvelope, FaGlobe, FaKey, FaCheckCircle } from 'react-icons/fa';
 import api, { setAuthToken } from '../lib/api';
 import { useToast } from '../components/ToastContext';
 import Modal from '../components/Modal';
@@ -33,6 +33,7 @@ export default function Vendors() {
   const [billingInvoices, setBillingInvoices] = useState([]);
   const [billingForm, setBillingForm] = useState({ monthlyFee: '', billingStartDate: '' });
   const [billingLoading, setBillingLoading] = useState(false);
+  const [verifyingId, setVerifyingId] = useState(null);
 
   const [invoiceActionId, setInvoiceActionId] = useState(null);
   const [voidingInvoiceId, setVoidingInvoiceId] = useState(null);
@@ -250,6 +251,22 @@ export default function Vendors() {
     setBillingInvoices([]);
     setBillingModalOpen(true);
     loadBillingInvoices(vendor.id);
+  }
+
+  async function toggleVerified(vendor) {
+    if (!vendor?.id) return;
+    setVerifyingId(vendor.id);
+    try {
+      const payload = { verified: vendor.verified ? 0 : 1 };
+      await api.put(`/vendors/${vendor.id}`, payload);
+      toast.push(payload.verified ? 'Vendor marked as verified' : 'Verification removed', 'success');
+      fetchVendors();
+    } catch (err) {
+      console.error('Failed to toggle verification', err);
+      toast.push(err?.data?.error || err?.message || 'Unable to update verification', 'error');
+    } finally {
+      setVerifyingId(null);
+    }
   }
 
   async function saveBillingSettings() {
@@ -470,12 +487,21 @@ export default function Vendors() {
             {vendors.map((vendor) => {
               const StatusIcon = vendor.status === 'active' ? FaBuilding : vendor.status === 'rejected' ? FaEnvelope : FaBuilding;
               const statusPill = STATUS_PILLS.find((p) => p.id === vendor.status) || STATUS_PILLS[0];
+              const isVerified = Number(vendor.verified ?? 0) === 1;
               return (
                 <article key={vendor.id} className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
                   <div className="flex items-start justify-between gap-4">
                     <div>
                       <p className="text-xs uppercase tracking-wide text-slate-400">Business</p>
-                      <h3 className="text-lg font-semibold text-slate-900">{vendor.legal_name}</h3>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <h3 className="text-lg font-semibold text-slate-900">{vendor.legal_name}</h3>
+                        {isVerified && (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-700">
+                            <FaCheckCircle />
+                            Verified
+                          </span>
+                        )}
+                      </div>
                       {vendor.website && (
                         <a href={vendor.website.startsWith('http') ? vendor.website : `https://${vendor.website}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-xs text-sky-600">
                           <FaGlobe /> {vendor.website.replace(/^https?:\/\//, '')}
@@ -498,37 +524,53 @@ export default function Vendors() {
                       <p className="text-xs text-slate-500 line-clamp-2">{vendor.capabilities}</p>
                     )}
                   </div>
-                    <div className="mt-4 flex flex-wrap gap-2">
-                      {vendor.status === 'pending' ? (
-                        <>
-                          <button
-                            type="button"
-                            onClick={() => updateStatus(vendor.id, 'active')}
-                            className="flex-1 rounded-full bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow hover:bg-emerald-500"
-                          >
-                            Approve
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => updateStatus(vendor.id, 'rejected')}
-                            className="flex-1 rounded-full border border-rose-200 bg-rose-50 px-4 py-2 text-sm font-semibold text-rose-700"
-                          >
-                            Reject
-                          </button>
-                        </>
-                      ) : (
-                        <>
-                          <button type="button" onClick={() => resendCredentialsUI(vendor.id)} className="rounded-full border px-4 py-2 text-sm font-semibold">Resend credentials</button>
-                          <button type="button" onClick={() => openEditPage(vendor)} className="rounded-full border px-4 py-2 text-sm font-semibold">Edit details</button>
-                          <button type="button" onClick={() => openBillingModal(vendor)} className="rounded-full border px-4 py-2 text-sm font-semibold">Billing</button>
-                          <button type="button" onClick={() => sendPasswordReset(vendor)} className="rounded-full border px-4 py-2 text-sm font-semibold">Send password reset</button>
-                          <button type="button" onClick={() => impersonateVendor(vendor.id)} className="rounded-full bg-blue-600 text-white px-4 py-2 text-sm font-semibold">Login as vendor</button>
-                          <button type="button" onClick={() => openTokensModal(vendor)} className="rounded-full border px-4 py-2 text-sm font-semibold inline-flex items-center gap-2"><FaKey />View tokens</button>
-                          <button type="button" onClick={() => showCredentials(vendor)} className="rounded-full border px-4 py-2 text-sm font-semibold">Show credentials</button>
-                        </>
-                      )}
-                    </div>
-                  
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    {vendor.status === 'pending' ? (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => updateStatus(vendor.id, 'active')}
+                          className="flex-1 rounded-full bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow hover:bg-emerald-500"
+                        >
+                          Approve
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => updateStatus(vendor.id, 'rejected')}
+                          className="flex-1 rounded-full border border-rose-200 bg-rose-50 px-4 py-2 text-sm font-semibold text-rose-700"
+                        >
+                          Reject
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        <button type="button" onClick={() => resendCredentialsUI(vendor.id)} className="rounded-full border px-4 py-2 text-sm font-semibold">Resend credentials</button>
+                        <button type="button" onClick={() => openEditPage(vendor)} className="rounded-full border px-4 py-2 text-sm font-semibold">Edit details</button>
+                        <button type="button" onClick={() => openBillingModal(vendor)} className="rounded-full border px-4 py-2 text-sm font-semibold">Billing</button>
+                        <button type="button" onClick={() => sendPasswordReset(vendor)} className="rounded-full border px-4 py-2 text-sm font-semibold">Send password reset</button>
+                        <button type="button" onClick={() => impersonateVendor(vendor.id)} className="rounded-full bg-blue-600 text-white px-4 py-2 text-sm font-semibold">Login as vendor</button>
+                        <button type="button" onClick={() => openTokensModal(vendor)} className="rounded-full border px-4 py-2 text-sm font-semibold inline-flex items-center gap-2"><FaKey />View tokens</button>
+                        <button type="button" onClick={() => showCredentials(vendor)} className="rounded-full border px-4 py-2 text-sm font-semibold">Show credentials</button>
+                      </>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => toggleVerified(vendor)}
+                      disabled={verifyingId === vendor.id}
+                      className={`flex-1 rounded-full border px-4 py-2 text-sm font-semibold ${
+                        vendor.verified
+                          ? 'border-slate-200 text-slate-600 hover:bg-slate-50'
+                          : 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                      } disabled:opacity-50`}
+                    >
+                      {verifyingId === vendor.id
+                        ? 'Saving…'
+                        : vendor.verified
+                        ? 'Remove verified badge'
+                        : 'Mark as verified'}
+                    </button>
+                  </div>
+                
                 </article>
               );
             })}

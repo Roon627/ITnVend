@@ -1,46 +1,51 @@
+import { Suspense, lazy } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import Sidebar from './components/Sidebar';
-import POS from './pages/POS';
-import Products from './pages/Products';
-import Customers from './pages/Customers';
-import Invoices from './pages/Invoices';
-import CustomerDetail from './pages/CustomerDetail';
-import Settings from './pages/Settings/Settings';
-import VendorRegister from './pages/VendorRegister';
-import CasualSeller from './pages/CasualSeller';
-import Vendors from './pages/Vendors';
-import VendorEdit from './pages/VendorEdit';
-import OneTimeSellers from './pages/OneTimeSellers';
-import Submissions from './pages/Submissions';
-import Staff from './pages/Staff';
-import Login from './pages/Login';
-import ForgotPassword from './pages/ForgotPassword';
-import ResetPassword from './pages/ResetPassword';
 import Header from './components/Header';
-import Accounting from './pages/Accounting/Accounting';
-import Reports from './pages/Reports/Reports';
-import Operations from './pages/Operations/Operations';
-import Preorders from './pages/Preorders';
-import Profile from './pages/Profile';
-import Help from './pages/Help';
-import ContactOnly from './pages/ContactOnly';
-import VendorLogin from './modules/vendor/VendorLogin';
-import VendorDashboard from './modules/vendor/VendorDashboard';
-import VendorProducts from './pages/vendor/VendorProducts';
-import VendorSettings from './pages/vendor/VendorSettings';
-import ManageLookups from './pages/ManageLookups';
-import AddProduct from './pages/AddProduct';
-import EditProduct from './pages/EditProduct';
-import NotFound from './pages/NotFound';
-import ValidateSlip from './pages/ValidateSlip';
-import Slips from './pages/Slips';
 import { AuthProvider, useAuth } from './components/AuthContext';
 import { UIProvider, useUI } from './components/UIContext';
 import { NotificationsProvider } from './components/NotificationsContext';
 import { WebSocketProvider } from './components/WebSocketContext';
 
+const POS = lazy(() => import('./pages/POS'));
+const Products = lazy(() => import('./pages/Products'));
+const Customers = lazy(() => import('./pages/Customers'));
+const Invoices = lazy(() => import('./pages/Invoices'));
+const CustomerDetail = lazy(() => import('./pages/CustomerDetail'));
+const Settings = lazy(() => import('./pages/Settings/Settings'));
+const VendorRegister = lazy(() => import('./pages/VendorRegister'));
+const CasualSeller = lazy(() => import('./pages/CasualSeller'));
+const Vendors = lazy(() => import('./pages/Vendors'));
+const VendorEdit = lazy(() => import('./pages/VendorEdit'));
+const OneTimeSellers = lazy(() => import('./pages/OneTimeSellers'));
+const Submissions = lazy(() => import('./pages/Submissions'));
+const Staff = lazy(() => import('./pages/Staff'));
+const Login = lazy(() => import('./pages/Login'));
+const ForgotPassword = lazy(() => import('./pages/ForgotPassword'));
+const ResetPassword = lazy(() => import('./pages/ResetPassword'));
+const Accounting = lazy(() => import('./pages/Accounting/Accounting'));
+const Reports = lazy(() => import('./pages/Reports/Reports'));
+const Operations = lazy(() => import('./pages/Operations/Operations'));
+const Preorders = lazy(() => import('./pages/Preorders'));
+const Profile = lazy(() => import('./pages/Profile'));
+const Help = lazy(() => import('./pages/Help'));
+const ContactOnly = lazy(() => import('./pages/ContactOnly'));
+const VendorLogin = lazy(() => import('./modules/vendor/VendorLogin'));
+const VendorDashboard = lazy(() => import('./modules/vendor/VendorDashboard'));
+const VendorProducts = lazy(() => import('./pages/vendor/VendorProducts'));
+const VendorSettings = lazy(() => import('./pages/vendor/VendorSettings'));
+const ManageLookups = lazy(() => import('./pages/ManageLookups'));
+const AddProduct = lazy(() => import('./pages/AddProduct'));
+const EditProduct = lazy(() => import('./pages/EditProduct'));
+const NotFound = lazy(() => import('./pages/NotFound'));
+const ValidateSlip = lazy(() => import('./pages/ValidateSlip'));
+const Slips = lazy(() => import('./pages/Slips'));
+
 function App() {
   const INTERNAL_ROLES = new Set(['cashier', 'accounts', 'manager', 'admin', 'owner', 'staff']);
+  const LoadingScreen = () => (
+    <div className="p-6 text-sm text-slate-500">Loading interface…</div>
+  );
   function AdminOnly({ children }) {
     const { user } = useAuth();
     if (!user || user.role === 'vendor') return <Navigate to="/login" replace />;
@@ -122,26 +127,28 @@ function App() {
         <NotificationsProvider>
           <UIProvider>
             <BrowserRouter>
-              <Routes>
-          <Route path="/login" element={<Login />} />
-          <Route path="/vendor/login" element={<VendorLogin />} />
-          <Route path="/vendor/dashboard" element={<VendorOnly><VendorDashboard /></VendorOnly>} />
-          <Route path="/vendor/products" element={<VendorOnly><VendorProducts /></VendorOnly>} />
-          <Route path="/vendor/settings" element={<VendorOnly><VendorSettings /></VendorOnly>} />
-          <Route path="/vendor/reset-password" element={<ResetPassword />} />
-          <Route path="/vendor/forgot-password" element={<ForgotPassword />} />
-          <Route path="/contact" element={<ContactOnly />} />
-                <Route path="/forgot-password" element={<ForgotPassword />} />
-                <Route path="/reset-password" element={<ResetPassword />} />
-                <Route
-                  path="/*"
-                  element={
-                    <AdminOnly>
-                      <AdminLayout>{adminRoutes}</AdminLayout>
-                    </AdminOnly>
-                  }
-                />
-              </Routes>
+              <Suspense fallback={<LoadingScreen />}>
+                <Routes>
+                  <Route path="/login" element={<Login />} />
+                  <Route path="/vendor/login" element={<VendorLogin />} />
+                  <Route path="/vendor/dashboard" element={<VendorOnly><VendorDashboard /></VendorOnly>} />
+                  <Route path="/vendor/products" element={<VendorOnly><VendorProducts /></VendorOnly>} />
+                  <Route path="/vendor/settings" element={<VendorOnly><VendorSettings /></VendorOnly>} />
+                  <Route path="/vendor/reset-password" element={<ResetPassword />} />
+                  <Route path="/vendor/forgot-password" element={<ForgotPassword />} />
+                  <Route path="/contact" element={<ContactOnly />} />
+                  <Route path="/forgot-password" element={<ForgotPassword />} />
+                  <Route path="/reset-password" element={<ResetPassword />} />
+                  <Route
+                    path="/*"
+                    element={
+                      <AdminOnly>
+                        <AdminLayout>{adminRoutes}</AdminLayout>
+                      </AdminOnly>
+                    }
+                  />
+                </Routes>
+              </Suspense>
             </BrowserRouter>
           </UIProvider>
         </NotificationsProvider>

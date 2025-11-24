@@ -201,6 +201,7 @@ const PRODUCT_BASE_SELECT = `
                 v.slug AS vendor_slug,
                 v.tagline AS vendor_tagline,
                 v.public_description AS vendor_public_description,
+                v.verified AS vendor_verified,
                 v.social_links AS vendor_social_links,
                 v.social_showcase_enabled AS vendor_social_showcase_enabled,
                 ci.id AS casual_item_id,
@@ -294,6 +295,7 @@ async function transformProductRows(rows = []) {
             vendor_slug: row.vendor_slug,
             vendor_tagline: row.vendor_tagline,
             vendor_public_description: row.vendor_public_description,
+            vendor_verified: Number(row.vendor_verified ?? 0) ? 1 : 0,
             vendor_social_links:
                 Number(row.vendor_social_showcase_enabled ?? 1) && row.vendor_social_links
                     ? parseJson(row.vendor_social_links, null)
@@ -928,6 +930,7 @@ function hydrateVendorRow(row) {
     vendor.social_links = parseJson(row.social_links, null);
     vendor.social_showcase_enabled = Number(row.social_showcase_enabled ?? 1) ? 1 : 0;
     vendor.currency = normalizeCurrency(row.currency, DEFAULT_VENDOR_CURRENCY);
+    vendor.verified = Number(row.verified ?? 0) ? 1 : 0;
     return vendor;
 }
 
@@ -3040,7 +3043,7 @@ app.post('/api/vendors/:id/impersonate', authMiddleware, requireRole(['manager',
 app.get('/api/vendor/me', authMiddleware, requireVendorAccess({ allowInactive: true }), async (req, res) => {
     try {
         const vendorId = req.user.vendorId;
-        let vendor = await db.get('SELECT id, slug, legal_name, contact_person, email, phone, address, website, tagline, public_description, logo_url, hero_image, attachments, bank_details, monthly_fee, billing_start_date, last_invoice_date, account_active, status, social_links, social_showcase_enabled, currency FROM vendors WHERE id = ?', [vendorId]);
+        let vendor = await db.get('SELECT id, slug, legal_name, contact_person, email, phone, address, website, tagline, public_description, logo_url, hero_image, attachments, bank_details, monthly_fee, billing_start_date, last_invoice_date, account_active, status, social_links, social_showcase_enabled, currency, verified FROM vendors WHERE id = ?', [vendorId]);
         if (!vendor) return res.status(404).json({ error: 'Vendor not found' });
         vendor = hydrateVendorRow(vendor);
         // attach product count
@@ -3347,7 +3350,6 @@ app.get('/api/products', async (req, res) => {
         // filter for new arrivals if requested via highlight=newArrivals or newArrival=1
         if (highlight === 'newArrivals' || newArrival === '1') {
             query += ' AND p.new_arrival = 1';
-            params.push(1);
         }
         // By default exclude archived products unless explicitly requested
         if (!(includeArchived === 'true' || includeArchived === '1')) {
@@ -5828,8 +5830,9 @@ app.post('/api/vendors', async (req, res) => {
         const { value: socialLinks } = extractSocialLinksPayload(req.body);
         const socialShowcaseInput = req.body?.social_showcase_enabled ?? req.body?.socialShowcaseEnabled;
         const socialShowcase = socialShowcaseInput == null ? 1 : (Number(socialShowcaseInput) ? 1 : 0);
+        const verifiedFlag = req.body?.verified ? 1 : 0;
         const result = await db.run(
-            `INSERT INTO vendors (legal_name, contact_person, email, phone, address, website, capabilities, notes, slug, tagline, public_description, social_links, social_showcase_enabled, currency)
+            `INSERT INTO vendors (legal_name, contact_person, email, phone, address, website, capabilities, notes, slug, tagline, public_description, social_links, social_showcase_enabled, verified, currency)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)` ,
             [
                 legal_name,
@@ -5845,6 +5848,7 @@ app.post('/api/vendors', async (req, res) => {
                 descriptionValue,
                 socialLinks ? JSON.stringify(socialLinks) : null,
                 socialShowcase,
+                verifiedFlag,
                 normalizedCurrency
             ]
         );
@@ -5971,12 +5975,13 @@ app.post('/api/vendors/register', async (req, res) => {
     try {
         await db.run('BEGIN TRANSACTION');
         const slug = await getUniqueVendorSlug(legal_name || email || contact_person || `vendor-${Date.now()}`);
+        const verifiedFlag = req.body?.verified ? 1 : 0;
         const result = await db.run(
             `INSERT INTO vendors (
                 legal_name, contact_person, email, phone, address, website, capabilities, notes,
-                bank_details, logo_url, monthly_fee, billing_start_date, account_active, status, slug, tagline, public_description, hero_image, social_links, social_showcase_enabled, currency
+                bank_details, logo_url, monthly_fee, billing_start_date, account_active, status, slug, tagline, public_description, hero_image, social_links, social_showcase_enabled, verified, currency
              )
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             [
                 legal_name,
                 contact_person || null,
@@ -5998,6 +6003,7 @@ app.post('/api/vendors/register', async (req, res) => {
                 hero_image || null,
                 socialLinks ? JSON.stringify(socialLinks) : null,
                 socialShowcase,
+                verifiedFlag,
                 normalizedCurrency
             ]
         );
@@ -6132,6 +6138,9 @@ app.put('/api/vendors/:id', authMiddleware, requireRole(['manager','admin']), as
         assign('monthly_fee', monthly_fee, (v) => (v === undefined || v === null || v === '' ? undefined : Number(v)));
         assign('billing_start_date', billing_start_date, (v) => (v === undefined ? undefined : (v || null)));
         assign('currency', req.body?.currency, (v) => (v === undefined ? undefined : ensureVendorCurrency(v)));
+        if (req.body?.verified !== undefined) {
+            assign('verified', req.body.verified, (v) => (Number(v) ? 1 : 0));
+        }
 
         const { provided: socialProvided, value: socialLinks } = extractSocialLinksPayload(req.body || {});
         if (socialProvided) {
@@ -6405,6 +6414,9 @@ app.get('/api/public/vendors', async (req, res) => {
         const sort = req.query.sort === 'recent' ? 'recent' : 'trending';
         const orderBy = sort === 'recent' ? 'v.created_at DESC' : 'product_count DESC, v.created_at DESC';
         const search = (req.query.search || req.query.q || '').toString().trim();
+        const verifiedOnly = typeof req.query.verified !== 'undefined'
+            ? ['1', 'true', 'yes', 'on'].includes(String(req.query.verified).toLowerCase())
+            : false;
         const params = [];
         let where = 'WHERE v.status = \'active\'';
         if (search) {
@@ -6412,9 +6424,12 @@ app.get('/api/public/vendors', async (req, res) => {
             const term = `%${search.toLowerCase()}%`;
             params.push(term, term);
         }
+        if (verifiedOnly) {
+            where += ' AND v.verified = 1';
+        }
         const rows = await db.all(
             `SELECT v.id, v.slug, v.legal_name, v.tagline, v.public_description, v.logo_url, v.website, v.hero_image,
-                    v.social_links, v.social_showcase_enabled,
+                    v.social_links, v.social_showcase_enabled, v.verified,
                     COUNT(p.id) AS product_count
              FROM vendors v
              LEFT JOIN products p ON p.vendor_id = v.id
@@ -6445,7 +6460,7 @@ app.get('/api/public/vendors', async (req, res) => {
 app.get('/api/public/vendors/:slug', async (req, res) => {
     try {
         let vendor = await db.get(
-            'SELECT id, slug, legal_name, contact_person, email, phone, address, website, tagline, public_description, logo_url, hero_image, attachments, social_links, social_showcase_enabled FROM vendors WHERE slug = ? AND status = ?',
+            'SELECT id, slug, legal_name, contact_person, email, phone, address, website, tagline, public_description, logo_url, hero_image, attachments, social_links, social_showcase_enabled, verified FROM vendors WHERE slug = ? AND status = ?',
             [req.params.slug, 'active']
         );
         if (!vendor) return res.status(404).json({ error: 'Vendor not found' });
@@ -6476,6 +6491,7 @@ app.get('/api/public/vendors/:slug', async (req, res) => {
 function mapProductForPublic(row) {
     const vendorSocialLinksRaw = parseJson(row.vendor_social_links, null);
     const vendorSocialLinks = Number(row.vendor_social_showcase_enabled ?? 1) ? vendorSocialLinksRaw : null;
+    const vendorVerified = Number(row.vendor_verified ?? 0) ? 1 : 0;
     return {
         id: row.id,
         name: row.name,
@@ -6497,6 +6513,7 @@ function mapProductForPublic(row) {
         vendor_slug: row.vendor_slug,
         vendor_tagline: row.vendor_tagline,
         vendor_public_description: row.vendor_public_description,
+        vendor_verified: vendorVerified,
         vendor_social_links: vendorSocialLinks,
         created_at: row.created_at,
         gallery: row.gallery ? parseGalleryFromRow(row.gallery) : [],
@@ -6508,7 +6525,7 @@ app.get('/api/public/vendors/:slug/products', async (req, res) => {
         const vendor = await db.get('SELECT id FROM vendors WHERE slug = ? AND status = ?', [req.params.slug, 'active']);
         if (!vendor) return res.status(404).json({ error: 'Vendor not found' });
         const rows = await db.all(
-            `SELECT p.*, v.slug AS vendor_slug, v.legal_name AS vendor_name, v.social_links AS vendor_social_links, v.social_showcase_enabled AS vendor_social_showcase_enabled
+            `SELECT p.*, v.slug AS vendor_slug, v.legal_name AS vendor_name, v.social_links AS vendor_social_links, v.social_showcase_enabled AS vendor_social_showcase_enabled, v.verified AS vendor_verified
              FROM products p
              LEFT JOIN vendors v ON p.vendor_id = v.id
              WHERE p.vendor_id = ?

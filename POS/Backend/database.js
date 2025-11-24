@@ -397,6 +397,7 @@ export async function setupDatabase() {
     await ensureColumn(db, 'customers', 'attachments', 'TEXT');
     // vendor attachments metadata
     await ensureColumn(db, 'vendors', 'attachments', 'TEXT');
+    await ensureColumn(db, 'vendors', 'verified', 'INTEGER DEFAULT 0');
         await ensureColumn(db, 'products', 'availability_status', "TEXT DEFAULT 'in_stock'");
         try {
             await db.run("UPDATE products SET availability_status = 'preorder' WHERE preorder_enabled = 1 AND (availability_status IS NULL OR availability_status = '' OR availability_status = 'in_stock')");
@@ -676,6 +677,7 @@ export async function setupDatabase() {
             hero_image TEXT,
             social_links TEXT,
             social_showcase_enabled INTEGER DEFAULT 1,
+            verified INTEGER DEFAULT 0,
             currency TEXT,
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP
         );

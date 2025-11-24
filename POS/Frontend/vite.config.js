@@ -18,14 +18,27 @@ const KEY_PATH = path.join(CERTS_DIR, 'pos-itnvend-com-key.pem');
 function loadHttpsOptions() {
   if (!USE_HTTPS) return undefined;
   try {
-    return {
-      cert: fs.readFileSync(CERT_PATH),
-      key: fs.readFileSync(KEY_PATH),
-    };
-  } catch (err) {
-    console.warn('Failed to read TLS certificates for Vite dev server. Falling back to HTTP.', err?.message || err);
-    return undefined;
+    if (fs.existsSync(CERT_PATH) && fs.existsSync(KEY_PATH)) {
+      return {
+        cert: fs.readFileSync(CERT_PATH),
+        key: fs.readFileSync(KEY_PATH),
+      };
+    }
+  } catch {
+    // ignore and fall through to HTTP
   }
+  return undefined;
+}
+
+function buildManualChunks(id) {
+  if (!id.includes('node_modules')) return undefined;
+  if (id.includes('react-router')) return 'react-router';
+  if (id.includes('socket.io-client')) return 'socket-io';
+  if (id.includes('chart.js')) return 'charts';
+  const isReactDom = /node_modules[\\/](react-dom|scheduler)/.test(id);
+  const isReactCore = /node_modules[\\/](react($|[\\/])|react-jsx-runtime)/.test(id);
+  if (isReactCore || isReactDom) return 'react-bundle';
+  return 'vendor';
 }
 
 export default defineConfig({
@@ -67,6 +80,14 @@ export default defineConfig({
         changeOrigin: true,
         secure: false,
         ws: true,
+      },
+    },
+  },
+  build: {
+    chunkSizeWarningLimit: 1024,
+    rollupOptions: {
+      output: {
+        manualChunks: buildManualChunks,
       },
     },
   },

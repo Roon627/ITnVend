@@ -8,6 +8,25 @@ const DEFAULT_RATE = 15.42;
 const STOREFRONT_API_KEY = import.meta.env.VITE_STOREFRONT_API_KEY || '';
 const STOREFRONT_API_SECRET = import.meta.env.VITE_STOREFRONT_API_SECRET || '';
 
+const SHOP_STEPS = [
+  { id: 1, title: 'Cart links', description: 'Share what we should buy' },
+  { id: 2, title: 'Contact & delivery', description: 'How we reach you' },
+  { id: 3, title: 'Payment details', description: 'Exchange rate & slip' },
+  { id: 4, title: 'Review & submit', description: 'Confirm before sending' },
+];
+
+const SHOP_HIGHLIGHTS = [
+  { label: 'Reference bank rate', value: `1 USD = ${DEFAULT_RATE} MVR`, helper: 'Updated daily (BML/MIB)' },
+  { label: 'Delivery coverage', value: 'Malé & Hulhumalé', helper: 'Door pickup or contactless' },
+  { label: 'Average clearance', value: '5–7 days', helper: 'After parcel arrives' },
+];
+
+const PAYMENT_LABELS = {
+  bank_transfer: 'Bank transfer',
+  qr_code: 'QR payment',
+  cash: 'Cash on pickup',
+};
+
 function toBase64(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -74,6 +93,7 @@ export default function ShopAndShip() {
   const [submitting, setSubmitting] = useState(false);
   const [successId, setSuccessId] = useState(null);
   const [error, setError] = useState('');
+  const [step, setStep] = useState(1);
   const location = useLocation();
 
   useEffect(() => {
@@ -95,12 +115,63 @@ export default function ShopAndShip() {
     });
   }, [location.search]);
 
+  const normalizedLinks = useMemo(() => {
+    return form.cartLinks
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean);
+  }, [form.cartLinks]);
+
   const mvrEstimate = useMemo(() => {
     const usd = Number(form.usdTotal);
     const rate = Number(form.exchangeRate) || DEFAULT_RATE;
     if (!Number.isFinite(usd) || usd <= 0) return null;
     return Math.round(usd * rate * 100) / 100;
   }, [form.usdTotal, form.exchangeRate]);
+
+  const totalSteps = SHOP_STEPS.length;
+  const isFinalStep = step === totalSteps;
+
+  const validateStep = (currentStep) => {
+    if (currentStep === 1) {
+      if (normalizedLinks.length === 0) {
+        setError('Please paste at least one cart link to continue.');
+        return false;
+      }
+      return true;
+    }
+    if (currentStep === 2) {
+      if (!form.name.trim() || !form.email.trim() || !form.phone.trim() || !form.deliveryAddress.trim()) {
+        setError('Please share your contact information and delivery address.');
+        return false;
+      }
+      return true;
+    }
+    if (currentStep === 3) {
+      const usd = Number(form.usdTotal);
+      if (!Number.isFinite(usd) || usd <= 0) {
+        setError('Enter the USD total so we can estimate the local amount.');
+        return false;
+      }
+      if (form.paymentType === 'qr_code' && !form.paymentReference.trim()) {
+        setError('QR payments need a transaction reference from your banking app.');
+        return false;
+      }
+      return true;
+    }
+    return true;
+  };
+
+  const handleNextStep = () => {
+    setError('');
+    if (!validateStep(step)) return;
+    setStep((prev) => Math.min(totalSteps, prev + 1));
+  };
+
+  const handlePrevStep = () => {
+    setError('');
+    setStep((prev) => Math.max(1, prev - 1));
+  };
 
   const handleChange = (field) => (event) => {
     const value = event.target.value;
@@ -149,32 +220,32 @@ export default function ShopAndShip() {
       paymentSlipName: '',
       paymentBank: 'bml',
     });
+    setStep(1);
   };
 
   const handleSubmit = async (event) => {
     event.preventDefault();
+    if (!isFinalStep) {
+      handleNextStep();
+      return;
+    }
     setError('');
     setSuccessId(null);
 
-    const { name, email, phone, cartLinks, usdTotal, deliveryAddress } = form;
+    const { name, email, phone, usdTotal, deliveryAddress } = form;
     if (!name.trim() || !email.trim() || !phone.trim() || !usdTotal.trim() || !deliveryAddress.trim()) {
       setError('Name, email, mobile number, delivery address, and USD total are required fields.');
       return;
     }
 
-    const links = cartLinks
-      .split(/\r?\n/)
-      .map((line) => line.trim())
-      .filter(Boolean);
-
-    if (links.length === 0) {
+    if (normalizedLinks.length === 0) {
       setError('Please paste at least one cart link.');
       return;
     }
 
     const payload = {
       sourceStore: form.sourceStore || null,
-      cartLinks: links,
+      cartLinks: normalizedLinks,
       notes: form.notes || null,
       deliveryAddress: form.deliveryAddress.trim() || null,
       customer: {
@@ -227,393 +298,424 @@ export default function ShopAndShip() {
     }
   };
 
+  const cartSection = (
+    <div className="space-y-6">
+      <div>
+        <p className="text-xs uppercase tracking-wide text-slate-400">Cart details</p>
+        <div className="mt-4 grid gap-4 md:grid-cols-2">
+          <label className="text-sm font-semibold text-slate-700">
+            Store or platform (optional)
+            <input
+              type="text"
+              value={form.sourceStore}
+              onChange={handleChange('sourceStore')}
+              placeholder="Shein, Temu, Amazon..."
+              className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm shadow-sm focus:border-rose-400 focus:outline-none focus:ring-2 focus:ring-rose-200"
+            />
+          </label>
+          <label className="text-sm font-semibold text-slate-700 md:col-span-2">
+            Cart links*
+            <textarea
+              value={form.cartLinks}
+              onChange={handleChange('cartLinks')}
+              placeholder="Paste each link on a new line"
+              rows={4}
+              required
+              className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm shadow-sm focus:border-rose-400 focus:outline-none focus:ring-2 focus:ring-rose-200"
+            />
+          </label>
+          <label className="text-sm font-semibold text-slate-700 md:col-span-2">
+            Notes for our shoppers (optional)
+            <textarea
+              value={form.notes}
+              onChange={handleChange('notes')}
+              placeholder="Sizing tips, substitutions, deadlines..."
+              rows={3}
+              className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm shadow-sm focus:border-rose-400 focus:outline-none focus:ring-2 focus:ring-rose-200"
+            />
+          </label>
+        </div>
+      </div>
+      <div className="rounded-2xl border border-slate-100 bg-slate-50/60 p-4 text-sm text-slate-600">
+        Paste unlimited links – we compile everything into a single concierge request so you only pay for one shipment.
+      </div>
+    </div>
+  );
+
+  const contactSection = (
+    <div className="space-y-6">
+      <div>
+        <p className="text-xs uppercase tracking-wide text-slate-400">Contact & delivery</p>
+        <div className="mt-4 grid gap-4 md:grid-cols-3">
+          <label className="text-sm font-semibold text-slate-700">
+            Full name*
+            <input
+              type="text"
+              value={form.name}
+              onChange={handleChange('name')}
+              required
+              className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm shadow-sm focus:border-rose-400 focus:outline-none focus:ring-2 focus:ring-rose-200"
+            />
+          </label>
+          <label className="text-sm font-semibold text-slate-700">
+            Email*
+            <input
+              type="email"
+              value={form.email}
+              onChange={handleChange('email')}
+              required
+              className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm shadow-sm focus:border-rose-400 focus:outline-none focus:ring-2 focus:ring-rose-200"
+            />
+          </label>
+          <label className="text-sm font-semibold text-slate-700">
+            Mobile number*
+            <input
+              type="tel"
+              value={form.phone}
+              onChange={handleChange('phone')}
+              required
+              className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm shadow-sm focus:border-rose-400 focus:outline-none focus:ring-2 focus:ring-rose-200"
+            />
+          </label>
+        </div>
+        <label className="mt-4 block text-sm font-semibold text-slate-700">
+          Delivery address*
+          <textarea
+            value={form.deliveryAddress}
+            onChange={handleChange('deliveryAddress')}
+            rows={3}
+            required
+            placeholder="Where should we deliver or hand over when the shipment arrives?"
+            className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm shadow-sm focus:border-rose-400 focus:outline-none focus:ring-2 focus:ring-rose-200"
+          />
+        </label>
+      </div>
+      <div className="rounded-2xl border border-slate-100 bg-white/80 p-4 text-sm text-slate-600">
+        We keep you updated via email and SMS as soon as the parcel clears customs or if we need clarification.
+      </div>
+    </div>
+  );
+
+  const paymentSection = (
+    <div className="space-y-6">
+      <div>
+        <p className="text-xs uppercase tracking-wide text-slate-400">Payment method</p>
+        <div className="mt-3 flex flex-wrap gap-3">
+          {['bank_transfer', 'qr_code', 'cash'].map((type) => (
+            <label
+              key={type}
+              className={`inline-flex items-center gap-3 rounded-2xl border px-4 py-2 text-sm font-semibold transition ${
+                form.paymentType === type
+                  ? 'border-rose-300 bg-rose-50 text-rose-600'
+                  : 'border-slate-200 bg-white text-slate-500 hover:border-rose-200'
+              }`}
+            >
+              <input
+                type="radio"
+                name="paymentType"
+                value={type}
+                checked={form.paymentType === type}
+                onChange={handleChange('paymentType')}
+                className="h-4 w-4 text-rose-500 focus:ring-rose-400"
+              />
+              {type === 'qr_code' && <FaQrcode className="text-base" />}
+              {PAYMENT_LABELS[type]}
+            </label>
+          ))}
+        </div>
+      </div>
+
+      {form.paymentType === 'bank_transfer' && getAccountTransferDetails() && (
+        <div className="rounded-xl border border-amber-200 bg-amber-50/70 p-4 text-sm text-amber-800">
+          <h3 className="font-semibold mb-2">Bank Transfer Details</h3>
+          <div className="whitespace-pre-line">{getAccountTransferDetails()}</div>
+        </div>
+      )}
+
+      {form.paymentType === 'qr_code' && getPaymentQrCodeUrl() && (
+        <div className="rounded-xl border border-blue-200 bg-blue-50/70 p-4">
+          <h3 className="mb-2 font-semibold text-blue-900">QR Code Payment</h3>
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
+            <img src={getPaymentQrCodeUrl()} alt="Payment QR Code" className="h-40 w-40 rounded-lg border border-slate-200 object-contain" />
+            <p className="text-sm text-blue-700">
+              Scan with your banking app, then note the transaction reference so we can reconcile it quickly.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {form.paymentType === 'cash' && (
+        <div className="rounded-xl border border-rose-200 bg-rose-50/70 p-4 text-sm text-rose-800">
+          Cash payments are collected when your order arrives. No slip required.
+        </div>
+      )}
+
+      <div>
+        <p className="text-xs uppercase tracking-wide text-slate-400">Totals</p>
+        <div className="mt-3 grid gap-4 md:grid-cols-3">
+          <label className="text-sm font-semibold text-slate-700">
+            USD total*
+            <input
+              type="number"
+              min="0"
+              step="0.01"
+              value={form.usdTotal}
+              onChange={handleChange('usdTotal')}
+              required
+              className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm shadow-sm focus:border-rose-400 focus:outline-none focus:ring-2 focus:ring-rose-200"
+            />
+          </label>
+          <label className="text-sm font-semibold text-slate-700">
+            Exchange rate
+            <div className="relative mt-1">
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                value={form.exchangeRate}
+                onChange={handleChange('exchangeRate')}
+                className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 pr-12 text-sm shadow-sm focus:border-rose-400 focus:outline-none focus:ring-2 focus:ring-rose-200"
+              />
+              <span className="absolute inset-y-0 right-3 flex items-center text-xs font-semibold text-rose-400">MVR</span>
+            </div>
+            <div className="mt-2 flex items-center gap-2 text-xs text-slate-400">
+              <FaInfoCircle aria-hidden="true" />
+              <span>Adjust if your bank publishes a different rate today.</span>
+            </div>
+          </label>
+          <label className="text-sm font-semibold text-slate-700">
+            Estimated MVR
+            <input
+              type="text"
+              value={mvrEstimate != null ? mvrEstimate.toFixed(2) : ''}
+              readOnly
+              className="mt-1 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600 shadow-sm"
+            />
+          </label>
+        </div>
+      </div>
+
+      {(form.paymentType === 'bank_transfer' || form.paymentType === 'qr_code') && (
+        <div className="space-y-4">
+          <div>
+            <span className="block text-xs font-semibold uppercase tracking-wide text-slate-500 mb-3">Bank used for payment</span>
+            <div className="flex flex-wrap gap-3">
+              {['bml', 'mib'].map((bank) => (
+                <label
+                  key={bank}
+                  className={`inline-flex items-center gap-3 rounded-2xl border px-4 py-2 text-sm font-semibold transition ${
+                    form.paymentBank === bank
+                      ? 'border-rose-300 bg-rose-50 text-rose-600'
+                      : 'border-slate-200 bg-white text-slate-500 hover:border-rose-200'
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    name="paymentBank"
+                    value={bank}
+                    checked={form.paymentBank === bank}
+                    onChange={handleChange('paymentBank')}
+                    className="h-4 w-4 text-rose-500 focus:ring-rose-400"
+                  />
+                  {bank === 'bml' ? 'Bank of Maldives' : 'Maldives Islamic Bank'}
+                </label>
+              ))}
+            </div>
+            <p className="mt-1 text-xs text-slate-400">Same rate for either bank – pick whichever slip you have.</p>
+          </div>
+
+          <div className="grid gap-4 md:grid-cols-3">
+            <label className="text-sm font-semibold text-slate-700">
+              {form.paymentType === 'qr_code' ? 'Transaction reference*' : 'Payment reference (optional)'}
+              <input
+                type="text"
+                value={form.paymentReference}
+                onChange={handleChange('paymentReference')}
+                required={form.paymentType === 'qr_code'}
+                placeholder={form.paymentType === 'qr_code' ? 'Enter the app transaction ID' : 'Transaction ID'}
+                className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm shadow-sm focus:border-rose-400 focus:outline-none focus:ring-2 focus:ring-rose-200"
+              />
+            </label>
+            <label className="text-sm font-semibold text-slate-700">
+              Payment date (optional)
+              <input
+                type="date"
+                value={form.paymentDate}
+                onChange={handleChange('paymentDate')}
+                className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm shadow-sm focus:border-rose-400 focus:outline-none focus:ring-2 focus:ring-rose-200"
+              />
+            </label>
+            <label className="text-sm font-semibold text-slate-700">
+              {form.paymentType === 'bank_transfer' ? 'Payment slip (optional)' : 'Payment confirmation (optional)'}
+              <label className="mt-1 flex cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed border-rose-200 bg-rose-50/60 px-4 py-6 text-center text-sm font-semibold text-rose-500 transition hover:border-rose-300">
+                <FaCloudUploadAlt className="mb-2 text-2xl" aria-hidden="true" />
+                <span>{form.paymentSlipName || `Upload ${form.paymentType === 'bank_transfer' ? 'receipt' : 'confirmation'} (max 6MB)`}</span>
+                <input type="file" accept="image/*,application/pdf" className="hidden" onChange={handleFileChange} />
+              </label>
+            </label>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+
+  const reviewSection = (
+    <div className="space-y-6">
+      <div className="rounded-2xl border border-slate-100 bg-white/80 p-4 text-sm text-slate-700">
+        <p className="text-xs uppercase tracking-wide text-slate-400">Cart summary</p>
+        {normalizedLinks.length ? (
+          <ol className="mt-3 space-y-1 list-decimal pl-4">
+            {normalizedLinks.map((link, index) => (
+              <li key={link + index} className="break-words text-slate-600">
+                {link}
+              </li>
+            ))}
+          </ol>
+        ) : (
+          <p className="mt-3 text-sm text-slate-500">No cart links yet.</p>
+        )}
+        {form.notes && <p className="mt-3 text-xs text-slate-500">Notes: {form.notes}</p>}
+      </div>
+      <div className="grid gap-4 md:grid-cols-2">
+        <div className="rounded-2xl border border-slate-100 bg-slate-50/70 p-4 text-sm text-slate-700">
+          <p className="text-xs uppercase tracking-wide text-slate-400">Contact</p>
+          <ul className="mt-3 space-y-1">
+            <li><span className="font-semibold">Name:</span> {form.name || '—'}</li>
+            <li><span className="font-semibold">Email:</span> {form.email || '—'}</li>
+            <li><span className="font-semibold">Phone:</span> {form.phone || '—'}</li>
+            <li><span className="font-semibold">Address:</span> {form.deliveryAddress || '—'}</li>
+          </ul>
+        </div>
+        <div className="rounded-2xl border border-slate-100 bg-slate-50/70 p-4 text-sm text-slate-700">
+          <p className="text-xs uppercase tracking-wide text-slate-400">Payment</p>
+          <ul className="mt-3 space-y-1">
+            <li><span className="font-semibold">Method:</span> {PAYMENT_LABELS[form.paymentType] || '—'}</li>
+            <li><span className="font-semibold">USD total:</span> {form.usdTotal || '—'}</li>
+            <li><span className="font-semibold">Rate:</span> {form.exchangeRate || DEFAULT_RATE}</li>
+            <li><span className="font-semibold">Est. MVR:</span> {mvrEstimate != null ? mvrEstimate.toFixed(2) : '—'}</li>
+            {form.paymentReference && <li><span className="font-semibold">Reference:</span> {form.paymentReference}</li>}
+          </ul>
+        </div>
+      </div>
+      <div className="rounded-2xl border border-slate-100 bg-white/90 p-4 text-sm text-slate-700">
+        <p className="text-xs uppercase tracking-wide text-slate-400">Uploads</p>
+        <ul className="mt-3 space-y-1">
+          <li>Payment slip: {form.paymentSlipName || '—'}</li>
+          <li>Preferred bank: {form.paymentBank.toUpperCase()}</li>
+          <li>Payment date: {form.paymentDate || '—'}</li>
+        </ul>
+      </div>
+    </div>
+  );
+
+  const renderStepContent = () => {
+    switch (step) {
+      case 1:
+        return cartSection;
+      case 2:
+        return contactSection;
+      case 3:
+        return paymentSection;
+      default:
+        return reviewSection;
+    }
+  };
+
   return (
-    <section className="bg-gradient-to-br from-rose-50 via-white to-sky-50 py-16">
-      <div className="mx-auto max-w-5xl px-6">
-        <div className="mb-10 rounded-3xl bg-white/80 p-8 shadow-xl shadow-rose-100/60 backdrop-blur">
-          <div className="flex flex-col gap-6 md:flex-row md:items-center md:justify-between">
+    <section className="bg-gradient-to-br from-slate-50 via-white to-rose-50 py-14 px-4">
+      <div className="mx-auto w-full max-w-screen-2xl space-y-8">
+        <div className="rounded-3xl border border-rose-100 bg-white/95 p-8 shadow-2xl shadow-rose-100/60 backdrop-blur">
+          <div className="space-y-6">
             <div>
-              <h1 className="text-3xl font-bold text-slate-800 md:text-4xl">Shop &amp; Ship Concierge</h1>
+              <span className="inline-flex items-center gap-2 rounded-full bg-rose-50 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-rose-600">
+                Concierge desk
+              </span>
+              <h1 className="mt-3 text-3xl font-bold text-slate-900 md:text-4xl">Shop &amp; Ship Concierge</h1>
               <p className="mt-3 text-slate-600 md:max-w-2xl">
-                Share your Shein, Temu or other online shopping carts and we'll bring them to the Maldives.
-                Submit your details with the Maldives bank exchange helper below, and we'll confirm next steps by email.
+                Paste your carts from Shein, Temu, Amazon, or any global storefront and we will handle the overseas checkout, shipping, and customs handoff for you.
               </p>
             </div>
-            <div className="rounded-2xl border border-rose-100 bg-rose-50/70 px-6 py-4 text-center shadow">
-              <div className="text-xs font-semibold uppercase tracking-wider text-rose-400">
-                Reference bank rate (BML / MIB)
-              </div>
-              <div className="mt-1 text-2xl font-bold text-rose-600">1 USD = 15.42 MVR</div>
-              <div className="mt-1 text-xs text-rose-400">Updated daily</div>
+            <div className="grid grid-cols-3 gap-2 text-center text-[10px] sm:gap-3 sm:text-sm">
+              {SHOP_HIGHLIGHTS.map((card) => (
+                <div key={card.label} className="rounded-2xl border border-rose-100 bg-rose-50/70 px-3 py-2 shadow-sm">
+                  <div className="text-[10px] font-semibold uppercase tracking-wide text-rose-500">{card.label}</div>
+                  <div className="text-sm font-bold text-rose-700 sm:text-base">{card.value}</div>
+                  <div className="text-[10px] text-rose-400">{card.helper}</div>
+                </div>
+              ))}
             </div>
           </div>
         </div>
 
         {successId && (
-          <div className="mb-6 rounded-2xl border border-emerald-100 bg-emerald-50 px-6 py-4 text-emerald-700 shadow-sm">
+          <div className="rounded-2xl border border-rose-100 bg-rose-50 px-6 py-4 text-rose-800 shadow-sm">
             <p className="font-semibold">
-              Order received! Reference number <span className="font-bold text-emerald-800">#{successId}</span>
+              Order received! Reference number <span className="font-bold">#{successId}</span>
             </p>
-            <p className="mt-1 text-sm text-emerald-600">
-              We’ve emailed you a confirmation. Our team will review and get in touch with updates shortly.
-            </p>
+            <p className="mt-1 text-sm text-rose-700">We emailed you a confirmation and will update you as soon as we review the cart.</p>
           </div>
         )}
 
         {error && (
-          <div className="mb-6 rounded-2xl border border-rose-100 bg-rose-50 px-6 py-4 text-rose-600 shadow-sm">
+          <div className="rounded-2xl border border-rose-100 bg-rose-50 px-6 py-4 text-rose-600 shadow-sm">
             {error}
           </div>
         )}
 
-        <form onSubmit={handleSubmit} className="space-y-10 rounded-3xl bg-white/85 p-8 shadow-2xl shadow-rose-100/70 backdrop-blur">
-          <div>
-            <h2 className="text-xl font-semibold text-slate-800">1. Cart details</h2>
-            <p className="mt-1 text-sm text-slate-500">
-              Paste the share URLs or exported cart links. Add any notes we should know before ordering.
-            </p>
-
-            <div className="mt-4 grid gap-4 md:grid-cols-2">
-              <div>
-                <label className="mb-2 block text-sm font-semibold text-slate-700">Store or platform (optional)</label>
-                <input
-                  type="text"
-                  value={form.sourceStore}
-                  onChange={handleChange('sourceStore')}
-                  placeholder="Shein, Temu, Amazon..."
-                  className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm shadow-sm focus:border-rose-400 focus:outline-none focus:ring-2 focus:ring-rose-200"
-                />
+        <form onSubmit={handleSubmit} className="space-y-6 rounded-3xl border border-white/60 bg-white/95 p-6 shadow-xl shadow-rose-100/40 backdrop-blur">
+          <div className="grid grid-cols-2 gap-2 rounded-2xl border border-rose-100 bg-rose-50/50 p-3 sm:flex sm:flex-row sm:flex-wrap">
+            {SHOP_STEPS.map((item) => (
+              <div
+                key={item.id}
+                className={`flex flex-col rounded-xl border px-3 py-2 text-xs ${
+                  step === item.id ? 'border-rose-400 bg-white shadow-sm' : 'border-transparent text-slate-500'
+                }`}
+              >
+                <div className="text-[10px] uppercase tracking-wide text-slate-400">Step {item.id}</div>
+                <div className="text-sm font-semibold text-slate-800">{item.title}</div>
+                <p className="text-[10px] text-slate-500">{item.description}</p>
               </div>
-              <div className="md:col-span-2">
-                <label className="mb-2 block text-sm font-semibold text-slate-700">Cart links*</label>
-                <textarea
-                  value={form.cartLinks}
-                  onChange={handleChange('cartLinks')}
-                  placeholder="Paste each link on a new line"
-                  rows={4}
-                  required
-                  className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm shadow-sm focus:border-rose-400 focus:outline-none focus:ring-2 focus:ring-rose-200"
-                />
-              </div>
-              <div className="md:col-span-2">
-                <label className="mb-2 block text-sm font-semibold text-slate-700">Notes for our shoppers (optional)</label>
-                <textarea
-                  value={form.notes}
-                  onChange={handleChange('notes')}
-                  placeholder="Sizing tips, substitutions, deadlines..."
-                  rows={3}
-                  className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm shadow-sm focus:border-rose-400 focus:outline-none focus:ring-2 focus:ring-rose-200"
-                />
-              </div>
-            </div>
+            ))}
           </div>
 
-          <div>
-            <h2 className="text-xl font-semibold text-slate-800">2. Contact &amp; delivery</h2>
-            <p className="mt-1 text-sm text-slate-500">
-              Tell us how to reach you. We’ll keep you in the loop as your order progresses.
-            </p>
+          {renderStepContent()}
 
-            <div className="mt-4 grid gap-4 md:grid-cols-3">
-              <div>
-                <label className="mb-2 block text-sm font-semibold text-slate-700">Full name*</label>
-                <input
-                  type="text"
-                  value={form.name}
-                  onChange={handleChange('name')}
-                  required
-                  className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm shadow-sm focus:border-rose-400 focus:outline-none focus:ring-2 focus:ring-rose-200"
-                />
-              </div>
-              <div>
-                <label className="mb-2 block text-sm font-semibold text-slate-700">Email*</label>
-                <input
-                  type="email"
-                  value={form.email}
-                  onChange={handleChange('email')}
-                  required
-                  className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm shadow-sm focus:border-rose-400 focus:outline-none focus:ring-2 focus:ring-rose-200"
-                />
-              </div>
-              <div>
-                <label className="mb-2 block text-sm font-semibold text-slate-700">Mobile number*</label>
-                <input
-                  type="tel"
-                  value={form.phone}
-                  onChange={handleChange('phone')}
-                  required
-                  className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm shadow-sm focus:border-rose-400 focus:outline-none focus:ring-2 focus:ring-rose-200"
-                />
-              </div>
-            </div>
-            <div className="mt-4">
-              <label className="mb-2 block text-sm font-semibold text-slate-700">Delivery address*</label>
-              <textarea
-                value={form.deliveryAddress}
-                onChange={handleChange('deliveryAddress')}
-                rows={3}
-                required
-                placeholder="Where should we deliver or hand over when the shipment arrives?"
-                className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm shadow-sm focus:border-rose-400 focus:outline-none focus:ring-2 focus:ring-rose-200"
-              />
-            </div>
+          <div className="rounded-2xl border border-rose-100 bg-rose-50/50 p-4 text-xs text-slate-500">
+            By submitting you agree to our{' '}
+            <a href="/use" className="font-semibold text-rose-600 underline">
+              acceptable use policy
+            </a>
+            . We only charge once we confirm availability of all cart items.
           </div>
 
-          <div>
-            <h2 className="text-xl font-semibold text-slate-800">3. Payment confirmation</h2>
-            <p className="mt-1 text-sm text-slate-500">
-              Choose your payment method and enter the USD amount charged. We'll estimate the Maldives amount.
-            </p>
-
-            <div className="mt-4 space-y-4">
-              <div>
-                <span className="block text-sm font-semibold uppercase tracking-wide text-slate-500 mb-3">
-                  Payment method
-                </span>
-                <div className="flex flex-wrap gap-3">
-                  <label
-                    className={`inline-flex items-center gap-3 rounded-2xl border px-4 py-2 text-sm font-semibold transition cursor-pointer ${
-                      form.paymentType === 'bank_transfer'
-                        ? 'border-rose-300 bg-rose-50 text-rose-600'
-                        : 'border-slate-200 bg-white text-slate-500 hover:border-rose-200'
-                    }`}
-                  >
-                    <input
-                      type="radio"
-                      name="paymentType"
-                      value="bank_transfer"
-                      checked={form.paymentType === 'bank_transfer'}
-                      onChange={handleChange('paymentType')}
-                      className="h-4 w-4 text-rose-500 focus:ring-rose-400"
-                    />
-                    Bank Transfer
-                  </label>
-                  <label
-                    className={`inline-flex items-center gap-3 rounded-2xl border px-4 py-2 text-sm font-semibold transition cursor-pointer ${
-                      form.paymentType === 'qr_code'
-                        ? 'border-rose-300 bg-rose-50 text-rose-600'
-                        : 'border-slate-200 bg-white text-slate-500 hover:border-rose-200'
-                    }`}
-                  >
-                    <input
-                      type="radio"
-                      name="paymentType"
-                      value="qr_code"
-                      checked={form.paymentType === 'qr_code'}
-                      onChange={handleChange('paymentType')}
-                      className="h-4 w-4 text-rose-500 focus:ring-rose-400"
-                    />
-                    <FaQrcode className="text-lg" />
-                    QR Code Payment
-                  </label>
-                  <label
-                    className={`inline-flex items-center gap-3 rounded-2xl border px-4 py-2 text-sm font-semibold transition cursor-pointer ${
-                      form.paymentType === 'cash'
-                        ? 'border-rose-300 bg-rose-50 text-rose-600'
-                        : 'border-slate-200 bg-white text-slate-500 hover:border-rose-200'
-                    }`}
-                  >
-                    <input
-                      type="radio"
-                      name="paymentType"
-                      value="cash"
-                      checked={form.paymentType === 'cash'}
-                      onChange={handleChange('paymentType')}
-                      className="h-4 w-4 text-rose-500 focus:ring-rose-400"
-                    />
-                    Cash Payment
-                  </label>
-                </div>
-              </div>
-
-              {/* Payment Details */}
-              {form.paymentType === 'bank_transfer' && getAccountTransferDetails() && (
-                <div className="rounded-xl border border-amber-200 bg-amber-50/50 p-4">
-                  <h3 className="font-semibold text-amber-800 mb-2">Bank Transfer Details</h3>
-                  <div className="text-sm text-amber-700 whitespace-pre-line">
-                    {getAccountTransferDetails()}
-                  </div>
-                </div>
-              )}
-
-              {form.paymentType === 'qr_code' && getPaymentQrCodeUrl() && (
-                <div className="rounded-xl border border-blue-200 bg-blue-50/50 p-4">
-                  <h3 className="font-semibold text-blue-800 mb-2">QR Code Payment</h3>
-                  <div className="flex items-center gap-4">
-                    <img
-                      src={getPaymentQrCodeUrl()}
-                      alt="Payment QR Code"
-                      className="w-48 h-48 object-contain border border-slate-200 rounded-lg"
-                    />
-                    <div className="text-sm text-blue-700">
-                      <p className="mb-2">Scan this QR code with your banking app to make payment.</p>
-                      <p className="font-medium">Enter the transaction reference below after payment.</p>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {form.paymentType === 'cash' && (
-                <div className="rounded-xl border border-green-200 bg-green-50/50 p-4">
-                  <h3 className="font-semibold text-green-800 mb-2">Cash Payment</h3>
-                  <p className="text-sm text-green-700">
-                    You can pay in cash when your order arrives. No payment slip required.
-                  </p>
-                </div>
-              )}
-            </div>
-
-            <div className="mt-4 grid gap-4 md:grid-cols-3">
-              <div>
-                <label className="mb-2 block text-sm font-semibold text-slate-700">USD total*</label>
-                <input
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  value={form.usdTotal}
-                  onChange={handleChange('usdTotal')}
-                  required
-                  className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm shadow-sm focus:border-rose-400 focus:outline-none focus:ring-2 focus:ring-rose-200"
-                />
-              </div>
-              <div>
-                <label className="mb-2 block text-sm font-semibold text-slate-700">Exchange rate</label>
-                <div className="relative">
-                  <input
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    value={form.exchangeRate}
-                    onChange={handleChange('exchangeRate')}
-                    className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 pr-12 text-sm shadow-sm focus:border-rose-400 focus:outline-none focus:ring-2 focus:ring-rose-200"
-                  />
-                  <span className="absolute inset-y-0 right-3 flex items-center text-xs font-semibold text-rose-400">
-                    MVR
-                  </span>
-                </div>
-                <div className="mt-2 flex items-center gap-2 text-xs text-slate-400">
-                  <FaInfoCircle aria-hidden="true" />
-                  <span>You can adjust if the published rate changes.</span>
-                </div>
-              </div>
-              <div>
-                <label className="mb-2 block text-sm font-semibold text-slate-700">Estimated MVR</label>
-                <input
-                  type="text"
-                  value={mvrEstimate != null ? mvrEstimate.toFixed(2) : ''}
-                  readOnly
-                  className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600 shadow-sm"
-                />
-              </div>
-            </div>
-
-            {(form.paymentType === 'bank_transfer' || form.paymentType === 'qr_code') && (
-              <>
-                <div className="mt-6 space-y-2">
-                  <span className="block text-sm font-semibold uppercase tracking-wide text-slate-500">
-                    Bank used for payment
-                  </span>
-                  <div className="flex flex-wrap gap-3">
-                    <label
-                      className={`inline-flex items-center gap-3 rounded-2xl border px-4 py-2 text-sm font-semibold transition ${
-                        form.paymentBank === 'bml'
-                          ? 'border-rose-300 bg-rose-50 text-rose-600'
-                          : 'border-slate-200 bg-white text-slate-500 hover:border-rose-200'
-                      }`}
-                    >
-                      <input
-                        type="radio"
-                        name="paymentBank"
-                        value="bml"
-                        checked={form.paymentBank === 'bml'}
-                        onChange={handleChange('paymentBank')}
-                        className="h-4 w-4 text-rose-500 focus:ring-rose-400"
-                      />
-                      Bank of Maldives
-                    </label>
-                    <label
-                      className={`inline-flex items-center gap-3 rounded-2xl border px-4 py-2 text-sm font-semibold transition ${
-                        form.paymentBank === 'mib'
-                          ? 'border-rose-300 bg-rose-50 text-rose-600'
-                          : 'border-slate-200 bg-white text-slate-500 hover:border-rose-200'
-                      }`}
-                    >
-                      <input
-                        type="radio"
-                        name="paymentBank"
-                        value="mib"
-                        checked={form.paymentBank === 'mib'}
-                        onChange={handleChange('paymentBank')}
-                        className="h-4 w-4 text-rose-500 focus:ring-rose-400"
-                      />
-                      Maldives Islamic Bank
-                    </label>
-                  </div>
-                  <p className="text-xs text-slate-400">
-                    Same exchange rate applies for both banks so you can choose the slip you have on hand.
-                  </p>
-                </div>
-
-                <div className="mt-4 grid gap-4 md:grid-cols-3">
-                  <div>
-                    <label className="mb-2 block text-sm font-semibold text-slate-700">
-                      {form.paymentType === 'qr_code' ? 'Transaction reference*' : 'Payment reference (optional)'}
-                    </label>
-                    <input
-                      type="text"
-                      value={form.paymentReference}
-                      onChange={handleChange('paymentReference')}
-                      required={form.paymentType === 'qr_code'}
-                      placeholder={form.paymentType === 'qr_code' ? 'Enter transaction ID from your app' : 'Transaction ID'}
-                      className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm shadow-sm focus:border-rose-400 focus:outline-none focus:ring-2 focus:ring-rose-200"
-                    />
-                  </div>
-                  <div>
-                    <label className="mb-2 block text-sm font-semibold text-slate-700">Payment date (optional)</label>
-                    <input
-                      type="date"
-                      value={form.paymentDate}
-                      onChange={handleChange('paymentDate')}
-                      className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm shadow-sm focus:border-rose-400 focus:outline-none focus:ring-2 focus:ring-rose-200"
-                    />
-                  </div>
-                  <div>
-                    <label className="mb-2 block text-sm font-semibold text-slate-700">
-                      {form.paymentType === 'bank_transfer' ? 'Payment slip (optional)' : 'Payment confirmation (optional)'}
-                    </label>
-                    <label className="flex cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed border-rose-200 bg-rose-50/40 px-4 py-6 text-center text-sm font-semibold text-rose-500 transition hover:border-rose-300">
-                      <FaCloudUploadAlt className="mb-2 text-2xl" aria-hidden="true" />
-                      <span>{form.paymentSlipName || `Upload ${form.paymentType === 'bank_transfer' ? 'receipt' : 'confirmation'} (max 6MB)`}</span>
-                      <input type="file" accept="image/*,application/pdf" className="hidden" onChange={handleFileChange} />
-                    </label>
-                  </div>
-                </div>
-              </>
-            )}
-          </div>          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="text-xs text-slate-500">
-              By submitting you agree to our{' '}
-              <a href="/use" className="font-semibold text-rose-500 underline">
-                acceptable use policy
-              </a>
-              .
-            </div>
-            <div className="flex gap-3">
+          <div className="sticky bottom-0 z-10 flex flex-col gap-3 border-t bg-white/95 pb-3 pt-4 sm:static sm:flex-row sm:items-center sm:justify-between sm:bg-transparent sm:pb-0">
+            <div className="text-xs text-slate-400">Step {step} of {totalSteps}</div>
+            <div className="flex flex-wrap gap-2 sm:items-center">
+              <button
+                type="button"
+                onClick={resetForm}
+                className="rounded-full border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-600"
+                disabled={submitting}
+              >
+                Clear form
+              </button>
+              {step > 1 && (
                 <button
                   type="button"
-                  onClick={resetForm}
-                  className="btn-sm btn-sm-outline inline-flex items-center rounded-full border border-slate-200 text-slate-500 shadow-sm transition hover:border-slate-300 hover:text-slate-700"
+                  onClick={handlePrevStep}
+                  className="rounded-full border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-600"
                   disabled={submitting}
                 >
-                  Clear form
+                  Back
                 </button>
-                <button
-                  type="submit"
-                  className="btn-sm btn-sm-primary inline-flex items-center rounded-full bg-gradient-to-r from-rose-500 to-sky-400 text-white shadow-lg shadow-rose-200/80 transition hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-70"
-                  disabled={submitting}
-                >
-                  {submitting ? 'Submitting.' : 'Send preorder'}
-                </button>
+              )}
+              <button
+                type="submit"
+                disabled={isFinalStep && submitting}
+                className="rounded-full bg-rose-600 px-5 py-2 text-sm font-semibold text-white shadow-lg shadow-rose-200/70 disabled:cursor-not-allowed disabled:opacity-70"
+              >
+                {isFinalStep ? (submitting ? 'Submitting…' : 'Send preorder') : 'Continue'}
+              </button>
             </div>
           </div>
         </form>

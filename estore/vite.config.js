@@ -20,14 +20,25 @@ const KEY_PATH = path.join(CERTS_DIR, 'estore-itnvend-com-key.pem');
 function loadHttpsOptions() {
   if (!USE_HTTPS) return undefined;
   try {
-    return {
-      cert: fs.readFileSync(CERT_PATH),
-      key: fs.readFileSync(KEY_PATH),
-    };
-  } catch (error) {
-    console.warn('Failed to load HTTPS certificates for Vite dev server. Falling back to HTTP.', error?.message || error);
-    return undefined;
+    if (fs.existsSync(CERT_PATH) && fs.existsSync(KEY_PATH)) {
+      return {
+        cert: fs.readFileSync(CERT_PATH),
+        key: fs.readFileSync(KEY_PATH),
+      };
+    }
+  } catch {
+    // no-op: fall back to HTTP without noisy warnings
   }
+  return undefined;
+}
+
+function buildManualChunks(id) {
+  if (!id.includes('node_modules')) return undefined;
+  if (id.includes('react-router')) return 'react-router';
+  if (id.includes('react-dom') || id.includes('scheduler')) return 'react-dom';
+  if (id.includes('react')) return 'react-vendor';
+  if (id.includes('crypto-js')) return 'crypto';
+  return 'vendor';
 }
 
 export default defineConfig({
@@ -47,6 +58,14 @@ export default defineConfig({
         target: proxyTarget,
         changeOrigin: true,
         secure: false,
+      },
+    },
+  },
+  build: {
+    chunkSizeWarningLimit: 1024,
+    rollupOptions: {
+      output: {
+        manualChunks: buildManualChunks,
       },
     },
   },

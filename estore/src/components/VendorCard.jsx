@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom';
-import { FaArrowRight, FaFacebookF, FaInstagram, FaLinkedinIn, FaTelegramPlane, FaTiktok, FaTwitter, FaWhatsapp, FaYoutube } from 'react-icons/fa';
+import { FaArrowRight, FaCheckCircle, FaFacebookF, FaInstagram, FaLinkedinIn, FaTelegramPlane, FaTiktok, FaTwitter, FaWhatsapp, FaYoutube } from 'react-icons/fa';
 import { resolveMediaUrl } from '../lib/media';
 
 const SOCIAL_ICON_MAP = {
@@ -18,6 +18,8 @@ export default function VendorCard({ vendor }) {
   const hero = resolveMediaUrl(vendor.hero_image || vendor.logo_url || '');
   const logo = resolveMediaUrl(vendor.logo_url || '');
   const socials = Object.entries(vendor.social_links || {}).filter(([key, value]) => SOCIAL_ICON_MAP[key] && value);
+  const isVerified = Number(vendor.verified ?? vendor.is_verified ?? 0) === 1;
+  const heroSizes = '(max-width: 640px) 90vw, (max-width: 1024px) 45vw, 360px';
 
   return (
     <Link
@@ -31,6 +33,10 @@ export default function VendorCard({ vendor }) {
             alt={vendor.legal_name}
             className="h-full w-full object-cover transition duration-500 group-hover:scale-105"
             loading="lazy"
+            decoding="async"
+            sizes={heroSizes}
+            width={640}
+            height={220}
           />
         ) : (
           <div className="h-full w-full bg-gradient-to-br from-rose-100 via-white to-sky-100" />
@@ -42,6 +48,9 @@ export default function VendorCard({ vendor }) {
             alt={`${vendor.legal_name} logo`}
             className="absolute left-5 -bottom-8 h-16 w-16 rounded-2xl border-4 border-white object-cover shadow-lg"
             loading="lazy"
+            decoding="async"
+            width={64}
+            height={64}
           />
         )}
       </div>
@@ -49,7 +58,15 @@ export default function VendorCard({ vendor }) {
       <div className="space-y-3 px-5 pb-5 pt-10">
         <div>
           <p className="text-xs uppercase tracking-[0.3em] text-rose-300">Partner</p>
-          <h3 className="text-xl font-semibold text-slate-900">{vendor.legal_name}</h3>
+          <div className="flex flex-wrap items-center gap-2">
+            <h3 className="text-xl font-semibold text-slate-900">{vendor.legal_name}</h3>
+            {isVerified && (
+              <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-700">
+                <FaCheckCircle />
+                Verified
+              </span>
+            )}
+          </div>
           {vendor.tagline && <p className="text-sm text-slate-500 line-clamp-2">{vendor.tagline}</p>}
         </div>
         {socials.length > 0 && (

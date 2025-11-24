@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
+import { FaCheckCircle } from 'react-icons/fa';
 import api from '../../lib/api';
 import { useToast } from '../../components/ToastContext';
 import Modal from '../../components/Modal';
@@ -74,6 +75,7 @@ export default function VendorDashboard() {
     .slice()
     .sort((a, b) => new Date(a.due_date || a.issued_at || 0) - new Date(b.due_date || b.issued_at || 0))[0];
   const showcaseProducts = products.slice(0, 6);
+  const isVerified = Number(vendor?.verified ?? 0) === 1;
 
   async function downloadInvoice(invoice) {
     if (!invoice?.id) return;
@@ -122,7 +124,15 @@ export default function VendorDashboard() {
           <div className="relative flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
             <div>
               <p className="text-xs uppercase tracking-[0.4em] text-white/70">Vendor dashboard</p>
-              <h1 className="mt-2 text-3xl font-black">{vendor?.legal_name || 'Vendor'}</h1>
+              <div className="mt-2 flex flex-wrap items-center gap-3">
+                <h1 className="text-3xl font-black">{vendor?.legal_name || 'Vendor'}</h1>
+                {isVerified && (
+                  <span className="inline-flex items-center gap-1 rounded-full bg-white/20 px-3 py-1 text-xs font-semibold text-white">
+                    <FaCheckCircle />
+                    Verified
+                  </span>
+                )}
+              </div>
               <p className="mt-1 max-w-2xl text-sm text-white/80">
                 {vendor?.tagline || vendor?.public_description || 'Sync your storefront, keep tabs on invoices, and stay connected to the marketplace.'}
               </p>

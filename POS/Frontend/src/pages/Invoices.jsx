@@ -23,6 +23,7 @@ const STATUS_OPTIONS = {
   vendor_fee: [
     { value: 'unpaid', label: 'Unpaid' },
     { value: 'paid', label: 'Paid' },
+    { value: 'void', label: 'Void' },
   ],
 };
 
@@ -34,6 +35,7 @@ const STATUS_BADGE_CLASSES = {
   sent: 'bg-primary/10 text-primary',
   accepted: 'bg-success text-primary-foreground',
   unpaid: 'bg-amber-100 text-amber-700',
+  void: 'bg-slate-200 text-slate-600',
 };
 
 const STATUS_LABELS = {
@@ -44,6 +46,7 @@ const STATUS_LABELS = {
   sent: 'Sent',
   accepted: 'Accepted',
   unpaid: 'Unpaid',
+  void: 'Void',
 };
 
 export default function Invoices() {
@@ -52,6 +55,7 @@ export default function Invoices() {
   const { user } = useAuth();
   const userRole = user?.role || '';
   const canManageTransactions = userRole === 'admin' || userRole === 'accounts';
+  const canManageVendorInvoices = userRole === 'admin' || userRole === 'manager';
 
   const [coreInvoices, setCoreInvoices] = useState([]);
   const [vendorInvoiceRows, setVendorInvoiceRows] = useState([]);
@@ -74,6 +78,7 @@ export default function Invoices() {
   const invoices = useMemo(() => [...coreInvoices, ...mappedVendorInvoices], [coreInvoices, mappedVendorInvoices]);
   const [searchTerm, setSearchTerm] = useState('');
   const [typeFilter, setTypeFilter] = useState('all');
+  const [vendorFilter, setVendorFilter] = useState('all');
 
   const [showBuilder, setShowBuilder] = useState(false);
   const [builderType, setBuilderType] = useState('invoice');
@@ -85,6 +90,7 @@ export default function Invoices() {
   const [builderSaving, setBuilderSaving] = useState(false);
   const [statusUpdatingId, setStatusUpdatingId] = useState(null);
   const [convertingId, setConvertingId] = useState(null);
+  const [vendorActionState, setVendorActionState] = useState({ id: null, action: null });
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [selectAll, setSelectAll] = useState(false);
   const [bulkStatus, setBulkStatus] = useState('');
@@ -269,6 +275,18 @@ export default function Invoices() {
     [invoices, coreInvoices, mappedVendorInvoices.length]
   );
 
+  const vendorFilterOptions = useMemo(() => {
+    const map = new Map();
+    vendorInvoiceRows.forEach((row) => {
+      if (!row.vendor_id) return;
+      const label = row.vendor_name || `Vendor #${row.vendor_id}`;
+      if (!map.has(row.vendor_id)) map.set(row.vendor_id, label);
+    });
+    return Array.from(map.entries())
+      .sort((a, b) => a[1].localeCompare(b[1]))
+      .map(([value, label]) => ({ value, label }));
+  }, [vendorInvoiceRows]);
+
   const statusCounts = useMemo(() => {
     const counts = {};
     invoices.forEach((doc) => {
@@ -288,6 +306,12 @@ export default function Invoices() {
     });
     return Array.from(merged.values());
   }, [typeFilter]);
+
+  useEffect(() => {
+    if (typeFilter !== 'vendor_fee' && vendorFilter !== 'all') {
+      setVendorFilter('all');
+    }
+  }, [typeFilter, vendorFilter]);
 
   
 
@@ -516,6 +540,60 @@ export default function Invoices() {
     }
   };
 
+  const openVendorInvoicePreview = async (invoice) => {
+    try {
+      const payload = await api.get(`/vendors/${invoice.vendor_id}/invoices/${invoice.raw_id}/preview`);
+      const html = payload?.html || '<p>No preview available.</p>';
+      const w = window.open('', '_blank', 'noopener');
+      if (w) {
+        w.document.write(html);
+        w.document.close();
+      } else {
+        push('Popup blocked. Allow popups for this site to preview invoices.', 'error');
+      }
+    } catch (err) {
+      console.error(err);
+      push('Failed to build preview', 'error');
+    }
+  };
+
+  const handleVendorInvoiceAction = async (invoice, action) => {
+    if (!invoice?.vendorInvoice) return;
+    if (action !== 'pdf' && action !== 'preview' && !canManageVendorInvoices) {
+      push('Only managers or admins can manage vendor fees.', 'error');
+      return;
+    }
+    try {
+      if (action === 'pdf') {
+        window.open(`/api/vendors/${invoice.vendor_id}/invoices/${invoice.raw_id}/pdf`, '_blank', 'noopener');
+        return;
+      }
+      if (action === 'preview') {
+        await openVendorInvoicePreview(invoice);
+        return;
+      }
+      setVendorActionState({ id: invoice.id, action });
+      if (action === 'pay') {
+        await api.post(`/vendors/${invoice.vendor_id}/invoices/${invoice.raw_id}/pay`, {});
+        push('Vendor invoice marked as paid', 'success');
+      } else if (action === 'void') {
+        const reason = window.prompt('Reason for voiding this vendor invoice?');
+        if (!reason) {
+          setVendorActionState({ id: null, action: null });
+          return;
+        }
+        await api.del(`/vendors/${invoice.vendor_id}/invoices/${invoice.raw_id}`, { body: { reason } });
+        push('Vendor invoice voided', 'info');
+      }
+      await loadInvoices();
+    } catch (err) {
+      console.error(err);
+      push(parseErrorMessage(err, 'Vendor invoice action failed'), 'error');
+    } finally {
+      setVendorActionState({ id: null, action: null });
+    }
+  };
+
   const toggleSelectId = (id) => {
     setSelectedIds((prev) => {
       const next = new Set(prev);
@@ -668,6 +746,9 @@ export default function Invoices() {
       const matchesType = typeFilter === 'all' ? true : invoice.type === typeFilter;
       const matchesStatus = statusFilter === 'all' ? true : (invoice.status || '') === statusFilter;
       const matchesOutlet = outletFilter === 'all' ? true : (invoice.outlet_name || '') === outletFilter;
+      const matchesVendor = typeFilter === 'vendor_fee'
+        ? (vendorFilter === 'all' ? true : Number(invoice.vendor_id) === Number(vendorFilter))
+        : true;
 
       let matchesDate = true;
       if (dateFrom) {
@@ -682,9 +763,9 @@ export default function Invoices() {
         to.setHours(23, 59, 59, 999);
         if (created > to) matchesDate = false;
       }
-      return matchesSearch && matchesType && matchesStatus && matchesOutlet && matchesDate;
+      return matchesSearch && matchesType && matchesStatus && matchesOutlet && matchesVendor && matchesDate;
     });
-  }, [invoices, searchTerm, typeFilter, statusFilter, outletFilter, dateFrom, dateTo]);
+  }, [invoices, searchTerm, typeFilter, statusFilter, outletFilter, vendorFilter, dateFrom, dateTo]);
 
   return (
     <div className="p-4 md:p-6 lg:p-8 space-y-6 bg-background min-h-screen">
@@ -893,6 +974,24 @@ export default function Invoices() {
                 className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary"
               />
             </label>
+            {typeFilter === 'vendor_fee' && (
+              <label className="flex flex-col gap-2 text-sm font-semibold uppercase tracking-wide text-muted-foreground sm:col-span-2">
+                Vendor
+                <select
+                  value={vendorFilter}
+                  onChange={(e) => setVendorFilter(e.target.value)}
+                  className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary"
+                >
+                  <option value="all">All vendors</option>
+                  {vendorFilterOptions.length === 0 && <option value="" disabled>No vendor invoices</option>}
+                  {vendorFilterOptions.map((opt) => (
+                    <option key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
           </div>
 
           {savedViews.length > 0 && (
@@ -1091,7 +1190,45 @@ export default function Invoices() {
                         <td className="p-4 whitespace-nowrap text-right">
                           <div className="flex items-center justify-end gap-3 text-xs font-semibold">
                             {isVendorInvoice ? (
-                              <span className="text-muted-foreground">Read-only</span>
+                              <div className="flex flex-col items-end gap-2 text-xs">
+                                <div className="flex flex-wrap items-center justify-end gap-2">
+                                  <button
+                                    onClick={() => handleVendorInvoiceAction(invoice, 'preview')}
+                                    className="text-primary hover:underline"
+                                    type="button"
+                                  >
+                                    Preview
+                                  </button>
+                                  <button
+                                    onClick={() => handleVendorInvoiceAction(invoice, 'pdf')}
+                                    className="text-primary hover:underline"
+                                    type="button"
+                                  >
+                                    PDF
+                                  </button>
+                                  {canManageVendorInvoices && invoice.status !== 'paid' && invoice.status !== 'void' && (
+                                    <button
+                                      onClick={() => handleVendorInvoiceAction(invoice, 'pay')}
+                                      className="text-success hover:underline disabled:text-muted-foreground"
+                                      disabled={vendorActionState.id === invoice.id}
+                                      type="button"
+                                    >
+                                      {vendorActionState.id === invoice.id && vendorActionState.action === 'pay' ? 'Marking…' : 'Mark paid'}
+                                    </button>
+                                  )}
+                                  {canManageVendorInvoices && invoice.status !== 'void' && (
+                                    <button
+                                      onClick={() => handleVendorInvoiceAction(invoice, 'void')}
+                                      className="text-red-500 hover:underline disabled:text-muted-foreground"
+                                      disabled={vendorActionState.id === invoice.id}
+                                      type="button"
+                                    >
+                                      {vendorActionState.id === invoice.id && vendorActionState.action === 'void' ? 'Voiding…' : 'Void'}
+                                    </button>
+                                  )}
+                                </div>
+                                <span className="text-muted-foreground">Vendor billing</span>
+                              </div>
                             ) : (
                               <>
                                 {canManageTransactions && (

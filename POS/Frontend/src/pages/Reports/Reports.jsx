@@ -1,5 +1,5 @@
 /* eslint-disable no-unused-vars, react-hooks/exhaustive-deps */
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { api } from '../../lib/api';
 import { useSettings } from '../../components/SettingsContext';
 import StockAdjustments from '../Inventory/StockAdjustments';
@@ -41,10 +41,13 @@ const Reports = () => {
   const [inventoryReport, setInventoryReport] = useState([]);
   const [customerReport, setCustomerReport] = useState([]);
   const [financialReports, setFinancialReports] = useState({});
+  const [vendorFeeRows, setVendorFeeRows] = useState([]);
+  const [vendorFeeSummary, setVendorFeeSummary] = useState([]);
   const [salesLastUpdated, setSalesLastUpdated] = useState(null);
   const [inventoryLastUpdated, setInventoryLastUpdated] = useState(null);
   const [customersLastUpdated, setCustomersLastUpdated] = useState(null);
   const [financialLastUpdated, setFinancialLastUpdated] = useState(null);
+  const [vendorFeesLastUpdated, setVendorFeesLastUpdated] = useState(null);
   const [dateRange, setDateRange] = useState({
     start_date: new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0],
     end_date: new Date().toISOString().split('T')[0]
@@ -73,11 +76,14 @@ const Reports = () => {
           case 'customers':
             await loadCustomerReport();
             break;
-          case 'financial':
-            await loadFinancialReports();
-            break;
-          default:
-            break;
+      case 'financial':
+        await loadFinancialReports();
+        break;
+      case 'vendor-fees':
+        await loadVendorFeeReport();
+        break;
+      default:
+        break;
         }
       } catch (err) {
         // swallow errors here; loadReport handles logging during user-triggered loads
@@ -104,6 +110,9 @@ const Reports = () => {
           break;
         case 'financial':
           await loadFinancialReports();
+          break;
+        case 'vendor-fees':
+          await loadVendorFeeReport();
           break;
         default:
           break;
@@ -285,6 +294,20 @@ const Reports = () => {
     }
   };
 
+  const loadVendorFeeReport = async () => {
+    try {
+      const [list, summary] = await Promise.all([
+        api.get('/api/reports/vendor-invoices'),
+        api.get('/api/reports/vendor-invoices/summary')
+      ]);
+      setVendorFeeRows(list?.rows || []);
+      setVendorFeeSummary(summary?.rows || []);
+      setVendorFeesLastUpdated(new Date());
+    } catch (error) {
+      console.error('Error loading vendor fee report:', error);
+    }
+  };
+
   const exportToCSV = (data, filename) => {
     if (!data || data.length === 0) return;
 
@@ -322,6 +345,7 @@ const Reports = () => {
     { id: 'stock-adjustments', label: 'Stock Adjustments', icon: '📋' },
     { id: 'customers', label: 'Customer Reports', icon: '👥' },
     { id: 'financial', label: 'Financial Reports', icon: '💰' },
+    { id: 'vendor-fees', label: 'Vendor Fees', icon: '🏷️' },
   ];
 
   return (
@@ -389,6 +413,14 @@ const Reports = () => {
               {activeTab === 'stock-adjustments' && <StockAdjustments />}
               {activeTab === 'customers' && <CustomerReport data={customerReport} onExport={exportToCSV} lastUpdated={customersLastUpdated} />}
               {activeTab === 'financial' && <FinancialReports data={financialReports} onExport={exportToCSV} lastUpdated={financialLastUpdated} />}
+              {activeTab === 'vendor-fees' && (
+                <VendorFeeReport
+                  rows={vendorFeeRows}
+                  summary={vendorFeeSummary}
+                  onExport={exportToCSV}
+                  lastUpdated={vendorFeesLastUpdated}
+                />
+              )}
             </div>
           )}
         </div>
@@ -540,6 +572,221 @@ const SalesReport = ({ data, invoices = [], dateRange, onExport, lastUpdated }) 
           </div>
         </div>
       </div>
+    </div>
+  );
+};
+
+const VendorFeeReport = ({ rows = [], summary = [], onExport, lastUpdated }) => {
+  const { formatCurrency } = useSettings();
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [vendorFilter, setVendorFilter] = useState('all');
+  const [searchTerm, setSearchTerm] = useState('');
+
+  const vendorOptions = useMemo(() => {
+    const map = new Map();
+    rows.forEach((row) => {
+      if (!row.vendor_id) return;
+      map.set(row.vendor_id, row.vendor_name || `Vendor #${row.vendor_id}`);
+    });
+    return Array.from(map.entries())
+      .sort((a, b) => a[1].localeCompare(b[1]))
+      .map(([value, label]) => ({ value, label }));
+  }, [rows]);
+
+  const metrics = useMemo(() => {
+    return rows.reduce(
+      (acc, row) => {
+        const amount = Number(row.fee_amount) || 0;
+        acc.total += amount;
+        if (row.status === 'paid') acc.paid += amount;
+        else if (row.status === 'void') acc.void += amount;
+        else acc.unpaid += amount;
+        return acc;
+      },
+      { total: 0, paid: 0, unpaid: 0, void: 0 }
+    );
+  }, [rows]);
+
+  const filteredRows = useMemo(() => {
+    return rows.filter((row) => {
+      const matchesStatus = statusFilter === 'all' ? true : row.status === statusFilter;
+      const matchesVendor = vendorFilter === 'all' ? true : Number(row.vendor_id) === Number(vendorFilter);
+      const matchesSearch = searchTerm
+        ? (row.vendor_name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+          (row.invoice_number || '').toLowerCase().includes(searchTerm.toLowerCase())
+        : true;
+      return matchesStatus && matchesVendor && matchesSearch;
+    });
+  }, [rows, statusFilter, vendorFilter, searchTerm]);
+
+  const handleExport = () => {
+    const exportRows = filteredRows.map((row) => ({
+      id: row.id,
+      invoice_number: row.invoice_number,
+      vendor: row.vendor_name || `Vendor #${row.vendor_id}`,
+      amount: row.fee_amount,
+      currency: row.currency || 'MVR',
+      status: row.status,
+      issued_at: row.issued_at,
+      due_date: row.due_date,
+    }));
+    onExport(exportRows, `vendor-fees-${Date.now()}.csv`);
+  };
+
+  return (
+    <div>
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h2 className="text-2xl font-bold text-gray-900">Vendor Fee Overview</h2>
+          <p className="text-sm text-gray-500">Automatic subscription invoices generated for vendors.</p>
+        </div>
+        <div className="flex items-center gap-3 text-sm">
+          {lastUpdated && (
+            <span className="text-gray-400" aria-live="polite">
+              Updated {new Date(lastUpdated).toLocaleString()}
+            </span>
+          )}
+          <button
+            onClick={handleExport}
+            className="rounded-md border border-gray-300 bg-white px-4 py-2 font-semibold text-gray-700 shadow-sm hover:bg-gray-50"
+            type="button"
+          >
+            Export
+          </button>
+        </div>
+      </div>
+
+      <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-3">
+        <div className="rounded-lg bg-amber-50 p-4">
+          <p className="text-xs font-semibold uppercase tracking-wide text-amber-600">Unpaid total</p>
+          <p className="mt-2 text-2xl font-bold text-amber-900">{formatCurrency(metrics.unpaid)}</p>
+        </div>
+        <div className="rounded-lg bg-emerald-50 p-4">
+          <p className="text-xs font-semibold uppercase tracking-wide text-emerald-600">Paid total</p>
+          <p className="mt-2 text-2xl font-bold text-emerald-900">{formatCurrency(metrics.paid)}</p>
+        </div>
+        <div className="rounded-lg bg-slate-100 p-4">
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-600">All vendor fees</p>
+          <p className="mt-2 text-2xl font-bold text-slate-900">{formatCurrency(metrics.total)}</p>
+        </div>
+      </div>
+
+      <div className="mt-8 grid grid-cols-1 gap-4 md:grid-cols-3">
+        <label className="text-sm font-semibold text-gray-600">
+          Status
+          <select
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value)}
+            className="mt-1 w-full rounded-md border border-gray-300 p-2 text-sm"
+          >
+            <option value="all">All statuses</option>
+            <option value="unpaid">Unpaid</option>
+            <option value="paid">Paid</option>
+            <option value="void">Void</option>
+          </select>
+        </label>
+        <label className="text-sm font-semibold text-gray-600">
+          Vendor
+          <select
+            value={vendorFilter}
+            onChange={(e) => setVendorFilter(e.target.value)}
+            className="mt-1 w-full rounded-md border border-gray-300 p-2 text-sm"
+          >
+            <option value="all">All vendors</option>
+            {vendorOptions.map((opt) => (
+              <option key={opt.value} value={opt.value}>
+                {opt.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="text-sm font-semibold text-gray-600">
+          Search
+          <input
+            type="text"
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            placeholder="Vendor or invoice #"
+            className="mt-1 w-full rounded-md border border-gray-300 p-2 text-sm"
+          />
+        </label>
+      </div>
+
+      <div className="mt-8 overflow-x-auto rounded-lg border border-gray-200">
+        <table className="min-w-full divide-y divide-gray-200 text-sm">
+          <thead className="bg-gray-50">
+            <tr>
+              <th className="px-4 py-3 text-left font-semibold text-gray-600">Invoice #</th>
+              <th className="px-4 py-3 text-left font-semibold text-gray-600">Vendor</th>
+              <th className="px-4 py-3 text-left font-semibold text-gray-600">Issued</th>
+              <th className="px-4 py-3 text-left font-semibold text-gray-600">Due</th>
+              <th className="px-4 py-3 text-left font-semibold text-gray-600">Amount</th>
+              <th className="px-4 py-3 text-left font-semibold text-gray-600">Status</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-100 bg-white">
+            {filteredRows.length === 0 && (
+              <tr>
+                <td colSpan={6} className="px-4 py-6 text-center text-sm text-gray-500">
+                  No invoices match the selected filters.
+                </td>
+              </tr>
+            )}
+            {filteredRows.map((row) => (
+              <tr key={row.id}>
+                <td className="px-4 py-3 font-semibold text-gray-900">{row.invoice_number || `#${row.id}`}</td>
+                <td className="px-4 py-3 text-gray-700">{row.vendor_name || `Vendor #${row.vendor_id}`}</td>
+                <td className="px-4 py-3 text-gray-600">{row.issued_at ? new Date(row.issued_at).toLocaleDateString() : '-'}</td>
+                <td className="px-4 py-3 text-gray-600">{row.due_date ? new Date(row.due_date).toLocaleDateString() : '-'}</td>
+                <td className="px-4 py-3 font-semibold text-gray-900">
+                  {formatCurrency(Number(row.fee_amount) || 0)} {row.currency || ''}
+                </td>
+                <td className="px-4 py-3">
+                  <span
+                    className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold uppercase ${
+                      row.status === 'paid'
+                        ? 'bg-emerald-100 text-emerald-800'
+                        : row.status === 'void'
+                          ? 'bg-gray-200 text-gray-600'
+                          : 'bg-amber-100 text-amber-700'
+                    }`}
+                  >
+                    {row.status || 'unpaid'}
+                  </span>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {summary && summary.length > 0 && (
+        <div className="mt-8">
+          <h3 className="text-lg font-semibold text-gray-900">Summary by Vendor</h3>
+          <div className="mt-4 overflow-x-auto rounded-lg border border-gray-200">
+            <table className="min-w-full divide-y divide-gray-200 text-sm">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-4 py-3 text-left font-semibold text-gray-600">Vendor ID</th>
+                  <th className="px-4 py-3 text-left font-semibold text-gray-600">Invoices</th>
+                  <th className="px-4 py-3 text-left font-semibold text-gray-600">Unpaid total</th>
+                  <th className="px-4 py-3 text-left font-semibold text-gray-600">Paid total</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100 bg-white">
+                {summary.map((row) => (
+                  <tr key={row.vendor_id}>
+                    <td className="px-4 py-3 font-semibold text-gray-900">{row.vendor_id}</td>
+                    <td className="px-4 py-3 text-gray-700">{row.invoice_count}</td>
+                    <td className="px-4 py-3 text-gray-700">{formatCurrency(Number(row.unpaid_total) || 0)}</td>
+                    <td className="px-4 py-3 text-gray-700">{formatCurrency(Number(row.paid_total) || 0)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

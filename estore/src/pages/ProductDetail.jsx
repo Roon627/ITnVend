@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useParams, Link, useNavigate, useLocation } from 'react-router-dom';
-import { FaPhone, FaEnvelope, FaHashtag, FaBarcode, FaBox, FaTags, FaIndustry, FaTruck, FaShieldAlt, FaWarehouse, FaFacebookF, FaInstagram, FaLinkedinIn, FaTelegramPlane, FaTiktok, FaTwitter, FaWhatsapp, FaYoutube } from 'react-icons/fa';
+import { FaPhone, FaEnvelope, FaHashtag, FaBarcode, FaBox, FaTags, FaIndustry, FaTruck, FaShieldAlt, FaWarehouse, FaFacebookF, FaInstagram, FaLinkedinIn, FaTelegramPlane, FaTiktok, FaTwitter, FaWhatsapp, FaYoutube, FaCheckCircle } from 'react-icons/fa';
 import api from '../lib/api';
 import { useCart } from '../components/CartContext';
 import { useSettings } from '../components/SettingsContext';
@@ -35,6 +35,7 @@ export default function ProductDetail() {
   const [product, setProduct] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [snapshotExpanded, setSnapshotExpanded] = useState(false);
   const { addToCart } = useCart();
   const { formatCurrency } = useSettings();
   const navigate = useNavigate();
@@ -52,6 +53,15 @@ export default function ProductDetail() {
       setLoading(false);
     }
   }, [location]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const mq = window.matchMedia('(min-width: 640px)');
+    const sync = () => setSnapshotExpanded(mq.matches);
+    sync();
+    mq.addEventListener('change', sync);
+    return () => mq.removeEventListener('change', sync);
+  }, []);
 
   useEffect(() => {
     let mounted = true;
@@ -165,6 +175,7 @@ export default function ProductDetail() {
   const availabilityLabel = availabilityStatus ? availabilityStatus.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()) : 'In stock';
   const stockLabel = product.track_inventory === 0 ? 'On request' : `${product.stock ?? 0} units`;
   const vendorName = product.vendor_name || product.vendorName || null;
+  const vendorVerified = Number(product.vendor_verified ?? product.vendorVerified ?? 0) === 1;
   const technicalDetails = product.technical_details || product.technicalDetails || '';
   const tagList = Array.isArray(product.tags)
     ? product.tags
@@ -196,9 +207,12 @@ export default function ProductDetail() {
     { label: 'Audience', value: audienceLabel },
     { label: 'Material', value: materialName },
     { label: 'Colorway', value: colorName },
-    { label: 'Vendor', value: vendorName },
+    { label: 'Vendor', value: vendorName ? `${vendorName}${vendorVerified ? ' (Verified)' : ''}` : '' },
     { label: 'Tags', value: tagList.length ? tagList.join(', ') : '' },
   ].filter((entry) => entry.value);
+  const SNAPSHOT_PREVIEW_COUNT = 4;
+  const visibleSnapshotEntries = snapshotExpanded ? metadataEntries : metadataEntries.slice(0, SNAPSHOT_PREVIEW_COUNT);
+  const canExpandSnapshot = !snapshotExpanded && metadataEntries.length > SNAPSHOT_PREVIEW_COUNT;
 
   const handlePreorder = () => {
     const params = new URLSearchParams();
@@ -218,7 +232,7 @@ export default function ProductDetail() {
 
   return (
     <div className="bg-gradient-to-br from-rose-50 via-white to-sky-50 py-8 pb-16 sm:py-12 sm:pb-0">
-      <div className="container mx-auto px-4 sm:px-6">
+      <div className="mx-auto w-full max-w-screen-2xl px-4 sm:px-6">
         <div className="mb-4 text-xs text-rose-500 sm:mb-6 sm:text-sm">
           <Link to="/" className="font-semibold hover:text-rose-600">
             ITnVend Home
@@ -232,7 +246,7 @@ export default function ProductDetail() {
         </div>
 
         <div className="grid gap-4 rounded-xl border border-white/60 bg-white/95 p-2 sm:gap-8 sm:p-5 lg:grid-cols-[1.05fr_0.95fr]">
-          <div className="relative flex flex-col rounded-2xl bg-gradient-to-br from-white via-rose-50 to-sky-50 p-3 shadow-inner sm:p-6">
+          <div className="order-2 relative flex flex-col rounded-2xl bg-gradient-to-br from-white via-rose-50 to-sky-50 p-3 shadow-inner sm:p-6 lg:order-1">
             <AvailabilityTag availabilityStatus={availabilityStatus} className="top-3 left-3 sm:top-4 sm:left-4" />
             {gallery && gallery.length ? (
               <div className="w-full">
@@ -277,7 +291,7 @@ export default function ProductDetail() {
             </div>
           </div>
 
-          <div className="flex flex-col gap-4">
+          <div className="order-1 flex flex-col gap-4 lg:order-2">
             <header className="space-y-2 sm:space-y-3">
             <span className="inline-flex items-center gap-2 rounded-full bg-rose-100 px-3 py-1 text-[11px] font-semibold uppercase tracking-wider text-rose-600 sm:text-xs">
               {product.category || 'Market item'}
@@ -337,24 +351,44 @@ export default function ProductDetail() {
             </section>
 
             {metadataEntries.length > 0 && (
-              <section className="space-y-4 rounded-2xl border border-slate-200 bg-white/90 p-3 text-xs text-slate-700 shadow-sm sm:p-4 sm:text-sm">
-                <h3 className="text-sm font-semibold text-slate-900 sm:text-base">Product snapshot</h3>
-                <div className="grid gap-3 sm:grid-cols-2">
-                  {metadataEntries.map((entry) => (
+              <section className="space-y-3 rounded-2xl border border-slate-200 bg-white/90 p-3 text-xs text-slate-700 shadow-sm sm:p-4 sm:text-sm">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-sm font-semibold text-slate-900 sm:text-base">Product snapshot</h3>
+                  {canExpandSnapshot && (
+                    <button
+                      type="button"
+                      onClick={() => setSnapshotExpanded(true)}
+                      className="text-[11px] font-semibold text-rose-500 underline sm:hidden"
+                    >
+                      View all
+                    </button>
+                  )}
+                </div>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  {visibleSnapshotEntries.map((entry) => (
                     <div
                       key={entry.label}
-                      className="flex items-start gap-3 rounded-xl border border-slate-100 bg-slate-50/80 p-3 shadow-inner"
+                      className="flex items-start gap-2 rounded-xl border border-slate-100 bg-slate-50/80 p-3 shadow-inner"
                     >
-                      {entry.icon && <div className="rounded-full bg-white p-2 text-[11px] sm:text-xs">{entry.icon}</div>}
+                      {entry.icon && <div className="rounded-full bg-white p-2 text-[10px] sm:text-xs">{entry.icon}</div>}
                       <div>
-                        <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 sm:text-xs">
+                        <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400 sm:text-xs">
                           {entry.label}
                         </p>
-                        <p className="mt-1 text-xs text-slate-800 break-words sm:text-sm">{entry.value}</p>
+                        <p className="mt-1 break-words text-[11px] text-slate-800 sm:text-sm">{entry.value}</p>
                       </div>
                     </div>
                   ))}
                 </div>
+                {!snapshotExpanded && canExpandSnapshot && (
+                  <button
+                    type="button"
+                    onClick={() => setSnapshotExpanded(true)}
+                    className="w-full rounded-full border border-slate-200 px-3 py-1 text-[11px] font-semibold text-slate-600 sm:hidden"
+                  >
+                    Show full snapshot
+                  </button>
+                )}
               </section>
             )}
 
@@ -427,6 +461,12 @@ export default function ProductDetail() {
             {vendorListing && (
               <section className="space-y-3 rounded-2xl border border-emerald-100 bg-emerald-50/70 p-3 text-xs text-emerald-900 shadow-sm sm:p-6 sm:text-sm">
                 <h2 className="text-sm font-semibold text-emerald-700 sm:text-base">Marketplace partner</h2>
+                {vendorVerified && (
+                  <span className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-white/70 px-3 py-1 text-[11px] font-semibold text-emerald-700">
+                    <FaCheckCircle />
+                    Verified vendor
+                  </span>
+                )}
                 <p className="text-sm sm:text-base">{vendorIntro}</p>
                 {product.vendor_slug && (
                   <Link

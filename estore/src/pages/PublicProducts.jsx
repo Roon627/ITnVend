@@ -242,9 +242,9 @@ export default function PublicProducts() {
     <div className="min-h-screen bg-gradient-to-br from-rose-50 via-white to-sky-50 text-slate-800">
       {/* Compact Market Header - clean, minimal, focused on browsing */}
       <header className="bg-white border-b sticky top-0 z-20">
-        <div className="container mx-auto px-4 sm:px-6">
+        <div className="mx-auto w-full max-w-screen-2xl px-3 sm:px-6">
           {/* Top compact row: logo, search, cart */}
-          <div className="flex items-center gap-4 py-3">
+          <div className="flex items-center gap-3 py-2 sm:py-3">
             <div className="flex items-center shrink-0">
               <Link to="/" className="inline-flex items-center gap-2 text-rose-600 font-bold no-underline">
                 <FaHeart className="text-rose-500" />
@@ -293,7 +293,7 @@ export default function PublicProducts() {
           </div>
 
           {/* Category menu - horizontally scrollable on mobile, evenly spaced on desktop */}
-          <nav className="mt-2">
+          <nav className="mt-1 sm:mt-2">
             <div className="overflow-x-auto no-scrollbar">
               <div className="flex gap-2 md:justify-between md:gap-4 whitespace-nowrap px-2 items-center">
                 {/* Show a subset of categories on narrow screens and provide a 'View all' CTA */}
@@ -335,7 +335,7 @@ export default function PublicProducts() {
 
           {/* Category preview panel (appears under the category menu and pushes content down) */}
           <div className={`bg-white border-b transition-all duration-300 overflow-hidden ${openCategory ? 'max-h-[1200px] opacity-100' : 'max-h-0 opacity-0'}`}>
-            <div className="container mx-auto px-4 sm:px-6 py-4">
+            <div className="mx-auto w-full max-w-screen-2xl px-3 py-4 sm:px-6">
               <div className="flex items-center justify-between mb-4">
                 <h3 className="text-lg font-semibold text-slate-800">{openCategory || ''}</h3>
                 <div className="flex items-center gap-3">
@@ -421,7 +421,7 @@ export default function PublicProducts() {
       </header>
 
       <main className="pb-16">
-        <div className="container mx-auto px-4 sm:px-6 pt-8">
+        <div className="mx-auto w-full max-w-screen-2xl px-3 pt-6 sm:px-6 sm:pt-8">
           {newArrivalsList.length > 0 && (
             <div className="mb-8">
               <NewArrivalsStrip
@@ -507,17 +507,17 @@ export default function PublicProducts() {
               availableSubcategories={availableSubcategories}
             />
 
-            <section className="flex-1 space-y-6">
-              <div className="flex flex-wrap items-center justify-between gap-4 text-sm text-rose-500">
-                <div>
+            <section className="flex-1 space-y-5 sm:space-y-6">
+              <div className="flex flex-col gap-2 text-xs text-rose-500 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:text-sm">
+                <div className="order-2 sm:order-1">
                   Showing <span className="font-semibold text-rose-600">{products.length}</span> items
                 </div>
-                <div className="rounded-2xl border border-rose-100 bg-rose-50 px-4 py-2 text-xs uppercase tracking-[0.2em] text-rose-400">
+                <div className="order-1 rounded-2xl border border-rose-100 bg-rose-50 px-3 py-1 text-[10px] uppercase tracking-[0.2em] text-rose-400 sm:order-2 sm:inline-flex sm:px-4 sm:py-2">
                   Connected to ITnVend POS
                 </div>
               </div>
 
-              <div id="product-list" className="grid grid-cols-2 justify-items-center gap-5 sm:grid-cols-2 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3">
+              <div id="product-list" className="grid grid-cols-2 justify-items-center gap-3 sm:gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3">
                 {products.map((product, index) => {
                   if (loading) {
                     return (

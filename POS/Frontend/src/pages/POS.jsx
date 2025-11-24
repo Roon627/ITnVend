@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import api from '../lib/api';
 import { useToast } from '../components/ToastContext';
 import { useSettings } from '../components/SettingsContext';
@@ -21,6 +22,8 @@ const normalizeAvailabilityStatusValue = (value, fallback = 'in_stock') => {
 };
 
 export default function POS() {
+  const location = useLocation();
+  const navigate = useNavigate();
   const [products, setProducts] = useState([]);
   const [categories, setCategories] = useState({});
   const [customers, setCustomers] = useState([]);
@@ -57,6 +60,7 @@ export default function POS() {
   const [showCustomerModal, setShowCustomerModal] = useState(false);
   const [newCustomer, setNewCustomer] = useState({ name: '', email: '', phone: '' });
   const [quantityInput, setQuantityInput] = useState({});
+  const [pendingCustomerSelection, setPendingCustomerSelection] = useState(null);
 
   // Contexts and refs
   const { settings: globalSettings, formatCurrency } = useSettings();
@@ -376,6 +380,31 @@ export default function POS() {
       }
     })();
   }, [loadInitialData, loadTransactionHistory]);
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const incomingCustomer = params.get('customer_id');
+    if (incomingCustomer) {
+      setPendingCustomerSelection(Number(incomingCustomer));
+    }
+  }, [location.search]);
+
+  useEffect(() => {
+    if (!pendingCustomerSelection || customers.length === 0) return;
+    const match = customers.find((c) => Number(c.id) === Number(pendingCustomerSelection));
+    if (match) {
+      setSelectedCustomerId(match.id);
+      setCustomerSearchTerm(match.name || '');
+      const params = new URLSearchParams(location.search);
+      if (params.has('customer_id')) {
+        params.delete('customer_id');
+        const query = params.toString();
+        navigate({ pathname: location.pathname, search: query ? `?${query}` : '' }, { replace: true });
+      }
+      toast.push(`Loaded ${match.name} into the bill`, 'success');
+      setPendingCustomerSelection(null);
+    }
+  }, [pendingCustomerSelection, customers, location.pathname, location.search, navigate, toast]);
 
   // Reload history when switching to history tab
   useEffect(() => {

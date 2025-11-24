@@ -13,6 +13,7 @@ export default function ProductCard({ product, onAdd = () => {}, formatCurrency:
   // modal removed - navigates to product detail page instead
 
   const isPreorder = isPreorderProduct(product);
+  const imageSizes = '(max-width: 640px) 90vw, (max-width: 1024px) 45vw, 320px';
   const availabilityStatus =
     product.availability_status ||
     product.availabilityStatus ||
@@ -26,22 +27,27 @@ export default function ProductCard({ product, onAdd = () => {}, formatCurrency:
   const fmt = formatCurrencyProp || formatCurrency || ((n) => n);
 
   const buttonBase =
-    'inline-flex items-center justify-center gap-1 rounded-lg px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide transition-colors duration-200';
-  const primaryButton = `${buttonBase} border border-rose-200 bg-rose-500 text-white shadow-sm hover:bg-rose-600`;
-  const outlineButton = `${buttonBase} border border-rose-200 bg-white/90 text-rose-600 hover:bg-rose-50`;
-  const neutralButton = `${buttonBase} border border-slate-200 bg-slate-100 text-slate-500`;
+    'inline-flex items-center justify-center gap-1 rounded-lg border px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide transition-colors duration-200 sm:px-3 sm:py-1.5 sm:text-xs';
+  const primaryButton = `${buttonBase} border-rose-200 bg-rose-500 text-white shadow-sm hover:bg-rose-600`;
+  const outlineButton = `${buttonBase} border-rose-200 bg-white/90 text-rose-600 hover:bg-rose-50`;
+  const neutralButton = `${buttonBase} border-slate-200 bg-slate-100 text-slate-500`;
 
   return (
     <>
-      <article className="group mx-auto flex w-full max-w-[360px] flex-col overflow-hidden rounded-2xl border border-slate-200/40 bg-white text-slate-900 shadow-lg shadow-rose-100/40 transition-all duration-300 hover:-translate-y-1 hover:shadow-xl hover:shadow-rose-200/60 md:max-w-[380px] xl:max-w-[440px] 2xl:max-w-[480px]">
+      <article className="group mx-auto flex w-full max-w-[220px] flex-col overflow-hidden rounded-2xl border border-slate-200/40 bg-white text-slate-900 shadow-lg shadow-rose-100/40 transition-all duration-300 sm:hover:-translate-y-1 sm:hover:shadow-xl sm:hover:shadow-rose-200/60 sm:max-w-[320px] md:max-w-[380px] xl:max-w-[440px] 2xl:max-w-[480px]">
         <div className="relative aspect-[4/5] w-full overflow-hidden sm:h-56 sm:aspect-auto">
           <AvailabilityTag availabilityStatus={availabilityStatus} />
           {image ? (
             <img
               src={image}
               alt={product.name}
-              className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
+              className="h-full w-full object-cover transition-transform duration-500 sm:group-hover:scale-105"
               loading="lazy"
+              decoding="async"
+              fetchpriority="low"
+              width={480}
+              height={480}
+              sizes={imageSizes}
             />
           ) : (
             <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-slate-200 to-slate-100 text-slate-500 text-sm">
@@ -55,9 +61,9 @@ export default function ProductCard({ product, onAdd = () => {}, formatCurrency:
           
           <div className="mt-auto pt-4">
             <div className="mb-3 text-left">
-              <span className="text-lg font-bold text-rose-500 sm:text-xl">{fmt(product.price)}</span>
+              <span className="text-base font-bold text-rose-500 sm:text-xl">{fmt(product.price)}</span>
             </div>
-            <div className={`grid gap-2 ${userListing ? 'grid-cols-1' : 'grid-cols-2'}`}>
+            <div className={`grid gap-2 ${userListing ? 'grid-cols-1' : 'grid-cols-2'} sm:gap-3`}>
               {userListing ? (
                 contactHasInfo ? (
                   <a
@@ -82,8 +88,8 @@ export default function ProductCard({ product, onAdd = () => {}, formatCurrency:
                   className={primaryButton}
                   aria-label={`${isPreorder ? 'Preorder' : 'Add'} ${product.name}`}
                 >
-                  <FaShoppingCart />
-                  <span>{isPreorder ? 'Preorder' : 'Add to Cart'}</span>
+                  <FaShoppingCart className="text-[10px] sm:text-xs" />
+                  <span>{isPreorder ? 'Preorder' : 'Add'}</span>
                 </button>
               )}
               <Link

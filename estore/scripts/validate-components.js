@@ -53,6 +53,13 @@ try {
     }
   }
 
+  // Extract lazy-loaded component declarations
+  const lazyRegex = /const\s+([A-Z][A-Za-z0-9]*)\s*=\s*lazy\s*\(/g;
+  let lazyMatch;
+  while ((lazyMatch = lazyRegex.exec(content)) !== null) {
+    imports.add(lazyMatch[1]);
+  }
+
   // Extract all JSX component usages
   const jsxRegex = /<([A-Z][A-Za-z0-9]*)\s/g;
   const usages = new Set();

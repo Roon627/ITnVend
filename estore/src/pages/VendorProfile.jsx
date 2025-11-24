@@ -6,7 +6,7 @@ import ProductCard from '../components/ProductCard';
 import { mapPreorderFlags } from '../lib/preorder';
 import { useCart } from '../components/CartContext';
 import { useSettings } from '../components/SettingsContext';
-import { FaFacebookF, FaInstagram, FaLinkedinIn, FaTelegramPlane, FaTiktok, FaTwitter, FaWhatsapp, FaYoutube } from 'react-icons/fa';
+import { FaCheckCircle, FaFacebookF, FaInstagram, FaLinkedinIn, FaTelegramPlane, FaTiktok, FaTwitter, FaWhatsapp, FaYoutube } from 'react-icons/fa';
 
 const SOCIAL_ICON_MAP = {
   instagram: FaInstagram,
@@ -19,6 +19,8 @@ const SOCIAL_ICON_MAP = {
   telegram: FaTelegramPlane,
 };
 
+const MODULE_RENDER_TIMESTAMP = Date.now();
+
 export default function VendorProfile() {
   const { slug } = useParams();
   const [vendor, setVendor] = useState(null);
@@ -28,8 +30,10 @@ export default function VendorProfile() {
   const [loadingProducts, setLoadingProducts] = useState(false);
   const { addToCart } = useCart();
   const { formatCurrency } = useSettings();
+  const initialTimestamp = MODULE_RENDER_TIMESTAMP;
   const socialLinks = vendor?.social_links || {};
   const socialEntries = Object.entries(socialLinks).filter(([key, value]) => SOCIAL_ICON_MAP[key] && value);
+  const isVerified = Number(vendor?.verified ?? 0) === 1;
 
   useEffect(() => {
     if (!slug) return;
@@ -62,6 +66,7 @@ export default function VendorProfile() {
 
   const hero = resolveMediaUrl(vendor?.hero_image || '');
   const logo = resolveMediaUrl(vendor?.logo_url || '');
+  const heroSizes = '(max-width: 768px) 100vw, 960px';
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-rose-50 via-white to-sky-50 py-14 text-slate-800">
@@ -95,7 +100,12 @@ export default function VendorProfile() {
                     src={hero}
                     alt={vendor.legal_name}
                     loading="lazy"
+                    decoding="async"
+                    fetchpriority="high"
                     className="h-full w-full object-cover"
+                    width={1280}
+                    height={360}
+                    sizes={heroSizes}
                   />
                 )}
                 <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/30 to-transparent" />
@@ -107,6 +117,9 @@ export default function VendorProfile() {
                         alt={`${vendor.legal_name} logo`}
                         className="h-24 w-24 rounded-3xl border-4 border-white object-cover shadow-xl"
                         loading="lazy"
+                        decoding="async"
+                        width={96}
+                        height={96}
                       />
                     ) : (
                       <div className="flex h-24 w-24 items-center justify-center rounded-3xl border-4 border-white bg-white/30 text-lg font-semibold text-white shadow-xl">
@@ -115,7 +128,15 @@ export default function VendorProfile() {
                     )}
                     <div>
                       <p className="text-xs font-semibold uppercase tracking-[0.4em] text-rose-200">Vendor</p>
-                      <h1 className="text-3xl font-black text-white sm:text-4xl">{vendor.legal_name}</h1>
+                      <div className="flex flex-wrap items-center gap-3">
+                        <h1 className="text-3xl font-black text-white sm:text-4xl">{vendor.legal_name}</h1>
+                        {isVerified && (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-white/20 px-3 py-1 text-xs font-semibold text-white">
+                            <FaCheckCircle />
+                            Verified
+                          </span>
+                        )}
+                      </div>
                       {vendor.tagline && <p className="text-sm text-white/80">{vendor.tagline}</p>}
                     </div>
                   </div>
@@ -200,7 +221,7 @@ export default function VendorProfile() {
                 <div className="grid gap-6 sm:grid-cols-2 xl:grid-cols-3">
                   {products.map((product) => {
                     const createdAt = product.created_at ? new Date(product.created_at) : null;
-                    const isRecent = createdAt ? Date.now() - createdAt.getTime() < 1000 * 60 * 60 * 24 * 30 : false;
+                    const isRecent = createdAt ? initialTimestamp - createdAt.getTime() < 1000 * 60 * 60 * 24 * 30 : false;
                     return (
                       <div key={product.id} className="relative">
                         {isRecent && (

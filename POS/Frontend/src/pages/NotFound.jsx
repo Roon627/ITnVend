@@ -1,30 +1,62 @@
 import { Link } from 'react-router-dom';
 
+const recoverySteps = [
+  { title: '1. Check the URL', hint: 'Typos happen. Make sure the address is spelled correctly.' },
+  { title: '2. Jump back home', hint: 'Head back to the POS hub and re-open the module.' },
+  { title: '3. Ask the crew', hint: 'If this keeps happening, ping support and we will patch the route.' },
+];
+
 export default function NotFound() {
   return (
-    <div className="flex min-h-[70vh] flex-col items-center justify-center gap-6 bg-slate-50 px-6 py-16 text-center text-slate-700">
-      <div className="w-full max-w-2xl rounded-3xl border border-slate-100 bg-white px-10 py-12 shadow-2xl shadow-indigo-100/70">
-        <div className="text-[11px] font-semibold uppercase tracking-[0.5em] text-indigo-400">Route not found</div>
-        <h1 className="mt-4 text-4xl font-black text-slate-900">404 — Wrong hallway</h1>
-        <p className="mt-3 text-sm text-slate-500">
-          Either the link is old, or you just tripped a motion sensor trying to sneak into a POS screen that does not
-          exist. Security is chuckling, but let&apos;s get you back to safety.
-        </p>
-        <div className="mt-8 flex flex-col items-center gap-3 sm:flex-row sm:justify-center">
-          <Link
-            to="/pos"
-            className="inline-flex items-center gap-2 rounded-full bg-indigo-500 px-6 py-2 text-sm font-semibold uppercase tracking-wide text-white shadow shadow-indigo-200 transition hover:-translate-y-0.5 hover:bg-indigo-600"
-          >
-            Back to POS
-          </Link>
-          <Link
-            to="/help"
-            className="inline-flex items-center gap-2 rounded-full border border-indigo-200 px-6 py-2 text-sm font-semibold text-indigo-500 hover:bg-indigo-50"
-          >
-            Ping support
-          </Link>
+    <div className="relative min-h-screen overflow-hidden bg-gradient-to-br from-slate-950 via-slate-900 to-indigo-900 text-white">
+      <div className="pointer-events-none absolute inset-0">
+        <div className="absolute -top-32 left-8 h-64 w-64 rounded-full bg-indigo-500/30 blur-3xl" />
+        <div className="absolute bottom-0 right-0 h-72 w-72 rounded-full bg-cyan-400/20 blur-3xl" />
+      </div>
+      <div className="relative z-10 mx-auto flex min-h-screen w-full max-w-5xl flex-col items-center justify-center px-6 py-16">
+        <div className="w-full rounded-[32px] border border-white/10 bg-white/10 p-10 text-center shadow-2xl shadow-indigo-900/40 backdrop-blur">
+          <p className="text-xs font-semibold uppercase tracking-[0.4em] text-indigo-200">Off the mapped route</p>
+          <h1 className="mt-4 text-5xl font-black leading-tight text-white sm:text-6xl">
+            <span className="bg-gradient-to-r from-cyan-300 via-indigo-200 to-pink-200 bg-clip-text text-transparent">
+              404
+            </span>{' '}
+            This aisle doesn&apos;t exist
+          </h1>
+          <p className="mt-4 text-base text-slate-200">
+            The screen you tried to reach isn&apos;t wired up in ITnVend just yet. Maybe it moved, maybe it never existed.
+            Either way, let&apos;s guide you back to somewhere useful.
+          </p>
+
+          <div className="mt-10 grid gap-4 text-left md:grid-cols-3">
+            {recoverySteps.map((step) => (
+              <div
+                key={step.title}
+                className="rounded-2xl border border-white/10 bg-white/5 p-4 text-sm shadow-lg shadow-black/10"
+              >
+                <p className="font-semibold text-indigo-100">{step.title}</p>
+                <p className="mt-1 text-slate-200">{step.hint}</p>
+              </div>
+            ))}
+          </div>
+
+          <div className="mt-10 flex flex-col gap-3 text-sm font-semibold uppercase tracking-wide text-slate-900 sm:flex-row sm:justify-center">
+            <Link
+              to="/pos"
+              className="inline-flex items-center justify-center gap-2 rounded-full bg-white/90 px-6 py-3 text-slate-900 shadow shadow-black/10 transition hover:-translate-y-0.5 hover:bg-white"
+            >
+              Back to POS
+            </Link>
+            <Link
+              to="/help"
+              className="inline-flex items-center justify-center gap-2 rounded-full border border-white/40 px-6 py-3 text-white transition hover:-translate-y-0.5 hover:bg-white/10"
+            >
+              Ping support
+            </Link>
+          </div>
+          <p className="mt-6 text-xs uppercase tracking-widest text-slate-200">
+            Pro tip: bookmark the screens you visit the most and skip the labyrinth.
+          </p>
         </div>
-        <p className="mt-6 text-xs text-slate-400">Pro tip: stick to the menu unless you enjoy paperwork.</p>
       </div>
     </div>
   );

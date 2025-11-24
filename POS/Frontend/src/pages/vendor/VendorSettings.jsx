@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
+import { FaCheckCircle } from 'react-icons/fa';
 import api from '../../lib/api';
 import { useToast } from '../../components/ToastContext';
 import { resolveMediaUrl } from '../../lib/media';
@@ -41,6 +42,7 @@ export default function VendorSettings() {
   const [requestDocuments, setRequestDocuments] = useState([]);
   const [submittingRequest, setSubmittingRequest] = useState(false);
   const [logoPreview, setLogoPreview] = useState('');
+  const accountVerified = Number(vendor?.verified ?? 0) === 1;
 
   useEffect(() => {
     (async function load() {
@@ -192,6 +194,15 @@ export default function VendorSettings() {
           <p className="mt-1 text-sm text-slate-500">
             Update contact info, storefront messaging, and public touchpoints. Legal name changes require a verification request.
           </p>
+          {accountVerified ? (
+            <div className="mt-3 inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50/70 px-4 py-1 text-xs font-semibold text-emerald-700">
+              <FaCheckCircle /> Verified marketplace partner
+            </div>
+          ) : (
+            <div className="mt-3 inline-flex items-center gap-2 rounded-full border border-amber-200 bg-amber-50/70 px-4 py-1 text-xs font-semibold text-amber-700">
+              Upload brand assets and docs so staff can verify your store badge.
+            </div>
+          )}
           <div className="mt-4 flex flex-wrap gap-2 text-xs text-slate-500">
             <Link to="/vendor/dashboard" className="rounded-full border border-slate-200 px-3 py-1 font-semibold text-slate-600 hover:border-blue-200 hover:text-blue-600">
               ← Back to dashboard

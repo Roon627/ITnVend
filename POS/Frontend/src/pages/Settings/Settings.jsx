@@ -472,7 +472,7 @@ export default function Settings() {
   return (
     <div className="p-6" style={{ minHeight: 'calc(100vh - 72px)' }}>
       <div className="mx-auto flex h-full max-w-6xl flex-col gap-6">
-        <header className="sticky top-6 z-10 rounded-3xl border border-slate-200 bg-white/70 px-6 py-4 shadow-sm backdrop-blur">
+        <header className="rounded-2xl border border-slate-200 bg-white px-4 py-4 shadow-sm md:sticky md:top-6 md:z-10 md:rounded-3xl md:bg-white/70 md:px-6 md:py-4 md:backdrop-blur">
           <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
             <div>
               <h2 className="text-2xl font-bold text-slate-800">Settings</h2>
@@ -493,25 +493,55 @@ export default function Settings() {
               </div>
             )}
           </div>
-          <nav className="mt-4 overflow-auto">
-            <ul className="flex flex-wrap gap-2">
-              {tabs.map((tab) => (
-                <li key={tab.id}>
-                  <button
-                    type="button"
-                    onClick={() => setActiveTab(tab.id)}
-                    className={`inline-flex items-center gap-2 rounded-full border px-4 py-2 text-sm font-semibold transition ${
-                      activeTab === tab.id
-                        ? 'border-blue-400 bg-blue-50 text-blue-700 shadow'
-                        : 'border-slate-200 bg-white text-slate-500 hover:border-blue-200 hover:text-blue-600'
-                    }`}
-                  >
-                    <span>{tab.label}</span>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          </nav>
+          <div className="mt-4 flex flex-col gap-3">
+            <div className="md:hidden">
+              <label htmlFor="settings-mobile-tabs" className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+                Quick menu
+              </label>
+              <div className="relative mt-1">
+                <select
+                  id="settings-mobile-tabs"
+                  value={activeTab}
+                  onChange={(event) => setActiveTab(event.target.value)}
+                  className="w-full appearance-none rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-700 shadow-sm focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-100"
+                >
+                  {tabs.map((tab) => (
+                    <option key={tab.id} value={tab.id}>
+                      {tab.label}
+                    </option>
+                  ))}
+                </select>
+                <span className="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-4 text-slate-400">
+                  <svg width="16" height="16" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+                    <path d="M6 8l4 4 4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                </span>
+              </div>
+            </div>
+            <nav
+              className="overflow-x-auto pb-1"
+              style={{ WebkitOverflowScrolling: 'touch' }}
+              aria-label="Settings submenu"
+            >
+              <ul className="flex min-w-full flex-nowrap gap-2">
+                {tabs.map((tab) => (
+                  <li key={tab.id} className="flex-shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => setActiveTab(tab.id)}
+                      className={`inline-flex items-center gap-2 rounded-full border px-4 py-2 text-xs font-semibold transition md:text-sm ${
+                        activeTab === tab.id
+                          ? 'border-blue-400 bg-blue-50 text-blue-700 shadow'
+                          : 'border-slate-200 bg-white text-slate-500 hover:border-blue-200 hover:text-blue-600'
+                      }`}
+                    >
+                      <span>{tab.label}</span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </nav>
+          </div>
           {activeTabMeta?.description && (
             <p className="mt-3 text-xs font-medium uppercase tracking-wide text-slate-400">
               {activeTabMeta.description}
