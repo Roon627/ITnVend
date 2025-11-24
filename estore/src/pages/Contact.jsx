@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useLocation } from 'react-router-dom';
-import { FaArrowRight, FaEnvelope } from 'react-icons/fa';
+import { FaArrowRight, FaEnvelope, FaComments } from 'react-icons/fa';
 import { useToast } from '../components/ToastContext';
 import api from '../lib/api';
 
@@ -98,8 +98,23 @@ export default function Contact() {
           </div>
         </section>
 
-        <section className="rounded-3xl border border-rose-100 bg-white/95 p-6 shadow-rose-100">
-          <h2 className="text-lg font-semibold text-slate-900">Send us a note</h2>
+        <section className="rounded-3xl border border-rose-100 bg-white/95 p-6 shadow-rose-100 space-y-4">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <h2 className="text-lg font-semibold text-slate-900">Send us a note</h2>
+            <button
+              type="button"
+              onClick={() => {
+                if (window.Tawk_API) {
+                  window.Tawk_API.showWidget?.();
+                  window.Tawk_API.maximize?.();
+                }
+              }}
+              className="inline-flex items-center justify-center gap-2 rounded-full border border-rose-200 px-4 py-2 text-sm font-semibold text-rose-600 transition hover:bg-rose-50"
+            >
+              <FaComments aria-hidden="true" />
+              Live chat
+            </button>
+          </div>
           <form className="mt-6 space-y-5" onSubmit={handleSubmit}>
             <div>
               <label htmlFor="name" className="block text-sm font-semibold text-slate-700">

@@ -4,6 +4,7 @@ import Footer from "./components/Footer";
 import PublicNavbar from "./components/PublicNavbar";
 import PublicFallback from "./components/PublicFallback";
 import { OrderSummaryProvider } from "./components/checkout/OrderSummaryContext";
+import TawkChatWidget from "./components/TawkChatWidget";
 const Home = lazy(() => import("./pages/Home"));
 const PublicProducts = lazy(() => import("./pages/PublicProducts"));
 const ProductDetail = lazy(() => import("./pages/ProductDetail"));
@@ -42,6 +43,7 @@ function PublicLayout({ children }) {
           <Suspense fallback={<PublicFallback />}>{children}</Suspense>
         </main>
         <Footer />
+        <TawkChatWidget />
       </div>
     </OrderSummaryProvider>
   );

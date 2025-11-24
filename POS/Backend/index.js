@@ -319,6 +319,54 @@ async function transformProductRows(rows = []) {
     });
 }
 
+const SENSITIVE_PRODUCT_FIELDS = [
+    'cost',
+    'digital_download_url',
+    'digital_license_key',
+    'digital_activation_limit',
+    'digital_expiry',
+    'digital_support_url',
+];
+
+function sanitizeProductForPublic(product) {
+    if (!product) return product;
+    const sanitized = { ...product };
+    for (const field of SENSITIVE_PRODUCT_FIELDS) {
+        if (field in sanitized) {
+            delete sanitized[field];
+        }
+    }
+    return sanitized;
+}
+
+const CACHEABLE_PRODUCT_PARAMS = ['category', 'subcategory', 'highlight', 'newArrival', 'limit', 'offset'];
+
+function shouldCacheProductsRequest(query = {}) {
+    if (
+        query.search ||
+        query.vendorId ||
+        query.brandId ||
+        query.categoryId ||
+        query.subcategoryId ||
+        query.subsubcategoryId ||
+        query.tag ||
+        query.tagId ||
+        query.preorderOnly === 'true' ||
+        query.type ||
+        query.includeArchived === 'true'
+    ) {
+        return false;
+    }
+    const limit = query.limit ? parseInt(query.limit, 10) : null;
+    if (limit && (!Number.isFinite(limit) || limit > 100)) return false;
+    return true;
+}
+
+function buildProductCacheKey(query = {}) {
+    const parts = CACHEABLE_PRODUCT_PARAMS.map((key) => `${key}:${String(query[key] || '')}`);
+    return `products:${parts.join('|')}`;
+}
+
 async function fetchProductsForHighlight(whereClause = '', params = [], { orderBy = null, limit = null } = {}) {
     let query = PRODUCT_BASE_SELECT;
     const queryParams = [...params];
@@ -420,6 +468,8 @@ function createRateLimiter({ windowMs = 60 * 60 * 1000, max = 20, keyFn = (req) 
         }
     };
 }
+
+const publicProductLimiter = createRateLimiter({ windowMs: 60 * 1000, max: 120 });
 
 function initVendorBillingScheduler(db) {
     const run = async () => {
@@ -1742,6 +1792,24 @@ function authMiddleware(req, res, next) {
     }
 }
 
+function optionalAuth(req, res, next) {
+    const auth = req.headers.authorization;
+    if (!auth) return next();
+    const token = auth.replace('Bearer ', '');
+    try {
+        const payload = jwt.verify(token, JWT_SECRET);
+        req.user = {
+            username: payload.username,
+            role: payload.role,
+            staffId: payload.staffId,
+            vendorId: payload.vendorId,
+        };
+    } catch (err) {
+        // ignore invalid optional token
+    }
+    return next();
+}
+
 function requireRole(required) {
     // supports a minimum role (string) or explicit array of allowed roles
     const rank = (r) => {
@@ -2367,18 +2435,40 @@ function buildUploadBreadcrumbs(relPath = '') {
         console.log('Upload route configured: multer multipart enabled');
     } catch (e) {
         // fallback to base64 upload endpoint (saves under images/<category> if provided via query or body)
+        const ALLOWED_UPLOAD_MIME = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'application/pdf']);
+        const MAX_UPLOAD_BYTES = 3 * 1024 * 1024;
         app.post('/api/uploads', async (req, res) => {
             try {
                 const { filename, data, category } = req.body || {};
                 if (!data) return res.status(400).json({ error: 'Missing data' });
-                let base64 = data;
+                let base64Payload = data;
                 let ext = '';
+                let mime = (req.body?.mimetype || req.body?.mime || '').toLowerCase();
                 const m = String(data).match(/^data:(.+);base64,(.+)$/);
                 if (m) {
-                    const mime = m[1];
-                    base64 = m[2];
+                    mime = m[1].toLowerCase();
+                    base64Payload = m[2];
                     const parts = mime.split('/');
                     ext = parts[1] ? '.' + parts[1].split('+')[0] : '';
+                }
+                if (!mime) {
+                    return res.status(400).json({ error: 'Unsupported file type' });
+                }
+                if (!ALLOWED_UPLOAD_MIME.has(mime)) {
+                    return res.status(415).json({ error: 'Unsupported file type' });
+                }
+                let fileBuffer;
+                try {
+                    fileBuffer = Buffer.from(base64Payload, 'base64');
+                } catch (err) {
+                    return res.status(400).json({ error: 'Invalid upload payload' });
+                }
+                if (fileBuffer.length > MAX_UPLOAD_BYTES) {
+                    return res.status(400).json({ error: 'File too large (max 3MB)' });
+                }
+                if (!ext) {
+                    const mimeExt = mime.split('/')[1] || 'bin';
+                    ext = `.${mimeExt.split('+')[0]}`;
                 }
                 let target;
                 if (req.query?.type || req.body?.type || SMART_UPLOAD_TYPES.has((req.query?.category || req.body?.category || '').toLowerCase())) {
@@ -2390,8 +2480,7 @@ function buildUploadBreadcrumbs(relPath = '') {
                 }
                 const safeName = `${Date.now()}-${(filename || 'upload').replace(/[^a-z0-9\.\-_]/gi, '_')}${ext}`;
                 const filePath = path.join(target.dir, safeName);
-                const buffer = Buffer.from(base64, 'base64');
-                fs.writeFileSync(filePath, buffer);
+                fs.writeFileSync(filePath, fileBuffer);
                 const rel = path.relative(imagesDir, filePath).replace(/\\/g, '/');
                 const urlPath = `/uploads/${rel}`;
                 const publicBase = (process.env.PUBLIC_API_BASE || '').trim().replace(/\/$/, '');
@@ -3254,7 +3343,7 @@ app.get('/api/vendors/:id/password-reset-tokens', authMiddleware, requireRole(['
 });
 
 // Product Routes
-app.get('/api/products', async (req, res) => {
+app.get('/api/products', optionalAuth, publicProductLimiter, async (req, res) => {
     const {
         category,
         subcategory,
@@ -3274,28 +3363,16 @@ app.get('/api/products', async (req, res) => {
         limit: qLimit,
         offset: qOffset,
     } = req.query;
-    const cacheKey = `products:${JSON.stringify({
-        category,
-        subcategory,
-        search,
-        preorderOnly: preorderOnly === 'true',
-        categoryId,
-        subcategoryId,
-        subsubcategoryId,
-        tagId,
-        tag,
-        brandId,
-        type,
-        vendorId,
-        limit: qLimit ? Number(qLimit) : null,
-        offset: qOffset ? Number(qOffset) : null,
-    })}`;
+    const shouldCache = shouldCacheProductsRequest(req.query);
+    const cacheKey = shouldCache ? buildProductCacheKey(req.query) : null;
 
     try {
-        const cachedProducts = await cacheService.get(cacheKey);
-        if (cachedProducts) {
-            console.log('Serving products from cache');
-            return res.json(cachedProducts);
+        if (shouldCache && cacheKey) {
+            const cachedProducts = await cacheService.get(cacheKey);
+            if (cachedProducts) {
+                console.log('Serving products from cache');
+                return res.json(cachedProducts);
+            }
         }
 
         let query = PRODUCT_BASE_SELECT;
@@ -3386,10 +3463,15 @@ app.get('/api/products', async (req, res) => {
         const productRows = await db.all(query, params);
 
         const products = await transformProductRows(productRows);
+        const privilegedRoles = new Set(['cashier', 'accounts', 'manager', 'admin', 'vendor']);
+        const isPrivileged = req.user && privilegedRoles.has(req.user.role);
+        const safeProducts = isPrivileged ? products : products.map(sanitizeProductForPublic);
 
-        await cacheService.set(cacheKey, products, 180);
+        if (shouldCache && cacheKey) {
+            await cacheService.set(cacheKey, safeProducts, 180);
+        }
 
-        res.json(products);
+        res.json(safeProducts);
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
@@ -5830,7 +5912,13 @@ app.post('/api/vendors', async (req, res) => {
         const { value: socialLinks } = extractSocialLinksPayload(req.body);
         const socialShowcaseInput = req.body?.social_showcase_enabled ?? req.body?.socialShowcaseEnabled;
         const socialShowcase = socialShowcaseInput == null ? 1 : (Number(socialShowcaseInput) ? 1 : 0);
-        const verifiedFlag = req.body?.verified ? 1 : 0;
+        const verifiedFlag = 0;
+        const requestedFee = req.body?.monthly_fee ?? req.body?.monthlyFee;
+        const normalizedNotesSegments = [
+            notes || null,
+            requestedFee != null && requestedFee !== '' ? `Requested monthly fee: ${requestedFee}` : null,
+        ].filter(Boolean);
+        const normalizedNotes = normalizedNotesSegments.length ? normalizedNotesSegments.join('\n\n') : null;
         const result = await db.run(
             `INSERT INTO vendors (legal_name, contact_person, email, phone, address, website, capabilities, notes, slug, tagline, public_description, social_links, social_showcase_enabled, verified, currency)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)` ,
@@ -5842,7 +5930,7 @@ app.post('/api/vendors', async (req, res) => {
                 address,
                 website,
                 capabilities,
-                notes,
+                normalizedNotes,
                 slug,
                 tagline || null,
                 descriptionValue,
@@ -5962,20 +6050,26 @@ app.post('/api/vendors/register', async (req, res) => {
     if (!legal_name || !email) return res.status(400).json({ error: 'legal_name and email required' });
 
     const feeInput = monthly_fee ?? monthlyFee;
-    const monthlyFeeValue = feeInput != null && feeInput !== '' ? Number(feeInput) : 0;
-    const billingStartValue = billing_start_date || billingStartDate || null;
-    const accountActiveFlag = account_active != null ? Number(account_active) : (accountActive != null ? Number(accountActive) : 1);
-    const status = approve ? 'active' : 'pending';
+    const requestedMonthlyFee = feeInput != null && feeInput !== '' ? Number(feeInput) : null;
+    const monthlyFeeValue = 0;
+    const billingStartValue = null;
+    const accountActiveFlag = 0;
+    const status = 'pending';
     const descriptionValue = public_description || notes || null;
     const { value: socialLinks } = extractSocialLinksPayload(req.body);
     const socialShowcaseInput = req.body?.social_showcase_enabled ?? req.body?.socialShowcaseEnabled;
     const socialShowcase = socialShowcaseInput == null ? 1 : (Number(socialShowcaseInput) ? 1 : 0);
     const normalizedCurrency = ensureVendorCurrency(currency);
+    const normalizedNotesSegments = [
+        notes || billing_notes || null,
+        requestedMonthlyFee != null ? `Requested monthly fee: ${requestedMonthlyFee}` : null,
+    ].filter(Boolean);
+    const normalizedNotes = normalizedNotesSegments.length ? normalizedNotesSegments.join('\n\n') : null;
 
     try {
         await db.run('BEGIN TRANSACTION');
         const slug = await getUniqueVendorSlug(legal_name || email || contact_person || `vendor-${Date.now()}`);
-        const verifiedFlag = req.body?.verified ? 1 : 0;
+        const verifiedFlag = 0;
         const result = await db.run(
             `INSERT INTO vendors (
                 legal_name, contact_person, email, phone, address, website, capabilities, notes,
@@ -5990,7 +6084,7 @@ app.post('/api/vendors/register', async (req, res) => {
                 address || null,
                 website || null,
                 capabilities || null,
-                notes || billing_notes || null,
+                normalizedNotes,
                 bank_details || null,
                 logo_url || null,
                 monthlyFeeValue || 0,
@@ -6053,7 +6147,7 @@ app.post('/api/vendors/register', async (req, res) => {
 
         await db.run('COMMIT');
         await logActivity('vendors', vendorId, 'register', req.user?.username || null, JSON.stringify({ email }));
-        res.status(201).json({ id: vendorId, slug, message: 'Vendor registered', monthly_fee: monthlyFeeValue });
+        res.status(201).json({ id: vendorId, slug, message: 'Vendor registered', requested_monthly_fee: requestedMonthlyFee });
     } catch (err) {
         await db.run('ROLLBACK');
         if (String(err?.message || '').includes('UNIQUE constraint failed')) {

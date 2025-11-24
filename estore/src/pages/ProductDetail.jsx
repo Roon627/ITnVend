@@ -30,6 +30,32 @@ const SOCIAL_ICON_MAP = {
   telegram: FaTelegramPlane,
 };
 
+const ALLOWED_SOCIAL_PROTOCOLS = new Set(['http:', 'https:']);
+
+function sanitizeExternalUrl(url) {
+  if (!url) return null;
+  try {
+    const parsed = new URL(url.trim());
+    if (!ALLOWED_SOCIAL_PROTOCOLS.has(parsed.protocol)) return null;
+    return parsed.toString();
+  } catch {
+    return null;
+  }
+}
+
+function buildVendorSocialEntries(rawLinks) {
+  if (!rawLinks || typeof rawLinks !== 'object') return [];
+  const entries = [];
+  Object.entries(rawLinks).forEach(([key, value]) => {
+    const Icon = SOCIAL_ICON_MAP[key];
+    if (!Icon || !value) return;
+    const safeUrl = sanitizeExternalUrl(value);
+    if (!safeUrl) return;
+    entries.push({ key, url: safeUrl, Icon });
+  });
+  return entries;
+}
+
 export default function ProductDetail() {
   const { id } = useParams();
   const [product, setProduct] = useState(null);
@@ -40,9 +66,7 @@ export default function ProductDetail() {
   const { formatCurrency } = useSettings();
   const navigate = useNavigate();
   const location = useLocation();
-  const vendorSocialEntries = Object.entries(product?.vendor_social_links || {}).filter(
-    ([key, value]) => SOCIAL_ICON_MAP[key] && value
-  );
+  const vendorSocialEntries = buildVendorSocialEntries(product?.vendor_social_links);
 
   // If navigation provided a preloaded product (from NewArrivalsStrip), use it immediately
   useEffect(() => {
@@ -479,20 +503,17 @@ export default function ProductDetail() {
                 )}
                 {vendorSocialEntries.length > 0 && (
                   <div className="flex flex-wrap gap-2">
-                    {vendorSocialEntries.map(([key, url]) => {
-                      const Icon = SOCIAL_ICON_MAP[key];
-                      return (
-                        <a
-                          key={key}
-                          href={url}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-emerald-100 bg-white/80 text-emerald-700 shadow-sm transition hover:bg-white"
-                        >
-                          <Icon />
-                        </a>
-                      );
-                    })}
+                    {vendorSocialEntries.map(({ key, url, Icon }) => (
+                      <a
+                        key={key}
+                        href={url}
+                        target="_blank"
+                        rel="noreferrer noopener"
+                        className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-emerald-100 bg-white/80 text-emerald-700 shadow-sm transition hover:bg-white"
+                      >
+                        <Icon />
+                      </a>
+                    ))}
                   </div>
                 )}
               </section>
