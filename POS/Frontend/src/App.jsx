@@ -29,11 +29,13 @@ const Operations = lazy(() => import('./pages/Operations/Operations'));
 const Preorders = lazy(() => import('./pages/Preorders'));
 const Profile = lazy(() => import('./pages/Profile'));
 const Help = lazy(() => import('./pages/Help'));
+const Orders = lazy(() => import('./pages/Orders'));
 const ContactOnly = lazy(() => import('./pages/ContactOnly'));
 const VendorLogin = lazy(() => import('./modules/vendor/VendorLogin'));
 const VendorDashboard = lazy(() => import('./modules/vendor/VendorDashboard'));
 const VendorProducts = lazy(() => import('./pages/vendor/VendorProducts'));
 const VendorSettings = lazy(() => import('./pages/vendor/VendorSettings'));
+const VendorOrders = lazy(() => import('./pages/vendor/VendorOrders'));
 const ManageLookups = lazy(() => import('./pages/ManageLookups'));
 const AddProduct = lazy(() => import('./pages/AddProduct'));
 const EditProduct = lazy(() => import('./pages/EditProduct'));
@@ -98,6 +100,7 @@ function App() {
       <Route path="/products/add" element={<AddProduct />} />
       <Route path="/products/:id/edit" element={<EditProduct />} />
       <Route path="/invoices" element={<Invoices />} />
+      <Route path="/orders" element={<RoleGuard minRole="accounts"><Orders /></RoleGuard>} />
   <Route path="/vendors" element={<RoleGuard minRole="manager"><Vendors /></RoleGuard>} />
   <Route path="/vendors/register" element={<RoleGuard minRole="manager"><VendorRegister /></RoleGuard>} />
   <Route path="/vendors/:id/edit" element={<RoleGuard minRole="manager"><VendorEdit /></RoleGuard>} />
@@ -133,6 +136,7 @@ function App() {
                   <Route path="/vendor/login" element={<VendorLogin />} />
                   <Route path="/vendor/dashboard" element={<VendorOnly><VendorDashboard /></VendorOnly>} />
                   <Route path="/vendor/products" element={<VendorOnly><VendorProducts /></VendorOnly>} />
+                  <Route path="/vendor/orders" element={<VendorOnly><VendorOrders /></VendorOnly>} />
                   <Route path="/vendor/settings" element={<VendorOnly><VendorSettings /></VendorOnly>} />
                   <Route path="/vendor/reset-password" element={<ResetPassword />} />
                   <Route path="/vendor/forgot-password" element={<ForgotPassword />} />

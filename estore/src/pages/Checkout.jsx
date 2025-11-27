@@ -8,6 +8,7 @@ import InlineValidationCard from '../components/InlineValidationCard';
 import RegularCustomerLookup from '../components/checkout/RegularCustomerLookup';
 import PreorderPolicySnippet from '../components/checkout/PreorderPolicySnippet';
 import { useOrderSummaryControls } from '../components/checkout/OrderSummaryContext';
+import { getSaleInfo } from '../lib/sale';
 
 const QUOTE_TYPES = [
   { value: 'individual', label: 'I am an individual', helper: 'We will treat this as a one-off quotation.' },
@@ -49,7 +50,43 @@ export default function Checkout() {
     return cart.filter((item) => String(item.id) === String(buyNowItemId));
   }, [cart, buyNowItem, buyNowItemId]);
 
-  const displayTotal = useMemo(() => displayCart.reduce((sum, item) => sum + item.price * item.quantity, 0), [displayCart]);
+  const saleAwareCart = useMemo(
+    () =>
+      displayCart.map((item) => {
+        const sale = getSaleInfo(item);
+        const effectivePrice = Number.isFinite(sale.effectivePrice) ? sale.effectivePrice : item.price || 0;
+        return {
+          ...item,
+          effectivePrice,
+          _sale: sale,
+        };
+      }),
+    [displayCart]
+  );
+  const displayTotal = useMemo(
+    () => saleAwareCart.reduce((sum, item) => sum + (item.effectivePrice || 0) * (item.quantity || 0), 0),
+    [saleAwareCart]
+  );
+  const baseSubtotal = useMemo(
+    () =>
+      saleAwareCart.reduce((sum, item) => {
+        const base = item._sale?.basePrice ?? item.price ?? item.effectivePrice ?? 0;
+        return sum + base * (item.quantity || 0);
+      }, 0),
+    [saleAwareCart]
+  );
+  const saleSavingsTotal = useMemo(
+    () =>
+      saleAwareCart.reduce((sum, item) => {
+        if (!item?._sale?.isOnSale) return sum;
+        const base = item._sale.basePrice || 0;
+        const eff = item.effectivePrice || 0;
+        return sum + Math.max(0, base - eff) * (item.quantity || 0);
+      }, 0),
+    [saleAwareCart]
+  );
+  const hasSaleSavings = saleSavingsTotal > 0;
+  const totalDue = useMemo(() => displayTotal + deliveryFee - discountAmount, [displayTotal, deliveryFee, discountAmount]);
   const { formatCurrency, getAccountTransferDetails, getPaymentQrCodeUrl } = useSettings();
   const cartHasPreorder = useMemo(
     () => displayCart.some((item) => item?.preorder || item?.availableForPreorder || item?.preorder_enabled === 1 || item?.preorder_enabled === '1'),
@@ -109,11 +146,11 @@ export default function Checkout() {
   }, [visibleDeliveryOptions, deliveryOption, defaultDeliveryOption]);
   const summaryItems = useMemo(
     () =>
-      displayCart.map((item) => ({
+      saleAwareCart.map((item) => ({
         ...item,
         image: item.image || item.imageUrl || item.image_source || null,
       })),
-    [displayCart]
+    [saleAwareCart]
   );
   const requiresVendorCompany = isQuote && quoteType === 'vendor';
   const requiresExistingRef = isQuote && quoteType === 'existing';
@@ -448,7 +485,7 @@ export default function Checkout() {
 
   const handleSubmit = async (event) => {
     if (event?.preventDefault) event.preventDefault();
-    if (!displayCart.length) {
+    if (!saleAwareCart.length) {
       toast.push('Your cart is empty.', 'warning');
       return;
     }
@@ -473,11 +510,11 @@ export default function Checkout() {
             deliveryPreference: form.deliveryPreference || selectedDeliveryOption?.label || null,
             deliveryInstructions: form.deliveryInstructions || null,
           },
-          items: displayCart.map((item) => ({
+          items: saleAwareCart.map((item) => ({
             id: item.id,
             name: item.name,
             quantity: item.quantity,
-            price: item.price,
+            price: item.effectivePrice,
           })),
         });
         toast.push('Quote request sent successfully!', 'success');
@@ -488,11 +525,11 @@ export default function Checkout() {
           registrationNumber: quoteType === 'vendor' ? form.registrationNumber || null : null,
           existingAccountRef: quoteType === 'existing' ? form.existingAccountRef || null : null,
         };
-        const summaryItems = displayCart.map((item) => ({
+        const summaryItems = saleAwareCart.map((item) => ({
           id: item.id,
           name: item.name,
           quantity: item.quantity,
-          price: item.price,
+          price: item.effectivePrice,
         }));
         resetState();
         navigate('/confirmation', {
@@ -562,9 +599,9 @@ export default function Checkout() {
         delivery_notes: form.deliveryInstructions || null,
       };
       const trimmedReference = paymentMethod === 'transfer' ? paymentReference.trim() : '';
-      await api.post('/orders', {
+      const createdOrder = await api.post('/orders', {
         customer: customerPayload,
-        cart: displayCart,
+        cart: saleAwareCart,
         payment: {
           method: paymentMethod,
           reference: paymentMethod === 'transfer' ? trimmedReference : null,
@@ -576,18 +613,22 @@ export default function Checkout() {
       toast.push('Order placed successfully!', 'success');
       clearSessionDraft();
       const orderSummary = {
-        items: displayCart.map((item) => ({
+        items: saleAwareCart.map((item) => ({
           id: item.id,
           name: item.name,
           quantity: item.quantity,
-          price: item.price,
+          price: item.effectivePrice,
         })),
         total: displayTotal,
+        savings: saleSavingsTotal,
         paymentMethod,
         paymentReference: paymentMethod === 'transfer' ? trimmedReference || null : null,
+        orderId: createdOrder?.orderId || null,
+        trackingToken: createdOrder?.trackingToken || null,
+        trackingExpiresAt: createdOrder?.trackingTokenExpiresAt || null,
       };
       if (buyNowItemId) {
-        displayCart.forEach((it) => removeFromCart(it.id));
+        saleAwareCart.forEach((it) => removeFromCart(it.id));
       } else {
         resetState();
       }
@@ -967,18 +1008,26 @@ export default function Checkout() {
             <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <p className="text-xs font-semibold uppercase tracking-wide text-rose-500">Live order snapshot</p>
-                <p className="text-3xl font-extrabold text-slate-900">{formatCurrency(displayTotal + deliveryFee - discountAmount)}</p>
+                <p className="text-3xl font-extrabold text-slate-900">{formatCurrency(totalDue)}</p>
                 <p className="text-xs text-slate-500">{summaryDeliveryLabel}</p>
+                {hasSaleSavings && (
+                  <p className="text-xs font-semibold text-emerald-600">You save {formatCurrency(saleSavingsTotal)}</p>
+                )}
               </div>
               <div className="rounded-2xl border border-white/60 bg-white/70 px-4 py-3 text-right text-sm text-slate-500">
-                <p>{displayCart.length} item{displayCart.length === 1 ? '' : 's'}</p>
+                <p>{saleAwareCart.length} item{saleAwareCart.length === 1 ? '' : 's'}</p>
                 <p>{digitalOnly ? 'Digital delivery' : selectedDeliveryOption?.label || 'Delivery'} </p>
               </div>
             </div>
             <div className="mt-5 space-y-3">
-              {displayCart.map((item) => {
+              {saleAwareCart.map((item) => {
                 const typeLabel = (item.productTypeLabel || item.type || '').toString().toLowerCase();
                 const isDigitalItem = typeLabel === 'digital';
+                const sale = item._sale || getSaleInfo(item);
+                const hasSale = sale?.isOnSale;
+                const basePrice = sale?.basePrice || item.price || item.effectivePrice || 0;
+                const unitPrice = item.effectivePrice ?? basePrice;
+                const lineSavings = hasSale ? Math.max(0, basePrice - unitPrice) * (item.quantity || 0) : 0;
                 return (
                   <div key={`${item.id}-${item.name}`} className="flex items-start gap-3 rounded-2xl border border-slate-100 bg-white/80 p-3 shadow-sm">
                     <div className="relative h-14 w-14 overflow-hidden rounded-2xl bg-rose-50">
@@ -996,25 +1045,46 @@ export default function Checkout() {
                     <div className="flex-1">
                       <div className="flex items-center justify-between gap-3">
                         <p className="text-sm font-semibold text-slate-900 line-clamp-2">{item.name}</p>
-                        <span className="text-sm font-semibold text-slate-800">{formatCurrency(item.price * item.quantity)}</span>
+                        <div className="text-right">
+                          <span className="text-sm font-semibold text-slate-900">{formatCurrency(unitPrice * item.quantity)}</span>
+                          {hasSale && (
+                            <div className="text-[11px] text-slate-400 line-through">{formatCurrency(basePrice * item.quantity)}</div>
+                          )}
+                        </div>
                       </div>
                       <div className="mt-1 flex flex-wrap gap-2 text-[11px] uppercase tracking-wide text-slate-400">
                         {isDigitalItem && <span className="rounded-full bg-sky-100 px-2 py-0.5 text-sky-600">Digital</span>}
                         {item.preorder && <span className="rounded-full bg-amber-100 px-2 py-0.5 text-amber-600">Preorder</span>}
+                        {hasSale && (
+                          <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-emerald-600">
+                            Sale {Math.round(sale.discountPercent || 0)}%
+                          </span>
+                        )}
                       </div>
                       {isDigitalItem && (item.technical_details || item.technicalDetails) && (
                         <p className="mt-1 text-xs text-slate-500 line-clamp-2">{item.technical_details || item.technicalDetails}</p>
+                      )}
+                      {lineSavings > 0 && (
+                        <p className="mt-1 text-xs font-semibold text-emerald-600">
+                          You save {formatCurrency(lineSavings)}
+                        </p>
                       )}
                     </div>
                   </div>
                 );
               })}
-              {!displayCart.length && <p className="text-sm text-slate-400">Your cart is empty.</p>}
+              {!saleAwareCart.length && <p className="text-sm text-slate-400">Your cart is empty.</p>}
             </div>
             <div className="mt-5 rounded-2xl border border-rose-100 bg-white/70 p-4 text-sm text-slate-700">
               <div className="flex justify-between">
                 <span>Subtotal</span>
-                <span>{formatCurrency(displayTotal)}</span>
+                <span>{formatCurrency(baseSubtotal)}</span>
+              </div>
+              <div className="flex justify-between">
+                <span>Sale savings</span>
+                <span className={saleSavingsTotal ? 'text-emerald-600 font-semibold' : ''}>
+                  {saleSavingsTotal ? `- ${formatCurrency(saleSavingsTotal)}` : '—'}
+                </span>
               </div>
               <div className="flex justify-between">
                 <span>{digitalOnly ? 'Digital delivery' : 'Delivery'}</span>
@@ -1028,7 +1098,7 @@ export default function Checkout() {
               </div>
               <div className="mt-3 flex items-center justify-between text-lg font-semibold text-slate-900">
                 <span>Balance</span>
-                <span>{formatCurrency(displayTotal + deliveryFee - discountAmount)}</span>
+                <span>{formatCurrency(totalDue)}</span>
               </div>
             </div>
           </div>

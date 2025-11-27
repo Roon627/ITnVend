@@ -125,6 +125,13 @@ export default function EditProduct() {
         tags: payload.tags || [],
         newArrival: payload.newArrival ? 1 : 0,
       };
+      const salePriceNumber = Number(payload.salePrice);
+      const discountPercentNumber = Number(payload.discountPercent);
+      updatePayload.isOnSale = !!payload.isOnSale;
+      updatePayload.salePrice =
+        updatePayload.isOnSale && Number.isFinite(salePriceNumber) ? salePriceNumber : null;
+      updatePayload.discountPercent =
+        updatePayload.isOnSale && Number.isFinite(discountPercentNumber) ? discountPercentNumber : null;
 
       await api.put(`/products/${id}`, updatePayload);
       toast.push('Product updated', 'success');

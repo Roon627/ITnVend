@@ -11,6 +11,7 @@ import VendorCard from '../components/VendorCard';
 const CATEGORY_LIMIT = 6;
 const TRENDING_VENDOR_LIMIT = 6;
 const VERIFIED_VENDOR_LIMIT = 6;
+const SALE_VENDOR_LIMIT = 4;
 
 const VALUE_PILLARS = [
   { title: 'POS besties', copy: 'Every Market Hub item talks directly to the POS so inventory, carts, and invoices stay in perfect harmony.' },
@@ -23,6 +24,10 @@ export default function Home() {
   const [categories, setCategories] = useState([]);
   const [trendingVendors, setTrendingVendors] = useState([]);
   const [verifiedVendors, setVerifiedVendors] = useState([]);
+  const [saleHighlights, setSaleHighlights] = useState([]);
+  const [saleLoading, setSaleLoading] = useState(true);
+  const [saleVendorGroups, setSaleVendorGroups] = useState([]);
+  const [saleVendorLoading, setSaleVendorLoading] = useState(true);
   const { addToCart, cartCount } = useCart();
   const { formatCurrency } = useSettings();
 
@@ -65,6 +70,41 @@ export default function Home() {
         setVerifiedVendors(Array.isArray(list) ? list : []);
       })
       .catch(() => setVerifiedVendors([]));
+  }, []);
+
+  useEffect(() => {
+    setSaleLoading(true);
+    api
+      .get('/public/products/sale', { params: { limit: 8 } })
+      .then((list) => {
+        setSaleHighlights(Array.isArray(list) ? mapPreorderFlags(list) : []);
+      })
+      .catch(() => setSaleHighlights([]))
+      .finally(() => setSaleLoading(false));
+  }, []);
+
+  useEffect(() => {
+    setSaleVendorLoading(true);
+    api
+      .get('/public/products/sale-by-vendor')
+      .then((groups) => {
+        if (!Array.isArray(groups)) {
+          setSaleVendorGroups([]);
+          return;
+        }
+        const normalized = groups
+          .map((group) => ({
+            ...group,
+            items: mapPreorderFlags(group.items || []),
+          }))
+          .filter((group) => group.items.length > 0);
+        const marketplace = normalized.filter((group) => !group.vendorSlug);
+        const vendorOwned = normalized.filter((group) => group.vendorSlug);
+        const combined = [...marketplace, ...vendorOwned].slice(0, SALE_VENDOR_LIMIT);
+        setSaleVendorGroups(combined);
+      })
+      .catch(() => setSaleVendorGroups([]))
+      .finally(() => setSaleVendorLoading(false));
   }, []);
 
   const hasCatalogue = useMemo(() => categories.length > 0, [categories]);
@@ -202,7 +242,7 @@ export default function Home() {
                   <FaArrowRight />
                 </Link>
               </div>
-              <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-3">
+              <div className="grid grid-cols-2 gap-4 sm:grid-cols-2 xl:grid-cols-3">
                 {verifiedVendors.map((vendor) => (
                   <VendorCard key={vendor.id} vendor={vendor} />
                 ))}
@@ -228,7 +268,7 @@ export default function Home() {
                 <FaShoppingCart />
               </Link>
             </div>
-            <div className="grid gap-8 sm:grid-cols-2 xl:grid-cols-3">
+            <div className="grid grid-cols-2 gap-4 sm:gap-6 lg:gap-8 sm:grid-cols-2 xl:grid-cols-3">
               {products.map((product) => (
                 <ProductCard
                   key={product.id}
@@ -324,6 +364,104 @@ export default function Home() {
                 </p>
               </div>
             </div>
+          </div>
+        </section>
+
+        <section className="bg-gradient-to-r from-emerald-50 via-white to-rose-50 py-14">
+          <div className="container mx-auto px-6">
+            <div className="mb-8 flex flex-wrap items-center justify-between gap-4">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.4em] text-emerald-400">Sale spotlight</p>
+                <h2 className="mt-2 text-3xl font-bold text-slate-900 sm:text-4xl">Items on sale</h2>
+                <p className="mt-1 text-sm text-slate-500 max-w-2xl">
+                  Vendors occasionally mark down inventory. These listings use the sale price in your cart immediately.
+                </p>
+              </div>
+              <Link
+                to="/sale"
+                className="btn-sm inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-white text-sm font-semibold text-emerald-600 transition hover:bg-emerald-50"
+              >
+                View all sale items
+                <FaArrowRight />
+              </Link>
+            </div>
+            {saleLoading ? (
+              <div className="rounded-3xl border border-dashed border-emerald-200 bg-white/70 p-10 text-center text-emerald-400">
+                Gathering sale data…
+              </div>
+            ) : saleHighlights.length === 0 ? (
+              <div className="rounded-3xl border border-emerald-100 bg-white/80 p-8 text-center text-slate-500">
+                No vendors are running visible sales right now. Pop back later or explore the Market Hub today.
+              </div>
+            ) : (
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                {saleHighlights.slice(0, 8).map((product) => (
+                  <ProductCard key={`sale-${product.id}`} product={product} compact showVendor />
+                ))}
+              </div>
+            )}
+          </div>
+        </section>
+
+        <section className="bg-white py-14">
+          <div className="container mx-auto px-6">
+            <div className="mb-8 flex flex-wrap items-center justify-between gap-4">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.4em] text-slate-300">Vendor showcases</p>
+                <h2 className="mt-2 text-3xl font-bold text-slate-900 sm:text-4xl">Sale bundles by partner</h2>
+                <p className="mt-1 text-sm text-slate-500 max-w-2xl">
+                  These vendors toggled sale mode on select inventory. Tap through to their profile to see every discounted listing.
+                </p>
+              </div>
+              <Link
+                to="/sale"
+                className="btn-sm btn-sm-outline inline-flex items-center gap-2 rounded-full border border-slate-200 text-sm font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50"
+              >
+                Browse full sale page
+                <FaArrowRight />
+              </Link>
+            </div>
+            {saleVendorLoading ? (
+              <div className="rounded-3xl border border-dashed border-slate-200 bg-white/80 p-10 text-center text-slate-400">
+                Checking vendor promos…
+              </div>
+            ) : saleVendorGroups.length === 0 ? (
+              <div className="rounded-3xl border border-slate-100 bg-slate-50/70 p-8 text-center text-slate-500">
+                Once partners run a promo, their cards will show up here automatically.
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 gap-4 justify-items-center">
+                {saleVendorGroups.map((group) => (
+                  <div
+                    key={`${group.vendorId || group.vendorName}`}
+                    className="rounded-3xl border border-slate-100 bg-white/90 p-4 shadow-lg shadow-slate-100/70 w-full max-w-xl"
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div>
+                        <p className="text-[11px] font-semibold uppercase tracking-[0.4em] text-slate-300">
+                          {group.vendorSlug ? 'Vendor' : 'Marketplace drop'}
+                        </p>
+                        <h3 className="text-lg font-bold text-slate-900">{group.vendorName || 'ITnVend'}</h3>
+                      </div>
+                      {group.vendorSlug && (
+                        <Link
+                          to={`/vendors/${group.vendorSlug}/sale`}
+                          className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-[11px] font-semibold text-emerald-700 transition hover:bg-emerald-100"
+                        >
+                          View sale
+                          <FaArrowRight />
+                        </Link>
+                      )}
+                    </div>
+                    <div className="mt-4 grid grid-cols-2 gap-3 justify-items-center sm:grid-cols-3">
+                      {group.items.slice(0, 2).map((product) => (
+                        <ProductCard key={`vendor-sale-${group.vendorId}-${product.id}`} product={product} compact showVendor />
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </section>
       </main>

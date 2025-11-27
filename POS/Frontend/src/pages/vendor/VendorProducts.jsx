@@ -1,8 +1,29 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { FaBoxOpen, FaCube, FaExclamationTriangle } from 'react-icons/fa';
 import api from '../../lib/api';
 import { useToast } from '../../components/ToastContext';
 import ProductForm from '../../modules/product/ProductForm';
+import { useSettings } from '../../components/SettingsContext';
+
+const extractSaleState = (product) => {
+  const basePrice = Number(product?.price);
+  const salePrice = Number(product?.sale_price ?? product?.salePrice);
+  const isFlagged = Number(product?.is_on_sale ?? product?.isOnSale ?? 0) === 1;
+  if (isFlagged && Number.isFinite(basePrice) && basePrice > 0 && Number.isFinite(salePrice) && salePrice > 0 && salePrice < basePrice) {
+    const discount =
+      product?.discount_percent ??
+      product?.discountPercent ??
+      ((basePrice - salePrice) / basePrice) * 100;
+    return {
+      isOnSale: true,
+      basePrice,
+      salePrice,
+      discountPercent: discount,
+      savings: basePrice - salePrice,
+    };
+  }
+  return { isOnSale: false, basePrice: Number.isFinite(basePrice) ? basePrice : 0 };
+};
 
 export default function VendorProducts() {
   const [products, setProducts] = useState([]);
@@ -13,23 +34,32 @@ export default function VendorProducts() {
   const toast = useToast();
   const [lookups, setLookups] = useState({ brands: [], materials: [], colors: [] });
   const [categoryTree, setCategoryTree] = useState([]);
+  const { formatCurrency } = useSettings();
+
+  const formatMoney = useCallback(
+    (amount) =>
+      typeof formatCurrency === 'function'
+        ? formatCurrency(amount || 0)
+        : new Intl.NumberFormat(undefined, { style: 'currency', currency: 'USD' }).format(amount || 0),
+    [formatCurrency]
+  );
+
+  const fetchProducts = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await api.get('/vendor/me/products');
+      setProducts(res || []);
+    } catch (err) {
+      console.error('Failed to load vendor products', err);
+      toast.push('Failed to load products', 'error');
+    } finally {
+      setLoading(false);
+    }
+  }, [toast]);
 
   useEffect(() => {
-    let mounted = true;
-    (async function load() {
-      setLoading(true);
-      try {
-        const res = await api.get('/vendor/me/products');
-        if (mounted) setProducts(res || []);
-      } catch (err) {
-        console.error('Failed to load vendor products', err);
-        toast.push('Failed to load products', 'error');
-      } finally {
-        if (mounted) setLoading(false);
-      }
-    })();
-    return () => { mounted = false; };
-  }, [toast]);
+    fetchProducts();
+  }, [fetchProducts]);
 
   useEffect(() => {
     let mounted = true;
@@ -62,29 +92,18 @@ export default function VendorProducts() {
 
   async function handleSave(payload, opts = {}) {
     setSaving(true);
-    let tempId = null;
-    if (!editing) {
-      tempId = `tmp-${Date.now()}`;
-      setProducts(prev => [{ id: tempId, name: payload.name, price: payload.price, stock: payload.stock, image: payload.image }, ...prev]);
-      setModalOpen(false);
-    } else {
-      setProducts(prev => prev.map(p => (p.id === editing.id ? { ...p, ...payload } : p)));
-      setModalOpen(false);
-    }
     try {
       if (editing) {
         await api.put(`/vendor/products/${editing.id}`, payload);
         toast.push('Product updated', 'success');
       } else {
-        const created = await api.post('/vendor/products', payload);
-        if (tempId) {
-          setProducts(prev => prev.map(p => (p.id === tempId ? { ...created } : p)));
-        }
+        await api.post('/vendor/products', payload);
         toast.push('Product created', 'success');
       }
+      setModalOpen(false);
+      fetchProducts();
     } catch (err) {
       console.error('Save failed', err);
-      if (tempId) setProducts(prev => prev.filter(p => p.id !== tempId));
         if (err && err.data && typeof err.data === 'object') {
           if (err.data.errors && typeof err.data.errors === 'object') {
             if (opts && typeof opts.setFieldErrors === 'function') opts.setFieldErrors(err.data.errors);
@@ -105,16 +124,55 @@ export default function VendorProducts() {
     try {
       await api.del(`/vendor/products/${p.id}`);
       toast.push('Product archived', 'success');
-      setProducts(prev => prev.filter(x => x.id !== p.id));
+      fetchProducts();
     } catch (err) {
       console.error('Archive failed', err);
       toast.push(err.message || 'Archive failed', 'error');
     }
   }
 
+  async function handleToggleSale(product) {
+    try {
+      if (Number(product.is_on_sale ?? 0) === 1) {
+        await api.put(`/vendor/products/${product.id}`, { isOnSale: false });
+        toast.push('Sale disabled', 'success');
+      } else {
+        openEdit(product);
+        return;
+      }
+      fetchProducts();
+    } catch (err) {
+      console.error('Failed to toggle sale', err);
+      toast.push(err?.message || 'Failed to update sale status', 'error');
+    }
+  }
+
+  const saleProducts = useMemo(
+    () =>
+      products.filter((prod) => {
+        const sale = extractSaleState(prod);
+        return sale.isOnSale;
+      }),
+    [products]
+  );
   const totalStock = useMemo(() => products.reduce((sum, prod) => sum + (Number(prod.stock) || 0), 0), [products]);
   const lowStockCount = useMemo(() => products.filter((prod) => (Number(prod.stock) || 0) < 6).length, [products]);
-  const totalValue = useMemo(() => products.reduce((sum, prod) => sum + (Number(prod.price) || 0), 0), [products]);
+  const totalValue = useMemo(
+    () =>
+      products.reduce((sum, prod) => {
+        const sale = extractSaleState(prod);
+        return sum + (sale.isOnSale ? sale.salePrice : sale.basePrice || 0);
+      }, 0),
+    [products]
+  );
+  const totalSaleValue = useMemo(
+    () =>
+      saleProducts.reduce((sum, prod) => {
+        const sale = extractSaleState(prod);
+        return sum + (sale.salePrice || 0);
+      }, 0),
+    [saleProducts]
+  );
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-blue-50 p-6 pb-24">
@@ -169,6 +227,69 @@ export default function VendorProducts() {
           </article>
         </section>
 
+        {saleProducts.length > 0 && (
+          <section className="rounded-3xl border border-emerald-100 bg-white/90 p-5 shadow-sm">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h2 className="text-lg font-semibold text-slate-900">Items on sale</h2>
+                <p className="text-sm text-slate-500">You have {saleProducts.length} listing{saleProducts.length === 1 ? '' : 's'} with active sale pricing.</p>
+              </div>
+              <div className="text-sm font-semibold text-emerald-700">
+                Sale catalog value: {formatMoney(totalSaleValue)}
+              </div>
+            </div>
+            <div className="mt-4 overflow-x-auto">
+              <table className="min-w-full divide-y divide-slate-200 text-sm">
+                <thead className="bg-emerald-50 text-xs uppercase tracking-wide text-emerald-700">
+                  <tr>
+                    <th className="px-3 py-2 text-left">Product</th>
+                    <th className="px-3 py-2 text-left">Sale price</th>
+                    <th className="px-3 py-2 text-left">Original</th>
+                    <th className="px-3 py-2 text-left">Discount</th>
+                    <th className="px-3 py-2 text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {saleProducts.map((product) => {
+                    const sale = extractSaleState(product);
+                    const discountLabel = sale.discountPercent != null ? `${Math.round(sale.discountPercent)}%` : '—';
+                    return (
+                      <tr key={`sale-${product.id}`} className="hover:bg-emerald-50/30">
+                        <td className="px-3 py-2 font-semibold text-slate-800">{product.name}</td>
+                        <td className="px-3 py-2 text-emerald-700 font-semibold">{formatMoney(sale.salePrice)}</td>
+                        <td className="px-3 py-2 text-xs text-slate-500 line-through">{formatMoney(sale.basePrice)}</td>
+                        <td className="px-3 py-2">
+                          <span className="inline-flex items-center rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-700">
+                            {discountLabel}
+                          </span>
+                        </td>
+                        <td className="px-3 py-2 text-right">
+                          <div className="flex justify-end gap-2">
+                            <button
+                              type="button"
+                              onClick={() => openEdit(product)}
+                              className="rounded-full border border-emerald-200 px-3 py-1 text-xs font-semibold text-emerald-700 hover:bg-emerald-50"
+                            >
+                              Edit
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleToggleSale(product)}
+                              className="rounded-full border border-rose-200 px-3 py-1 text-xs font-semibold text-rose-600 hover:bg-rose-50"
+                            >
+                              Disable sale
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        )}
+
         {loading ? (
           <div className="rounded-2xl border border-dashed border-slate-200 bg-white/80 p-8 text-center text-sm text-slate-500">
             Loading your catalog…
@@ -186,20 +307,30 @@ export default function VendorProducts() {
           <section className="space-y-4">
             <div className="flex items-center justify-between">
               <h2 className="text-lg font-semibold text-slate-900">Products</h2>
-              <p className="text-sm text-slate-500">Estimated catalog value: {new Intl.NumberFormat(undefined, { style: 'currency', currency: 'USD' }).format(totalValue)}</p>
+              <p className="text-sm text-slate-500">Estimated catalog value: {formatMoney(totalValue)}</p>
             </div>
             <div className="grid gap-4 md:grid-cols-2">
               {products.map((p) => {
                 const typeLabel = (p.product_type_label || p.productTypeLabel || p.type || 'physical')?.toString();
                 const clothingSizes = p.clothing_sizes || p.clothingSizes || '';
                 const digitalFlags = p.digital_license_key || p.digitalLicenseKey || p.digital_download_url || p.digitalDownloadUrl;
+                const sale = extractSaleState(p);
+                const discountLabel =
+                  sale.isOnSale && sale.discountPercent != null ? `${Math.round(sale.discountPercent)}% OFF` : null;
                 return (
                   <article key={p.id} className="flex flex-col gap-4 rounded-2xl border border-white/60 bg-white p-4 shadow-sm sm:flex-row">
                     <img src={p.image || '/images/placeholder.png'} alt={p.name} className="h-28 w-28 rounded-xl object-cover" />
                     <div className="flex flex-1 flex-col gap-3">
                       <div className="flex flex-wrap items-center justify-between gap-2">
-                        <div>
-                          <h3 className="text-base font-semibold text-slate-900">{p.name}</h3>
+                        <div className="flex flex-col gap-1">
+                          <div className="flex items-center gap-2">
+                            <h3 className="text-base font-semibold text-slate-900">{p.name}</h3>
+                            {sale.isOnSale && (
+                              <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-semibold uppercase tracking-wide text-emerald-700">
+                                Sale
+                              </span>
+                            )}
+                          </div>
                           <p className="text-sm text-slate-500">SKU: {p.sku || '—'}</p>
                         </div>
                         {typeLabel && (
@@ -208,9 +339,21 @@ export default function VendorProducts() {
                           </span>
                         )}
                       </div>
-                      <div className="flex flex-wrap gap-4 text-sm text-slate-600">
-                        <span className="font-semibold text-slate-900">${Number(p.price || 0).toFixed(2)}</span>
-                        <span>{p.stock || 0} in stock</span>
+                      <div className="flex flex-wrap items-baseline gap-4 text-sm text-slate-600">
+                        {sale.isOnSale ? (
+                          <>
+                            <span className="text-lg font-semibold text-emerald-600">{formatMoney(sale.salePrice)}</span>
+                            <span className="text-sm text-slate-400 line-through">{formatMoney(sale.basePrice)}</span>
+                            {discountLabel && (
+                              <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-semibold text-emerald-700">
+                                {discountLabel}
+                              </span>
+                            )}
+                          </>
+                        ) : (
+                          <span className="text-lg font-semibold text-slate-900">{formatMoney(sale.basePrice)}</span>
+                        )}
+                        <span>{p.track_inventory === 0 ? 'Unlimited' : `${p.stock || 0} in stock`}</span>
                         {Array.isArray(p.tags) && p.tags.length > 0 && (
                           <span className="text-xs uppercase tracking-wide text-slate-400">{p.tags.join(', ')}</span>
                         )}

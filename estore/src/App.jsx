@@ -5,6 +5,7 @@ import PublicNavbar from "./components/PublicNavbar";
 import PublicFallback from "./components/PublicFallback";
 import { OrderSummaryProvider } from "./components/checkout/OrderSummaryContext";
 const Home = lazy(() => import("./pages/Home"));
+const SaleLanding = lazy(() => import("./pages/SaleLanding"));
 const PublicProducts = lazy(() => import("./pages/PublicProducts"));
 const ProductDetail = lazy(() => import("./pages/ProductDetail"));
 const AccountDetails = lazy(() => import("./pages/AccountDetails"));
@@ -26,6 +27,7 @@ const ResetPassword = lazy(() => import("./pages/ResetPassword"));
 const VendorResetPassword = lazy(() => import("./pages/VendorResetPassword"));
 const VendorLogin = lazy(() => import("./pages/VendorLogin"));
 const NotFound = lazy(() => import("./pages/NotFound"));
+const OrderStatus = lazy(() => import("./pages/OrderStatus"));
 
 function PublicLayout({ children }) {
   return (
@@ -54,6 +56,7 @@ function App() {
         <Route path="/" element={<PublicLayout><Home /></PublicLayout>} />
         <Route path="/home" element={<PublicLayout><Home /></PublicLayout>} />
         <Route path="/market" element={<PublicLayout><PublicProducts /></PublicLayout>} />
+        <Route path="/sale" element={<PublicLayout><SaleLanding /></PublicLayout>} />
         <Route path="/store" element={<Navigate to="/market" replace />} />
         <Route path="/product/:id" element={<PublicLayout><ProductDetail /></PublicLayout>} />
         <Route path="/cart" element={<PublicLayout><Cart /></PublicLayout>} />
@@ -63,6 +66,7 @@ function App() {
         <Route path="/sell" element={<PublicLayout><SellWithUs /></PublicLayout>} />
         <Route path="/vendors" element={<PublicLayout><VendorDirectory /></PublicLayout>} />
         <Route path="/vendors/:slug" element={<PublicLayout><VendorProfile /></PublicLayout>} />
+        <Route path="/vendors/:slug/sale" element={<PublicLayout><VendorProfile saleOnly /></PublicLayout>} />
         <Route path="/contact" element={<PublicLayout><Contact /></PublicLayout>} />
     <Route path="/shop-and-ship" element={<PublicLayout><ShopAndShip /></PublicLayout>} />
   <Route path="/socials" element={<PublicLayout><Socials /></PublicLayout>} />
@@ -74,6 +78,7 @@ function App() {
         <Route path="/reset-password" element={<PublicLayout><ResetPassword /></PublicLayout>} />
         <Route path="/vendor/login" element={<PublicLayout><VendorLogin /></PublicLayout>} />
         <Route path="/vendor/reset-password" element={<PublicLayout><VendorResetPassword /></PublicLayout>} />
+        <Route path="/order-status" element={<PublicLayout><OrderStatus /></PublicLayout>} />
         <Route path="*" element={<PublicLayout><NotFound /></PublicLayout>} />
       </Routes>
     </BrowserRouter>

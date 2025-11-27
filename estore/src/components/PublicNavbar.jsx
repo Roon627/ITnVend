@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useMemo, useState } from 'react';
 import { Link, NavLink, useLocation } from 'react-router-dom';
-import { FaBars, FaShoppingCart, FaTimes, FaStore, FaHandshake, FaPaperPlane, FaListUl, FaUserFriends, FaShieldAlt, FaUserPlus, FaChevronDown, FaShoppingBag, FaFire } from 'react-icons/fa';
+import { FaBars, FaShoppingCart, FaTimes, FaStore, FaHandshake, FaPaperPlane, FaListUl, FaUserFriends, FaShieldAlt, FaUserPlus, FaChevronDown, FaShoppingBag, FaFire, FaTags } from 'react-icons/fa';
 import { useCart } from './CartContext';
 import { useSettings } from './SettingsContext';
 import { resolveMediaUrl } from '../lib/media';
@@ -9,10 +9,12 @@ const DEFAULT_BRAND_LOGO = '/images/logo.png';
 
 const NAV_LINKS = [
   { to: '/market', label: 'Market Hub', description: 'Fresh drops & bundles', icon: FaStore },
+  { to: '/sale', label: 'On sale', description: 'Limited-time savings', icon: FaTags },
   { to: '/sell', label: 'Sell with us', icon: FaHandshake },
   { to: '/vendor-onboarding', label: 'Apply as vendor', icon: FaUserPlus },
   { to: '/shop-and-ship', label: 'Shop & Ship', description: 'Overseas cart concierge', icon: FaPaperPlane },
   { to: '/vendors', label: 'Vendor directory', description: 'Browse approved partners', icon: FaListUl },
+  { to: '/order-status', label: 'Track orders', description: 'Live order status', icon: FaFire },
   { to: '/privacy', label: 'Trust Center', description: 'Security & policies', icon: FaShieldAlt },
 ];
 

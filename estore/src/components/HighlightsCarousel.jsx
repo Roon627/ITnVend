@@ -2,6 +2,7 @@ import { useMemo, useState, useEffect } from 'react';
 import AvailabilityTag from './AvailabilityTag';
 import { Link } from 'react-router-dom';
 import { resolveMediaUrl } from '../lib/media';
+import { getSaleInfo } from '../lib/sale';
 import {
   isUserListing,
   isVendorListing,
@@ -85,6 +86,8 @@ export default function HighlightsCarousel({ sections = [], formatCurrency, onAd
           const contactLink = buildContactLink(sellerContact);
           const contactHasInfo = Boolean(sellerContact.phone);
           const descriptionCopy = productDescriptionCopy(item);
+          const sale = getSaleInfo(item);
+          const effectivePrice = sale.effectivePrice ?? item.price ?? 0;
           let badge = item.highlight_label || activeSection.badgeLabel || null;
           if (userListing) {
             badge = 'Private seller';
@@ -124,8 +127,27 @@ export default function HighlightsCarousel({ sections = [], formatCurrency, onAd
                 <p className="text-xs text-slate-500 line-clamp-3">
                   {descriptionCopy.primary || 'Curated inventory from the ITnVend network.'}
                 </p>
-                <div className="text-lg font-bold text-rose-500">
-                  {typeof formatCurrency === 'function' ? formatCurrency(item.price) : `${item.price} MVR`}
+                <div className="space-y-1">
+                  {sale.isOnSale ? (
+                    <>
+                      <div className="text-lg font-bold text-emerald-600">
+                        {typeof formatCurrency === 'function'
+                          ? formatCurrency(effectivePrice)
+                          : `${effectivePrice} MVR`}
+                      </div>
+                      <div className="text-sm text-slate-400 line-through">
+                        {typeof formatCurrency === 'function'
+                          ? formatCurrency(sale.basePrice || item.price)
+                          : `${sale.basePrice || item.price} MVR`}
+                      </div>
+                    </>
+                  ) : (
+                    <div className="text-lg font-bold text-rose-500">
+                      {typeof formatCurrency === 'function'
+                        ? formatCurrency(effectivePrice)
+                        : `${effectivePrice} MVR`}
+                    </div>
+                  )}
                 </div>
                 <div className="flex gap-2">
                   <Link

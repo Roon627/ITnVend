@@ -71,6 +71,7 @@ const io = new Server(server, {
 const STOREFRONT_API_KEY = process.env.STOREFRONT_API_KEY || null;
 const STOREFRONT_API_SECRET = process.env.STOREFRONT_API_SECRET || null;
 const DEFAULT_VENDOR_CURRENCY = (process.env.VENDOR_DEFAULT_CURRENCY || 'USD').toUpperCase();
+const DEFAULT_VENDOR_SALES_FEE_PERCENT = Number(process.env.DEFAULT_VENDOR_SALES_FEE_PERCENT || 5);
 
 app.set('trust proxy', true);
 // make port configurable so multiple services can run without colliding
@@ -80,6 +81,7 @@ const DB_TYPES = { POSTGRES: 'postgres', SQLITE: 'sqlite' };
 let dbType = process.env.DB_TYPE || null;
 let globalDb = null;
 const DEFAULT_CONCAT_SEPARATOR = "', '";
+const vendorFeeCache = new Map();
 function resolveDbType() {
     if (dbType) return dbType;
     if (process.env.DB_TYPE) return process.env.DB_TYPE;
@@ -247,6 +249,7 @@ async function transformProductRows(rows = []) {
         const isCasual = !!row.casual_item_id;
         const listingSource = isCasual ? 'casual' : (row.vendor_id ? 'vendor' : 'inventory');
         const gallery = parseGalleryFromRow(row.gallery);
+        const saleInfo = buildSalePresentation(row);
         return {
             id: row.id,
             name: row.name,
@@ -315,6 +318,11 @@ async function transformProductRows(rows = []) {
             highlight_priority: row.highlight_priority || 0,
             new_arrival: row.new_arrival ? 1 : 0,
             gallery,
+            is_on_sale: saleInfo.is_on_sale,
+            sale_price: saleInfo.sale_price,
+            discount_percent: saleInfo.discount_percent,
+            effective_price: saleInfo.effective_price,
+            savings_amount: saleInfo.savings_amount,
         };
     });
 }
@@ -339,7 +347,140 @@ function sanitizeProductForPublic(product) {
     return sanitized;
 }
 
-const CACHEABLE_PRODUCT_PARAMS = ['category', 'subcategory', 'highlight', 'newArrival', 'limit', 'offset'];
+function parseBooleanLike(value) {
+    if (value === undefined || value === null) return null;
+    if (typeof value === 'boolean') return value;
+    if (typeof value === 'number') return value !== 0;
+    if (typeof value === 'string') {
+        const normalized = value.trim().toLowerCase();
+        if (!normalized) return null;
+        return normalized === 'true' || normalized === '1' || normalized === 'yes' || normalized === 'on';
+    }
+    return null;
+}
+
+function roundCurrency(value) {
+    return Math.round(Number(value || 0) * 100) / 100;
+}
+
+function roundPercent(value) {
+    return Math.round(Number(value || 0) * 10) / 10;
+}
+
+function computeDiscountPercent(basePrice, salePrice) {
+    if (!Number.isFinite(basePrice) || basePrice <= 0 || !Number.isFinite(salePrice)) return null;
+    const diff = basePrice - salePrice;
+    if (diff <= 0) return null;
+    return roundPercent((diff / basePrice) * 100);
+}
+
+function normalizeSalePayload({ basePrice, salePriceRaw, discountPercentRaw, isOnSaleRaw, existingRow = null }) {
+    const hasSalePriceInput = salePriceRaw !== undefined;
+    const hasDiscountInput = discountPercentRaw !== undefined;
+    const hasFlagInput = isOnSaleRaw !== undefined;
+    const inputsProvided = hasSalePriceInput || hasDiscountInput || hasFlagInput;
+
+    const base = Number(basePrice);
+    const existingSale = {
+        is_on_sale: Number(existingRow?.is_on_sale ?? 0) ? 1 : 0,
+        sale_price: existingRow?.sale_price != null ? Number(existingRow.sale_price) : null,
+        discount_percent: existingRow?.discount_percent != null ? Number(existingRow.discount_percent) : null,
+    };
+
+    if (!inputsProvided && existingRow) {
+        return existingSale;
+    }
+
+    const flag = parseBooleanLike(isOnSaleRaw);
+    const wantsDisable = flag === false && !hasSalePriceInput && !hasDiscountInput;
+    if (wantsDisable) {
+        return { is_on_sale: 0, sale_price: null, discount_percent: null };
+    }
+
+    if (!inputsProvided && !existingRow) {
+        return { is_on_sale: 0, sale_price: null, discount_percent: null };
+    }
+
+    if (flag === false) {
+        return { is_on_sale: 0, sale_price: null, discount_percent: null };
+    }
+
+    if (!Number.isFinite(base) || base <= 0) {
+        return { error: 'Sale price requires a valid base price' };
+    }
+
+    let salePrice = null;
+    if (hasSalePriceInput) {
+        if (salePriceRaw === null || salePriceRaw === '' || salePriceRaw === undefined) {
+            salePrice = null;
+        } else {
+            const parsedSale = parseFloat(salePriceRaw);
+            if (!Number.isFinite(parsedSale)) return { error: 'Invalid sale price' };
+            salePrice = parsedSale;
+        }
+    }
+
+    let discountPercent = null;
+    if (hasDiscountInput) {
+        if (discountPercentRaw === null || discountPercentRaw === '' || discountPercentRaw === undefined) {
+            discountPercent = null;
+        } else {
+            const parsedDiscount = parseFloat(discountPercentRaw);
+            if (!Number.isFinite(parsedDiscount)) return { error: 'Invalid discount percent' };
+            discountPercent = parsedDiscount;
+        }
+    }
+
+    if (salePrice == null && discountPercent != null) {
+        salePrice = roundCurrency(base * (1 - discountPercent / 100));
+    }
+
+    if (salePrice == null) {
+        return { error: 'Sale price is required when enabling sale' };
+    }
+
+    if (salePrice <= 0) {
+        return { error: 'Sale price must be greater than zero' };
+    }
+    if (salePrice >= base) {
+        return { error: 'Sale price must be lower than the original price' };
+    }
+
+    const discount = discountPercent != null ? roundPercent(discountPercent) : computeDiscountPercent(base, salePrice);
+
+    return {
+        is_on_sale: 1,
+        sale_price: roundCurrency(salePrice),
+        discount_percent: discount,
+    };
+}
+
+function buildSalePresentation(row = {}) {
+    const basePrice = Number(row.price);
+    const isOnSale = Number(row.is_on_sale ?? 0) ? 1 : 0;
+    const hasValidSalePrice = Number.isFinite(row.sale_price) && row.sale_price > 0 && row.sale_price < basePrice;
+    if (isOnSale && hasValidSalePrice) {
+        const salePrice = roundCurrency(row.sale_price);
+        const discountPercent = row.discount_percent != null ? roundPercent(row.discount_percent) : computeDiscountPercent(basePrice, salePrice);
+        const savingsAmount = roundCurrency(Math.max(0, basePrice - salePrice));
+        return {
+            is_on_sale: 1,
+            sale_price: salePrice,
+            discount_percent: discountPercent,
+            effective_price: salePrice,
+            savings_amount: savingsAmount,
+        };
+    }
+    return {
+        is_on_sale: 0,
+        sale_price: null,
+        discount_percent: null,
+        effective_price: Number.isFinite(basePrice) ? roundCurrency(basePrice) : null,
+        savings_amount: 0,
+    };
+}
+
+const CACHEABLE_PRODUCT_PARAMS = ['category', 'subcategory', 'highlight', 'newArrival', 'limit', 'offset', 'saleOnly'];
 
 function shouldCacheProductsRequest(query = {}) {
     if (
@@ -470,6 +611,7 @@ function createRateLimiter({ windowMs = 60 * 60 * 1000, max = 20, keyFn = (req) 
 }
 
 const publicProductLimiter = createRateLimiter({ windowMs: 60 * 1000, max: 120 });
+const contactFormLimiter = createRateLimiter({ windowMs: 10 * 60 * 1000, max: 5 });
 
 function initVendorBillingScheduler(db) {
     const run = async () => {
@@ -799,6 +941,17 @@ const CUSTOM_LOOKUP_ROUTES = {
     warranty: { route: 'warranty-terms', label: 'Warranty term' },
 };
 const PREORDER_STATUSES = ['pending', 'accepted', 'processing', 'received', 'ready', 'completed', 'cancelled'];
+const CONTACT_REASON_LABELS = {
+    support: 'Support request',
+    issue: 'Issue or suspicious activity',
+    security: 'Security concern',
+    partnership: 'Partnership enquiry',
+    other: 'General enquiry',
+};
+const CONTACT_REASON_KEYS = new Set(Object.keys(CONTACT_REASON_LABELS));
+const MAX_CONTACT_MESSAGE_LENGTH = 2000;
+const ORDER_STATUS_VALUES = ['pending', 'awaiting_verification', 'processing', 'ready', 'completed', 'cancelled', 'preorder', 'shipped'];
+const ORDER_TRACKING_TTL_DAYS = Number(process.env.ORDER_TRACKING_TTL_DAYS || 30);
 const MAX_PAYMENT_SLIP_BASE64_LENGTH = 8 * 1024 * 1024; // ~6 MB payload after base64 expansion
 const PREORDER_RATE_LIMIT_WINDOW = 15 * 60 * 1000; // 15 minutes
 const PREORDER_RATE_LIMIT_COUNT = 20;
@@ -852,6 +1005,86 @@ function renderEmailTemplate(template, fallback, variables = {}) {
         rendered = rendered.replace(/\r?\n/g, '<br/>');
     }
     return rendered;
+}
+
+async function getSupportEmail() {
+    try {
+        const cached = await cacheService.getSettings();
+        if (cached?.support_email) return cached.support_email;
+    } catch (err) {
+        console.warn('Failed to read cached support email', err?.message || err);
+    }
+    try {
+        const row = await db.get('SELECT support_email FROM settings WHERE id = 1');
+        if (row?.support_email) return row.support_email;
+    } catch (err) {
+        console.warn('Failed to read support email from settings table', err?.message || err);
+    }
+    try {
+        const emailCfg = await db.get('SELECT email_to FROM settings_email ORDER BY id DESC LIMIT 1');
+        if (emailCfg?.email_to) return emailCfg.email_to;
+    } catch (err) {
+        console.warn('Failed to read fallback email recipient', err?.message || err);
+    }
+    return 'support@itnvend.com';
+}
+
+function normalizeOrderStatus(status) {
+    if (!status) return null;
+    const lowered = String(status).trim().toLowerCase();
+    return ORDER_STATUS_VALUES.includes(lowered) ? lowered : null;
+}
+
+async function appendOrderStatusHistory(orderId, status, { note = null, actor = null, role = null } = {}) {
+    try {
+        await db.run(
+            'INSERT INTO order_status_history (order_id, status, note, actor, role) VALUES (?, ?, ?, ?, ?)',
+            [orderId, status, note || null, actor || null, role || null]
+        );
+    } catch (err) {
+        console.warn('Failed to append order status history', err?.message || err);
+    }
+}
+
+function buildOrderTrackingLink(orderId, token) {
+    if (!orderId || !token) return null;
+    const base = (process.env.FRONTEND_URL || '').replace(/\/+$/, '') || 'https://estore.itnvend.com';
+    return `${base}/order-status?order=${encodeURIComponent(orderId)}&token=${encodeURIComponent(token)}`;
+}
+
+async function sendOrderStatusEmail(orderRow, newStatus, note = null) {
+    if (!orderRow?.customer_email) return;
+    const link = orderRow.tracking_token ? buildOrderTrackingLink(orderRow.id, orderRow.tracking_token) : null;
+    const statusLabel = (newStatus || '').replace(/_/g, ' ');
+    const html = `
+        <p>Hi ${escapeHtml(orderRow.customer_name || 'there')},</p>
+        <p>Your order <strong>#${escapeHtml(orderRow.id)}</strong> is now marked as <strong>${escapeHtml(statusLabel)}</strong>.</p>
+        ${note ? `<p><em>${escapeHtml(note)}</em></p>` : ''}
+        ${link ? `<p><a href="${escapeHtml(link)}" style="color:#2563eb;text-decoration:none;">View order status</a></p>` : ''}
+        <p>If you have questions, just reply to this email.</p>
+    `;
+    try {
+        await sendNotificationEmail(`Order #${orderRow.id} update`, html, orderRow.customer_email);
+    } catch (err) {
+        console.warn('Failed to send order status email', err?.message || err);
+    }
+}
+
+async function applyOrderStatus(orderId, newStatus, { actor = null, role = null, note = null, notifyCustomer = true } = {}) {
+    const normalized = normalizeOrderStatus(newStatus);
+    if (!normalized) throw new Error('Invalid order status');
+    const orderRow = await db.get('SELECT id, customer_name, customer_email, status, tracking_token FROM orders WHERE id = ?', [orderId]);
+    if (!orderRow) throw new Error('Order not found');
+    if (orderRow.status === normalized) {
+        await appendOrderStatusHistory(orderId, normalized, { note: note || 'Status confirmed', actor, role });
+        return orderRow;
+    }
+    await db.run('UPDATE orders SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?', [normalized, orderId]);
+    await appendOrderStatusHistory(orderId, normalized, { note, actor, role });
+    if (notifyCustomer) {
+        await sendOrderStatusEmail({ ...orderRow, status: normalized }, normalized, note);
+    }
+    return { ...orderRow, status: normalized };
 }
 
 const slugify = (value = '') =>
@@ -981,6 +1214,8 @@ function hydrateVendorRow(row) {
     vendor.social_showcase_enabled = Number(row.social_showcase_enabled ?? 1) ? 1 : 0;
     vendor.currency = normalizeCurrency(row.currency, DEFAULT_VENDOR_CURRENCY);
     vendor.verified = Number(row.verified ?? 0) ? 1 : 0;
+    const fee = Number(row.sales_fee_percent);
+    vendor.sales_fee_percent = Number.isFinite(fee) ? fee : DEFAULT_VENDOR_SALES_FEE_PERCENT;
     return vendor;
 }
 
@@ -1002,6 +1237,48 @@ function normalizeCurrency(value, defaultValue = null) {
 
 function ensureVendorCurrency(value) {
     return normalizeCurrency(value, DEFAULT_VENDOR_CURRENCY);
+}
+
+function normalizeVendorSalesFee(value) {
+    if (value === undefined || value === null || value === '') return DEFAULT_VENDOR_SALES_FEE_PERCENT;
+    const num = Number(value);
+    if (!Number.isFinite(num)) return DEFAULT_VENDOR_SALES_FEE_PERCENT;
+    if (num < 0) return 0;
+    return num;
+}
+
+async function getVendorFeePercent(vendorId) {
+    if (!vendorId) return DEFAULT_VENDOR_SALES_FEE_PERCENT;
+    if (vendorFeeCache.has(vendorId)) return vendorFeeCache.get(vendorId);
+    const row = await db.get('SELECT sales_fee_percent FROM vendors WHERE id = ?', [vendorId]);
+    const fee = Number(row?.sales_fee_percent);
+    const normalized = Number.isFinite(fee) ? fee : DEFAULT_VENDOR_SALES_FEE_PERCENT;
+    vendorFeeCache.set(vendorId, normalized);
+    return normalized;
+}
+
+async function recordVendorSale({
+    vendorId,
+    orderId = null,
+    invoiceId = null,
+    productId = null,
+    quantity = 0,
+    price = 0,
+    feePercent = null,
+    source = 'pos'
+}) {
+    if (!vendorId) return;
+    const usableFee = Number.isFinite(Number(feePercent)) ? Number(feePercent) : await getVendorFeePercent(vendorId);
+    const qty = Number(quantity) || 0;
+    const unitPrice = Number(price) || 0;
+    const grossAmount = qty * unitPrice;
+    const feeAmount = Math.round(grossAmount * (usableFee / 100) * 100) / 100;
+    const netAmount = Math.round((grossAmount - feeAmount) * 100) / 100;
+    await db.run(
+        `INSERT INTO vendor_sales (vendor_id, order_id, invoice_id, product_id, quantity, gross_amount, fee_percent, fee_amount, net_amount, source)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [vendorId, orderId || null, invoiceId || null, productId || null, qty, grossAmount, usableFee, feeAmount, netAmount, source || 'pos']
+    );
 }
 
 function persistVendorLogoFromBase64(vendorId, base64Input) {
@@ -1425,154 +1702,123 @@ function buildProductInsert(fields) {
 }
 
 async function sendNotificationEmail(subject, html, toOverride, throwOnError = false) {
+    const fallbackRecipient =
+        toOverride ||
+        process.env.MAIL_FALLBACK_TO ||
+        process.env.MAIL_FROM ||
+        process.env.SMTP_USER ||
+        null;
+
+    const tryEnvFallback = async (sourceError) => {
+        if (!fallbackRecipient) {
+            if (throwOnError) throw sourceError;
+            console.warn('No fallback email recipient configured; dropping email.');
+            return;
+        }
+        try {
+            await sendMail({ to: fallbackRecipient, subject, html });
+        } catch (fallbackErr) {
+            console.warn('Fallback sendMail failed', fallbackErr?.message || fallbackErr);
+            if (throwOnError) throw fallbackErr;
+        }
+    };
+
     try {
         const emailCfg = await db.get('SELECT * FROM settings_email ORDER BY id DESC LIMIT 1');
-        if (!emailCfg) return;
-    const fromAddress = emailCfg.email_from || emailCfg.smtp_user || 'no-reply@example.com';
-    const fromName = emailCfg.smtp_from_name || null;
-    const from = fromName ? `${fromName} <${fromAddress}>` : fromAddress;
-        const to = toOverride || emailCfg.email_to || emailCfg.email_from;
+        if (!emailCfg) {
+            await tryEnvFallback(new Error('No email configuration found'));
+            return;
+        }
+        const fromAddress = emailCfg.email_from || emailCfg.smtp_user || process.env.MAIL_FROM || 'no-reply@itnvend.com';
+        const fromName = emailCfg.smtp_from_name || null;
+        const from = fromName ? `${fromName} <${fromAddress}>` : fromAddress;
+        const to = toOverride || emailCfg.email_to || emailCfg.email_from || fallbackRecipient;
+        if (!to) {
+            await tryEnvFallback(new Error('No notification recipient configured'));
+            return;
+        }
 
-        // Mailgun provider (API) support
         if (emailCfg.provider === 'mailgun' && emailCfg.api_key && emailCfg.mailgun_domain) {
-            const mgDomain = emailCfg.mailgun_domain;
-            const mgUrl = `https://api.mailgun.net/v3/${mgDomain}/messages`;
+            const mgUrl = `https://api.mailgun.net/v3/${emailCfg.mailgun_domain}/messages`;
             const params = new URLSearchParams();
             params.append('from', from);
             params.append('to', to);
             params.append('subject', subject);
-            // Mailgun accepts both text and html; we'll send html
             params.append('html', html);
             if (emailCfg.smtp_reply_to) params.append('h:Reply-To', emailCfg.smtp_reply_to);
-
             await fetch(mgUrl, {
                 method: 'POST',
                 headers: {
-                    'Authorization': 'Basic ' + Buffer.from(`api:${emailCfg.api_key}`).toString('base64'),
-                    'Content-Type': 'application/x-www-form-urlencoded'
+                    Authorization: 'Basic ' + Buffer.from(`api:${emailCfg.api_key}`).toString('base64'),
+                    'Content-Type': 'application/x-www-form-urlencoded',
                 },
-                body: params.toString()
+                body: params.toString(),
             });
             return;
         }
 
-        // SendGrid provider (API) support
         if (emailCfg.provider === 'sendgrid' && emailCfg.api_key) {
             await fetch('https://api.sendgrid.com/v3/mail/send', {
                 method: 'POST',
                 headers: {
-                    'Authorization': `Bearer ${emailCfg.api_key}`,
-                    'Content-Type': 'application/json'
+                    Authorization: `Bearer ${emailCfg.api_key}`,
+                    'Content-Type': 'application/json',
                 },
                 body: JSON.stringify({
                     personalizations: [{ to: [{ email: to }], subject }],
                     from: { email: from },
-                    content: [{ type: 'text/html', value: html }]
-                })
+                    content: [{ type: 'text/html', value: html }],
+                }),
             });
             return;
         }
 
         if (emailCfg.provider === 'smtp' && emailCfg.smtp_host) {
             const requestedPort = Number(emailCfg.smtp_port) || 465;
-            const requestedSecure = (emailCfg.smtp_secure === 1) || requestedPort === 465;
+            const requestedSecure = emailCfg.smtp_secure === 1 || requestedPort === 465;
             const requireTLS = emailCfg.smtp_require_tls === 1;
-
-            const makeTransport = (p, secure) => nodemailer.createTransport({
-                host: emailCfg.smtp_host,
-                port: p,
-                secure: secure,
-                requireTLS,
-                auth: {
-                    user: emailCfg.smtp_user,
-                    pass: emailCfg.smtp_pass || emailCfg.api_key
-                }
-            });
-
             const mailOptions = { from, to, subject, html };
             if (emailCfg.smtp_reply_to) mailOptions.replyTo = emailCfg.smtp_reply_to;
 
-            // Try primary SMTP settings first. If that fails and the configured port
-            // is 587 (commonly blocked on some cloud providers), retry on 465 (SMTPS).
-            // If that also fails and a SendGrid API key is configured, attempt SendGrid API
-            // as a last-resort fallback.
+            const makeTransport = (port, secure) =>
+                nodemailer.createTransport({
+                    host: emailCfg.smtp_host,
+                    port,
+                    secure,
+                    requireTLS,
+                    auth: {
+                        user: emailCfg.smtp_user,
+                        pass: emailCfg.smtp_pass || emailCfg.api_key,
+                    },
+                });
+
             let lastErr = null;
             try {
-                const transporter = makeTransport(requestedPort, requestedSecure);
-                await transporter.sendMail(mailOptions);
-                return { ok: true };
-            } catch (err) {
-                console.warn('Primary SMTP send failed', err?.message || err);
-                lastErr = err;
+                await makeTransport(requestedPort, requestedSecure).sendMail(mailOptions);
+                return;
+            } catch (primaryErr) {
+                lastErr = primaryErr;
+                console.warn('SMTP send failed, retrying fallback port', primaryErr?.message || primaryErr);
             }
-
-            // Retry on SMTPS (465) when initial attempt used 587 or non-secure.
-            if (requestedPort === 587 || !requestedSecure) {
-                try {
-                    const transporter465 = makeTransport(465, true);
-                    await transporter465.sendMail(mailOptions);
-                    return { ok: true, fallback: 'smtp465' };
-                } catch (err2) {
-                    console.warn('Fallback SMTP (465) failed', err2?.message || err2);
-                    lastErr = err2;
-                }
+            try {
+                const fallbackPort = requestedPort === 465 ? 587 : 465;
+                await makeTransport(fallbackPort, fallbackPort === 465).sendMail(mailOptions);
+                return;
+            } catch (fallbackErr) {
+                lastErr = fallbackErr;
+                console.warn('Fallback SMTP send failed', fallbackErr?.message || fallbackErr);
             }
-
-            // Final fallback: attempt Mailgun (if domain/key present) then SendGrid if available
-            if (emailCfg.api_key && emailCfg.mailgun_domain) {
-                try {
-                    const mgDomain = emailCfg.mailgun_domain;
-                    const mgUrl = `https://api.mailgun.net/v3/${mgDomain}/messages`;
-                    const params = new URLSearchParams();
-                    params.append('from', from);
-                    params.append('to', to);
-                    params.append('subject', subject);
-                    params.append('html', html);
-                    if (emailCfg.smtp_reply_to) params.append('h:Reply-To', emailCfg.smtp_reply_to);
-
-                    await fetch(mgUrl, {
-                        method: 'POST',
-                        headers: {
-                            'Authorization': 'Basic ' + Buffer.from(`api:${emailCfg.api_key}`).toString('base64'),
-                            'Content-Type': 'application/x-www-form-urlencoded'
-                        },
-                        body: params.toString()
-                    });
-                    return { ok: true, fallback: 'mailgun' };
-                } catch (err3) {
-                    console.warn('Mailgun fallback failed', err3?.message || err3);
-                    lastErr = err3;
-                }
-            }
-
-            if (emailCfg.api_key) {
-                try {
-                    await fetch('https://api.sendgrid.com/v3/mail/send', {
-                        method: 'POST',
-                        headers: {
-                            'Authorization': `Bearer ${emailCfg.api_key}`,
-                            'Content-Type': 'application/json'
-                        },
-                        body: JSON.stringify({
-                            personalizations: [{ to: [{ email: to }], subject }],
-                            from: { email: from },
-                            content: [{ type: 'text/html', value: html }]
-                        })
-                    });
-                    return { ok: true, fallback: 'sendgrid' };
-                } catch (err3) {
-                    console.warn('SendGrid fallback failed', err3?.message || err3);
-                    lastErr = err3;
-                }
-            }
-
-            // All attempts failed — surface the last error to the outer catch
             if (lastErr) throw lastErr;
         }
+
+        throw new Error('Unsupported or incomplete email provider configuration');
     } catch (err) {
-        console.warn('Failed to send notification email', err?.message || err);
-        if (throwOnError) throw err;
-        return { ok: false, error: err?.message || String(err) };
+        console.warn('sendNotificationEmail failed (primary)', err?.message || err);
+        if (throwOnError) {
+            await tryEnvFallback(err);
+            return;
+        }
+        await tryEnvFallback(err);
     }
 }
 
@@ -3445,6 +3691,9 @@ app.get('/api/products', optionalAuth, publicProductLimiter, async (req, res) =>
             `;
             params.push(slugify(tag), tag);
         }
+        if (req.query.saleOnly === 'true') {
+            query += ' AND p.is_on_sale = 1 AND p.sale_price IS NOT NULL AND p.sale_price < p.price';
+        }
 
         query += ` ORDER BY ${orderCaseInsensitive('p.name')}`;
 
@@ -3520,6 +3769,61 @@ app.get('/api/products/categories', async (req, res) => {
         res.json(categoryMap);
     } catch (err) {
         res.status(500).json({ error: err.message });
+    }
+});
+
+app.get('/api/public/products/sale', async (req, res) => {
+    try {
+        const limit = req.query.limit ? Math.min(parseInt(req.query.limit, 10) || 20, 100) : 40;
+        const rows = await db.all(
+            `${PRODUCT_BASE_SELECT}
+             AND p.is_on_sale = 1
+             AND p.sale_price IS NOT NULL
+             AND p.sale_price < p.price
+             AND (p.availability_status IS NULL OR p.availability_status != 'archived')
+             ORDER BY p.updated_at DESC, ${orderCaseInsensitive('p.name')}
+             LIMIT ?`,
+            [limit]
+        );
+        const transformed = await transformProductRows(rows);
+        res.json((transformed || []).map(sanitizeProductForPublic));
+    } catch (err) {
+        console.error('Failed to list sale products', err);
+        res.status(500).json({ error: 'Failed to load sale items' });
+    }
+});
+
+app.get('/api/public/products/sale-by-vendor', async (req, res) => {
+    try {
+        const rows = await db.all(
+            `${PRODUCT_BASE_SELECT}
+             AND p.is_on_sale = 1
+             AND p.sale_price IS NOT NULL
+             AND p.sale_price < p.price
+             AND (p.availability_status IS NULL OR p.availability_status != 'archived')
+             ORDER BY ${orderCaseInsensitive('v.legal_name')}, ${orderCaseInsensitive('p.name')}`
+        );
+        const transformed = await transformProductRows(rows);
+        const sanitized = (transformed || []).map(sanitizeProductForPublic);
+        const grouped = [];
+        const vendorMap = new Map();
+        for (const product of sanitized) {
+            const key = product.vendor_id || 'itnvend';
+            if (!vendorMap.has(key)) {
+                vendorMap.set(key, {
+                    vendorId: product.vendor_id || null,
+                    vendorName: product.vendor_name || 'ITnVend',
+                    vendorSlug: product.vendor_slug || null,
+                    items: [],
+                });
+                grouped.push(vendorMap.get(key));
+            }
+            vendorMap.get(key).items.push(product);
+        }
+        res.json(grouped);
+    } catch (err) {
+        console.error('Sale-by-vendor lookup failed', err);
+        res.status(500).json({ error: 'Failed to load vendor sale items' });
     }
 });
 
@@ -4066,6 +4370,16 @@ app.post('/api/products', authMiddleware, requireRole('cashier'), async (req, re
         if (existingSku) return res.status(409).json({ error: 'SKU already in use' });
     }
 
+    const saleState = normalizeSalePayload({
+        basePrice: normalizedPrice,
+        salePriceRaw: req.body?.salePrice ?? req.body?.sale_price,
+        discountPercentRaw: req.body?.discountPercent ?? req.body?.discount_percent,
+        isOnSaleRaw: req.body?.isOnSale ?? req.body?.is_on_sale,
+    });
+    if (saleState?.error) {
+        return res.status(400).json({ error: saleState.error });
+    }
+
     try {
         const insertFields = {
             name,
@@ -4110,6 +4424,9 @@ app.post('/api/products', authMiddleware, requireRole('cashier'), async (req, re
             highlight_priority: normalizedHighlightPriority,
             new_arrival: normalizedNewArrival,
             gallery: galleryValue,
+            is_on_sale: saleState.is_on_sale,
+            sale_price: saleState.sale_price,
+            discount_percent: saleState.discount_percent,
         };
         const { sql, values } = buildProductInsert(insertFields);
         const { lastID } = await db.run(sql, values);
@@ -4176,6 +4493,10 @@ app.post('/api/products', authMiddleware, requireRole('cashier'), async (req, re
             highlight_priority: normalizedHighlightPriority,
             new_arrival: normalizedNewArrival,
             gallery: galleryInput,
+            is_on_sale: saleState.is_on_sale,
+            sale_price: saleState.sale_price,
+            discount_percent: saleState.discount_percent,
+            effective_price: saleState.is_on_sale ? saleState.sale_price : normalizedPrice,
         });
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -4377,6 +4698,17 @@ app.put('/api/products/:id', authMiddleware, requireRole('cashier'), async (req,
             return res.status(400).json({ error: 'Invalid barcode format (8-13 digits expected)' });
         }
 
+        const saleState = normalizeSalePayload({
+            basePrice: normalizedPrice,
+            salePriceRaw: req.body?.salePrice ?? req.body?.sale_price,
+            discountPercentRaw: req.body?.discountPercent ?? req.body?.discount_percent,
+            isOnSaleRaw: req.body?.isOnSale ?? req.body?.is_on_sale,
+            existingRow: existing,
+        });
+        if (saleState?.error) {
+            return res.status(400).json({ error: saleState.error });
+        }
+
         const preorderEnabledValue = availableForPreorder !== undefined ? (availableForPreorder ? 1 : 0) : (existing.preorder_enabled ?? 0);
         const preorderDateValue = preorderReleaseDate !== undefined ? (preorderReleaseDate && preorderReleaseDate.trim() ? preorderReleaseDate.trim() : null) : (existing.preorder_release_date ?? null);
         const preorderMessageValue = preorderNotes !== undefined ? (preorderNotes && preorderNotes.trim() ? preorderNotes.trim() : null) : (existing.preorder_notes ?? null);
@@ -4439,7 +4771,10 @@ app.put('/api/products/:id', authMiddleware, requireRole('cashier'), async (req,
                 highlight_label = ?,
                 highlight_priority = ?,
                 new_arrival = ?,
-                gallery = ?
+                gallery = ?,
+                is_on_sale = ?,
+                sale_price = ?,
+                discount_percent = ?
              WHERE id = ?`,
             [
                 updatedName,
@@ -4484,6 +4819,9 @@ app.put('/api/products/:id', authMiddleware, requireRole('cashier'), async (req,
                 normalizedHighlightPriority,
                 normalizedNewArrival,
                 galleryValue,
+                saleState.is_on_sale,
+                saleState.sale_price,
+                saleState.discount_percent,
                 id,
             ]
         );
@@ -4562,6 +4900,10 @@ app.put('/api/products/:id', authMiddleware, requireRole('cashier'), async (req,
             highlight_priority: normalizedHighlightPriority,
             new_arrival: normalizedNewArrival,
             gallery: normalizedGallery,
+            is_on_sale: saleState.is_on_sale,
+            sale_price: saleState.sale_price,
+            discount_percent: saleState.discount_percent,
+            effective_price: saleState.is_on_sale ? saleState.sale_price : normalizedPrice,
         });
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -4925,6 +5267,16 @@ app.post('/api/vendor/products', authMiddleware, requireVendorAccess(), async (r
             if (existingSku) return res.status(409).json({ error: 'SKU already in use' });
         }
 
+        const saleState = normalizeSalePayload({
+            basePrice: normalizedPrice,
+            salePriceRaw: req.body?.salePrice ?? req.body?.sale_price,
+            discountPercentRaw: req.body?.discountPercent ?? req.body?.discount_percent,
+            isOnSaleRaw: req.body?.isOnSale ?? req.body?.is_on_sale,
+        });
+        if (saleState?.error) {
+            return res.status(400).json({ error: saleState.error });
+        }
+
         const insertFields = {
             name,
             price: normalizedPrice,
@@ -4968,6 +5320,9 @@ app.post('/api/vendor/products', authMiddleware, requireVendorAccess(), async (r
             highlight_priority: 0,
             new_arrival: 0,
             gallery: galleryValue,
+            is_on_sale: saleState.is_on_sale,
+            sale_price: saleState.sale_price,
+            discount_percent: saleState.discount_percent,
         };
         const { sql, values } = buildProductInsert(insertFields);
         const insert = await db.run(sql, values);
@@ -4981,7 +5336,17 @@ app.post('/api/vendor/products', authMiddleware, requireVendorAccess(), async (r
 
         await logActivity('product', insert.lastID, 'create', req.user?.username, JSON.stringify({ vendorId: vendorIdInt }));
 
-        res.status(201).json({ id: insert.lastID, name, price: normalizedPrice, sku: finalSku, vendor_id: vendorIdInt, tags: tagRows });
+        res.status(201).json({
+            id: insert.lastID,
+            name,
+            price: normalizedPrice,
+            sku: finalSku,
+            vendor_id: vendorIdInt,
+            tags: tagRows,
+            is_on_sale: saleState.is_on_sale,
+            sale_price: saleState.sale_price,
+            discount_percent: saleState.discount_percent,
+        });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
@@ -5023,10 +5388,16 @@ app.put('/api/vendor/products/:id', authMiddleware, requireVendorAccess(), async
             return trimmed || null;
         };
 
+        let normalizedPriceValue = null;
+        if (price != null) {
+            normalizedPriceValue = parseFloat(price);
+            if (!Number.isFinite(normalizedPriceValue)) return res.status(400).json({ error: 'Invalid price value' });
+        }
+
         const updates = [];
         const params = [];
         if (name != null) { updates.push('name = ?'); params.push(name); }
-        if (price != null) { updates.push('price = ?'); params.push(parseFloat(price)); }
+        if (price != null) { updates.push('price = ?'); params.push(normalizedPriceValue); }
         if (stock != null) { updates.push('stock = ?'); params.push(parseInt(stock,10) || 0); }
         if (shortDescription != null) { updates.push('short_description = ?'); params.push(shortDescription ? shortDescription.trim() : null); }
         if (description != null) { updates.push('description = ?'); params.push(description); }
@@ -5058,6 +5429,26 @@ app.put('/api/vendor/products/:id', authMiddleware, requireVendorAccess(), async
                 if (existingSku) return res.status(409).json({ error: 'SKU already in use' });
             }
             updates.push('sku = ?'); params.push(finalSku);
+        }
+
+        const saleInputsProvided =
+            ['salePrice', 'sale_price', 'discountPercent', 'discount_percent', 'isOnSale', 'is_on_sale'].some((key) =>
+                Object.prototype.hasOwnProperty.call(req.body || {}, key)
+            );
+        if (saleInputsProvided) {
+            const saleStateVendor = normalizeSalePayload({
+                basePrice: normalizedPriceValue != null ? normalizedPriceValue : product.price,
+                salePriceRaw: req.body?.salePrice ?? req.body?.sale_price,
+                discountPercentRaw: req.body?.discountPercent ?? req.body?.discount_percent,
+                isOnSaleRaw: req.body?.isOnSale ?? req.body?.is_on_sale,
+                existingRow: product,
+            });
+            if (saleStateVendor?.error) {
+                return res.status(400).json({ error: saleStateVendor.error });
+            }
+            updates.push('is_on_sale = ?'); params.push(saleStateVendor.is_on_sale);
+            updates.push('sale_price = ?'); params.push(saleStateVendor.sale_price);
+            updates.push('discount_percent = ?'); params.push(saleStateVendor.discount_percent);
         }
 
         if (updates.length) {
@@ -5914,14 +6305,15 @@ app.post('/api/vendors', async (req, res) => {
         const socialShowcase = socialShowcaseInput == null ? 1 : (Number(socialShowcaseInput) ? 1 : 0);
         const verifiedFlag = 0;
         const requestedFee = req.body?.monthly_fee ?? req.body?.monthlyFee;
+        const salesFeePercent = normalizeVendorSalesFee(req.body?.sales_fee_percent ?? req.body?.salesFeePercent);
         const normalizedNotesSegments = [
             notes || null,
             requestedFee != null && requestedFee !== '' ? `Requested monthly fee: ${requestedFee}` : null,
         ].filter(Boolean);
         const normalizedNotes = normalizedNotesSegments.length ? normalizedNotesSegments.join('\n\n') : null;
         const result = await db.run(
-            `INSERT INTO vendors (legal_name, contact_person, email, phone, address, website, capabilities, notes, slug, tagline, public_description, social_links, social_showcase_enabled, verified, currency)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)` ,
+            `INSERT INTO vendors (legal_name, contact_person, email, phone, address, website, capabilities, notes, slug, tagline, public_description, social_links, social_showcase_enabled, verified, currency, sales_fee_percent)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)` ,
             [
                 legal_name,
                 contact_person,
@@ -5937,7 +6329,8 @@ app.post('/api/vendors', async (req, res) => {
                 socialLinks ? JSON.stringify(socialLinks) : null,
                 socialShowcase,
                 verifiedFlag,
-                normalizedCurrency
+                normalizedCurrency,
+                salesFeePercent
             ]
         );
         const vendorId = result.lastID;
@@ -6044,7 +6437,9 @@ app.post('/api/vendors/register', async (req, res) => {
         billing_notes,
         account_active,
         accountActive,
-        currency
+        currency,
+        sales_fee_percent,
+        salesFeePercent
     } = req.body;
 
     if (!legal_name || !email) return res.status(400).json({ error: 'legal_name and email required' });
@@ -6060,6 +6455,7 @@ app.post('/api/vendors/register', async (req, res) => {
     const socialShowcaseInput = req.body?.social_showcase_enabled ?? req.body?.socialShowcaseEnabled;
     const socialShowcase = socialShowcaseInput == null ? 1 : (Number(socialShowcaseInput) ? 1 : 0);
     const normalizedCurrency = ensureVendorCurrency(currency);
+    const salesFeePercentValue = normalizeVendorSalesFee(sales_fee_percent ?? salesFeePercent);
     const normalizedNotesSegments = [
         notes || billing_notes || null,
         requestedMonthlyFee != null ? `Requested monthly fee: ${requestedMonthlyFee}` : null,
@@ -6073,9 +6469,9 @@ app.post('/api/vendors/register', async (req, res) => {
         const result = await db.run(
             `INSERT INTO vendors (
                 legal_name, contact_person, email, phone, address, website, capabilities, notes,
-                bank_details, logo_url, monthly_fee, billing_start_date, account_active, status, slug, tagline, public_description, hero_image, social_links, social_showcase_enabled, verified, currency
+                bank_details, logo_url, monthly_fee, billing_start_date, account_active, status, slug, tagline, public_description, hero_image, social_links, social_showcase_enabled, verified, currency, sales_fee_percent
              )
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             [
                 legal_name,
                 contact_person || null,
@@ -6098,7 +6494,8 @@ app.post('/api/vendors/register', async (req, res) => {
                 socialLinks ? JSON.stringify(socialLinks) : null,
                 socialShowcase,
                 verifiedFlag,
-                normalizedCurrency
+                normalizedCurrency,
+                salesFeePercentValue
             ]
         );
         const vendorId = result.lastID;
@@ -6232,6 +6629,7 @@ app.put('/api/vendors/:id', authMiddleware, requireRole(['manager','admin']), as
         assign('monthly_fee', monthly_fee, (v) => (v === undefined || v === null || v === '' ? undefined : Number(v)));
         assign('billing_start_date', billing_start_date, (v) => (v === undefined ? undefined : (v || null)));
         assign('currency', req.body?.currency, (v) => (v === undefined ? undefined : ensureVendorCurrency(v)));
+        assign('sales_fee_percent', req.body?.sales_fee_percent ?? req.body?.salesFeePercent, (v) => normalizeVendorSalesFee(v));
         if (req.body?.verified !== undefined) {
             assign('verified', req.body.verified, (v) => (Number(v) ? 1 : 0));
         }
@@ -6252,6 +6650,7 @@ app.put('/api/vendors/:id', authMiddleware, requireRole(['manager','admin']), as
         }
 
         await db.run(`UPDATE vendors SET ${updates.join(', ')} WHERE id = ?`, [...params, id]);
+        vendorFeeCache.delete(Number(id));
         const updated = await db.get('SELECT * FROM vendors WHERE id = ?', [id]);
         res.json(hydrateVendorRow(updated));
     } catch (err) {
@@ -6586,6 +6985,7 @@ function mapProductForPublic(row) {
     const vendorSocialLinksRaw = parseJson(row.vendor_social_links, null);
     const vendorSocialLinks = Number(row.vendor_social_showcase_enabled ?? 1) ? vendorSocialLinksRaw : null;
     const vendorVerified = Number(row.vendor_verified ?? 0) ? 1 : 0;
+    const saleInfo = buildSalePresentation(row);
     return {
         id: row.id,
         name: row.name,
@@ -6611,6 +7011,11 @@ function mapProductForPublic(row) {
         vendor_social_links: vendorSocialLinks,
         created_at: row.created_at,
         gallery: row.gallery ? parseGalleryFromRow(row.gallery) : [],
+        is_on_sale: saleInfo.is_on_sale,
+        sale_price: saleInfo.sale_price,
+        discount_percent: saleInfo.discount_percent,
+        effective_price: saleInfo.effective_price,
+        savings_amount: saleInfo.savings_amount,
     };
 }
 
@@ -6618,14 +7023,18 @@ app.get('/api/public/vendors/:slug/products', async (req, res) => {
     try {
         const vendor = await db.get('SELECT id FROM vendors WHERE slug = ? AND status = ?', [req.params.slug, 'active']);
         if (!vendor) return res.status(404).json({ error: 'Vendor not found' });
-        const rows = await db.all(
-            `SELECT p.*, v.slug AS vendor_slug, v.legal_name AS vendor_name, v.social_links AS vendor_social_links, v.social_showcase_enabled AS vendor_social_showcase_enabled, v.verified AS vendor_verified
-             FROM products p
-             LEFT JOIN vendors v ON p.vendor_id = v.id
-             WHERE p.vendor_id = ?
-             ORDER BY ${orderCaseInsensitive('p.name')}`,
-            [vendor.id]
-        );
+        const saleOnly = String(req.query.saleOnly || '').toLowerCase() === 'true';
+        let sql = `SELECT p.*, v.slug AS vendor_slug, v.legal_name AS vendor_name, v.social_links AS vendor_social_links, v.social_showcase_enabled AS vendor_social_showcase_enabled, v.verified AS vendor_verified
+                   FROM products p
+                   LEFT JOIN vendors v ON p.vendor_id = v.id
+                   WHERE p.vendor_id = ?
+                   AND (p.availability_status IS NULL OR p.availability_status != 'archived')`;
+        const params = [vendor.id];
+        if (saleOnly) {
+            sql += ' AND p.is_on_sale = 1 AND p.sale_price IS NOT NULL AND p.sale_price < p.price';
+        }
+        sql += ` ORDER BY ${orderCaseInsensitive('p.name')}`;
+        const rows = await db.all(sql, params);
         res.json((rows || []).map(mapProductForPublic));
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -7615,6 +8024,152 @@ app.post('/api/settings/test-smtp', authMiddleware, requireRole('admin'), async 
     }
 });
 
+// Public contact form endpoint (estore "Talk to a human")
+app.post('/api/contact', contactFormLimiter, async (req, res) => {
+    const { name, email, company, reason, message } = req.body || {};
+    const trimmedName = String(name || '').trim();
+    const trimmedEmail = String(email || '').trim();
+    const trimmedCompany = (company && typeof company === 'string') ? company.trim().slice(0, 160) : null;
+    const trimmedMessage = String(message || '').trim();
+    if (!trimmedName || !trimmedEmail || !trimmedMessage) {
+        return res.status(400).json({ error: 'Name, email, and message are required' });
+    }
+    const normalizedReasonKey = String(reason || '').toLowerCase();
+    const reasonKey = CONTACT_REASON_KEYS.has(normalizedReasonKey) ? normalizedReasonKey : 'other';
+    const reasonLabel = CONTACT_REASON_LABELS[reasonKey];
+    const safeMessage = trimmedMessage.slice(0, MAX_CONTACT_MESSAGE_LENGTH);
+    const reference = `REQ-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
+
+    let brandName = 'ITnVend';
+    let brandLogo = null;
+    try {
+        const cached = await cacheService.getSettings();
+        if (cached?.outlet_name) brandName = cached.outlet_name;
+        if (cached?.logo_url) brandLogo = cached.logo_url;
+    } catch (err) {
+        console.warn('Unable to read branding for contact email', err?.message || err);
+    }
+    const submittedAt = new Date();
+    let formattedTimestamp = submittedAt.toISOString();
+    try {
+        formattedTimestamp = new Intl.DateTimeFormat('en-GB', {
+            dateStyle: 'full',
+            timeStyle: 'short',
+            timeZone: 'Indian/Maldives',
+        }).format(submittedAt);
+    } catch (err) {
+        console.warn('Failed to format contact timestamp', err?.message || err);
+    }
+    const prettyMessage = escapeHtml(safeMessage).replace(/\n/g, '<br/>');
+    let logoUrl = brandLogo;
+    if (logoUrl && !/^https?:\/\//i.test(logoUrl)) {
+        const base = (process.env.PUBLIC_API_BASE || process.env.FRONTEND_URL || '').replace(/\/+$/, '');
+        if (base) {
+            logoUrl = `${base}${logoUrl.startsWith('/') ? '' : '/'}${logoUrl}`;
+        }
+    }
+    const html = `
+        <div style="font-family:'Inter','Segoe UI',Arial,sans-serif;background:#f7f8fc;padding:32px;">
+            <div style="max-width:640px;margin:0 auto;background:#ffffff;border-radius:22px;box-shadow:0 25px 60px rgba(15,23,42,0.10);overflow:hidden;border:1px solid #edf2f7;">
+                <div style="background:linear-gradient(135deg,#f472b6,#8b5cf6,#38bdf8);padding:32px;text-align:center;">
+                    ${logoUrl
+                        ? `<img src="${escapeHtml(logoUrl)}" alt="${escapeHtml(brandName)}" style="max-height:64px;max-width:220px;object-fit:contain;display:inline-block;">`
+                        : `<span style="font-size:24px;font-weight:700;color:#fff;letter-spacing:0.05em;display:inline-block;">${escapeHtml(brandName)}</span>`}
+                    <p style="color:#fff;margin:12px 0 0;font-size:15px;letter-spacing:0.04em;">New contact request</p>
+                </div>
+                <div style="padding:32px 36px 12px;">
+                    <p style="margin:0 0 12px;color:#0f172a;font-size:16px;font-weight:600;">Hi team,</p>
+                    <p style="margin:0 0 18px;color:#475569;font-size:14px;">Someone just reached out from the storefront contact form. Details are below.</p>
+                    <div style="background:#f8fafc;border-radius:16px;padding:18px 22px;margin-bottom:22px;border:1px solid #e2e8f0;">
+                        <table style="width:100%;border-collapse:collapse;font-size:13px;color:#0f172a;">
+                            <tr><td style="padding:6px 0;color:#94a3b8;">Reference</td><td style="padding:6px 0;font-weight:600;">${escapeHtml(reference)}</td></tr>
+                            <tr><td style="padding:6px 0;color:#94a3b8;">Submitted at</td><td style="padding:6px 0;font-weight:600;">${escapeHtml(formattedTimestamp)}</td></tr>
+                            <tr><td style="padding:6px 0;color:#94a3b8;">Reason</td><td style="padding:6px 0;">${escapeHtml(reasonLabel)}</td></tr>
+                            <tr><td style="padding:6px 0;color:#94a3b8;">Name</td><td style="padding:6px 0;">${escapeHtml(trimmedName)}</td></tr>
+                            <tr><td style="padding:6px 0;color:#94a3b8;">Email</td><td style="padding:6px 0;"><a href="mailto:${encodeURIComponent(trimmedEmail)}" style="color:#2563eb;text-decoration:none;">${escapeHtml(trimmedEmail)}</a></td></tr>
+                            <tr><td style="padding:6px 0;color:#94a3b8;">Company</td><td style="padding:6px 0;">${escapeHtml(trimmedCompany || 'Not provided')}</td></tr>
+                        </table>
+                    </div>
+                    <div style="border-left:5px solid #f472b6;padding:18px 24px;background:#fff7fb;border-radius:16px;border:1px solid #fde4f3;">
+                        <p style="margin:0 0 8px;font-size:13px;color:#94a3b8;text-transform:uppercase;letter-spacing:0.1em;">Message</p>
+                        <p style="margin:0;color:#0f172a;font-size:15px;line-height:1.7;">${prettyMessage}</p>
+                    </div>
+                </div>
+                <div style="padding:18px 36px 30px;text-align:center;font-size:12px;color:#94a3b8;">
+                    <p style="margin:0 0 4px;">Need to follow up? Reply directly to ${escapeHtml(trimmedEmail)}.</p>
+                    <p style="margin:0;">${escapeHtml(brandName)} • ${escapeHtml(reference)}</p>
+                </div>
+            </div>
+        </div>
+    `;
+
+    try {
+        const supportEmail = await getSupportEmail();
+        console.log('[Contact] deliver to', supportEmail || '(none)');
+        if (supportEmail) {
+            try {
+                await sendNotificationEmail(`[Contact] ${trimmedName} · ${reasonLabel}`, html, supportEmail);
+            } catch (err) {
+                console.warn('Contact form email failed', err?.message || err);
+            }
+        } else {
+            console.info('Contact form submission (no email config)', { trimmedName, trimmedEmail, trimmedCompany, reason: reasonKey });
+        }
+        res.json({ ok: true, reference });
+    } catch (err) {
+        console.error('Contact form submission failed', err);
+        res.status(500).json({ error: 'Unable to submit contact form at the moment' });
+    }
+});
+
+app.get('/api/order-tracking/:orderId', async (req, res) => {
+    const { orderId } = req.params;
+    const token = req.query.token || req.get('x-order-token');
+    if (!token) return res.status(400).json({ error: 'Tracking token required' });
+    try {
+        const order = await db.get(
+            'SELECT id, customer_name, customer_email, customer_phone, total, status, payment_method, payment_reference, created_at, tracking_token, tracking_token_expires_at FROM orders WHERE id = ?',
+            [orderId]
+        );
+        if (!order) return res.status(404).json({ error: 'Order not found' });
+        if (!order.tracking_token || order.tracking_token !== token) {
+            return res.status(403).json({ error: 'Invalid tracking token' });
+        }
+        if (order.tracking_token_expires_at) {
+            const expires = new Date(order.tracking_token_expires_at);
+            if (!Number.isNaN(expires.getTime()) && expires.getTime() < Date.now()) {
+                return res.status(410).json({ error: 'Tracking link has expired' });
+            }
+        }
+        const items = await db.all(
+            'SELECT oi.product_id, oi.quantity, oi.price, p.name FROM order_items oi LEFT JOIN products p ON p.id = oi.product_id WHERE oi.order_id = ?',
+            [order.id]
+        );
+        const history = await db.all(
+            'SELECT status, note, actor, role, created_at FROM order_status_history WHERE order_id = ? ORDER BY created_at ASC',
+            [order.id]
+        );
+        res.json({
+            id: order.id,
+            status: order.status,
+            total: order.total,
+            paymentMethod: order.payment_method,
+            paymentReference: order.payment_reference,
+            createdAt: order.created_at,
+            items: items.map((it) => ({
+                productId: it.product_id,
+                name: it.name,
+                quantity: it.quantity,
+                price: it.price,
+            })),
+            history,
+        });
+    } catch (err) {
+        console.error('Order tracking lookup failed', err);
+        res.status(500).json({ error: 'Failed to load order status' });
+    }
+});
+
 // Quote endpoints (public submit, admin list)
 app.post('/api/quotes', async (req, res) => {
     try {
@@ -8043,6 +8598,7 @@ app.get('/api/invoices', async (req, res) => {
             FROM invoices i
             LEFT JOIN customers c ON c.id = i.customer_id
             LEFT JOIN outlets o ON o.id = i.outlet_id
+            WHERE COALESCE(i.visible_in_pos, 1) != 0
             ORDER BY i.created_at DESC
         `);
         res.json(invoices);
@@ -8068,6 +8624,7 @@ app.get('/api/transactions/recent', authMiddleware, requireRole('cashier'), asyn
                 c.customer_type as customer_type
             FROM invoices i
             LEFT JOIN customers c ON c.id = i.customer_id
+            WHERE COALESCE(i.visible_in_pos, 1) != 0
             ORDER BY i.created_at DESC
             LIMIT ?
         `, [limit]);
@@ -8586,24 +9143,54 @@ app.post('/api/orders', async (req, res) => {
     for (const item of sanitizedCart) {
         let productRow = null;
         try {
-            productRow = await db.get('SELECT preorder_enabled, track_inventory FROM products WHERE id = ?', [item.id]);
+            productRow = await db.get('SELECT preorder_enabled, track_inventory, stock, vendor_id, name, price, is_on_sale, sale_price, discount_percent FROM products WHERE id = ?', [item.id]);
         } catch (err) {
             console.warn('Failed to inspect product for preorder status', err?.message || err);
         }
+        if (!productRow) {
+            return res.status(400).json({ error: `Product ${item.id} is unavailable.` });
+        }
         const quantity = Number(item.quantity) || 0;
-        const price = parseAmountValue(item.price);
+        const saleView = buildSalePresentation({
+            price: productRow?.price,
+            is_on_sale: productRow?.is_on_sale,
+            sale_price: productRow?.sale_price,
+            discount_percent: productRow?.discount_percent,
+        });
+        let price = saleView.effective_price;
+        if (!Number.isFinite(price)) {
+            price = parseAmountValue(item.price);
+        }
+        if (!Number.isFinite(price)) {
+            price = parseAmountValue(productRow?.price);
+        }
         if (!Number.isFinite(price)) {
             console.warn('Invalid price provided for order item', { itemId: item.id, rawPrice: item.price });
             return res.status(400).json({ error: `Invalid price value for item ${item.id}` });
         }
         const itemPreorder = item.preorder === true || item.preorder === 1 || (productRow && productRow.preorder_enabled === 1);
+        const productStock = Number(productRow.stock ?? 0) || 0;
+        let vendorFeePercent = null;
+        if (productRow?.vendor_id) {
+            vendorFeePercent = await getVendorFeePercent(productRow.vendor_id);
+        }
+        if (!itemPreorder && productRow && productRow.track_inventory !== 0 && productStock < quantity) {
+            return res.status(400).json({ error: `Only ${productStock} unit(s) available for ${productRow.name || `product ${item.id}`}` });
+        }
         if (itemPreorder) hasPreorderItems = true;
         itemsWithDetails.push({
             id: item.id,
             quantity,
             price,
+            isOnSale: saleView.is_on_sale,
+            salePrice: saleView.sale_price,
+            discountPercent: saleView.discount_percent,
             isPreorder: itemPreorder,
             trackInventory: productRow ? productRow.track_inventory : 1,
+            vendorId: productRow?.vendor_id || null,
+            vendorFeePercent,
+            productName: productRow?.name || item.name || `Product ${item.id}`,
+            availableStock: Number.isFinite(productStock) ? productStock : null,
         });
     }
 
@@ -8632,6 +9219,8 @@ app.post('/api/orders', async (req, res) => {
     const context = { stage: 'init', orderId: null, invoiceId: null, journalId: null };
 
     let settingsRow = null;
+    let trackingToken = null;
+    let trackingTokenExpiresAt = null;
 
     try {
         settingsRow = await db.get('SELECT gst_rate, current_outlet_id, outlet_name, currency, exchange_rate FROM settings WHERE id = 1');
@@ -8676,6 +9265,16 @@ app.post('/api/orders', async (req, res) => {
             );
             orderId = orderResult.lastID;
             context.orderId = orderId;
+            try {
+                const token = crypto.randomBytes(24).toString('hex');
+                const expiresAt = new Date(Date.now() + ORDER_TRACKING_TTL_DAYS * 24 * 60 * 60 * 1000).toISOString();
+                await db.run('UPDATE orders SET tracking_token = ?, tracking_token_expires_at = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?', [token, expiresAt, orderId]);
+                trackingToken = token;
+                trackingTokenExpiresAt = expiresAt;
+            } catch (tokenErr) {
+                console.warn('Failed to persist tracking token', tokenErr?.message || tokenErr);
+            }
+            await appendOrderStatusHistory(orderId, orderStatus, { note: 'Order created', actor: customer.email || customer.name || 'customer', role: 'customer' });
 
             context.stage = 'order.items';
             let orderItemsStmt;
@@ -8726,6 +9325,25 @@ app.post('/api/orders', async (req, res) => {
             context.invoiceId = invoiceId;
             context.journalId = invoiceResult.journalId;
 
+            const vendorItems = itemsWithDetails.filter((it) => it.vendorId);
+            if (vendorItems.length) {
+                for (const item of vendorItems) {
+                    await recordVendorSale({
+                        vendorId: item.vendorId,
+                        orderId,
+                        invoiceId,
+                        productId: item.id,
+                        quantity: item.quantity,
+                        price: item.price,
+                        feePercent: item.vendorFeePercent,
+                        source: normalizedSource,
+                    });
+                }
+                if (normalizedSource !== 'pos' && invoiceId) {
+                    await db.run('UPDATE invoices SET visible_in_pos = 0 WHERE id = ?', [invoiceId]);
+                }
+            }
+
             if (hasPreorderItems) {
                 const nowIso = new Date().toISOString();
                 const sourceLabel = normalizedSource && normalizedSource !== 'pos' ? normalizedSource : 'Storefront Checkout';
@@ -8737,11 +9355,11 @@ app.post('/api/orders', async (req, res) => {
                         staff: null
                     }
                 ]);
-                const preorderItems = sanitizedCart.map((item) => ({
-                    productId: item.id ?? item.product_id ?? null,
-                    productName: item.name ?? item.product_name ?? null,
-                    quantity: Number(item.quantity) || 0,
-                    price: parseAmountValue(item.price) || 0,
+                const preorderItems = itemsWithDetails.map((detail) => ({
+                    productId: detail.id ?? null,
+                    productName: detail.productName ?? null,
+                    quantity: Number(detail.quantity) || 0,
+                    price: parseAmountValue(detail.price) || 0,
                 }));
                 const currency = settingsRow?.currency || 'MVR';
                 const exchangeRateSetting = Number(settingsRow?.exchange_rate);
@@ -8826,26 +9444,41 @@ app.post('/api/orders', async (req, res) => {
             throw err;
         }
 
+        let supportEmail = null;
         try {
-            const subject = `New order placed by ${customer.name}`;
-            const staffItemsHtml = sanitizedCart
-                .map((it) => `<li>${escapeHtml(it.name || 'Item')} &times; ${escapeHtml(it.quantity ?? '0')} - ${escapeHtml(it.price ?? '0')}</li>`)
+            supportEmail = await getSupportEmail();
+        } catch (supportErr) {
+            console.warn('Failed to determine support email', supportErr?.message || supportErr);
+        }
+
+        try {
+            const trackingLink = trackingToken ? buildOrderTrackingLink(orderId, trackingToken) : null;
+            const staffItemsHtml = itemsWithDetails
+                .map((it) => `<li>${escapeHtml(it.productName || it.id || 'Item')} &times; ${escapeHtml(it.quantity ?? '0')} - ${escapeHtml((it.price ?? 0).toFixed(2))}</li>`)
                 .join('');
             const staffBodyHtml = `
 <p>A new order was placed:</p>
 <ul>
   <li><strong>Name:</strong> ${escapeHtml(customer.name || '-')}</li>
   <li><strong>Email:</strong> ${escapeHtml(customer.email || '-')}</li>
+  <li><strong>Phone:</strong> ${escapeHtml(customerPhone || '-')}</li>
   <li><strong>Total:</strong> ${escapeHtml(invTotal.toFixed(2))}</li>
 </ul>
 <p>Items:</p>
 <ul>${staffItemsHtml}</ul>
 <p>Order ID: ${escapeHtml(orderId)}</p>
 <p>Invoice ID: ${escapeHtml(invoiceId)}</p>
+${trackingLink
+    ? `<p>Tracking link: <a href="${escapeHtml(trackingLink)}">${escapeHtml(trackingLink)}</a><br/><small>Token: ${escapeHtml(trackingToken || '')}${
+        trackingTokenExpiresAt ? ` · Expires ${escapeHtml(new Date(trackingTokenExpiresAt).toLocaleString())}` : ''
+    }</small></p>`
+    : ''}
 `.trim();
-            await sendNotificationEmail(subject, staffBodyHtml);
+            await sendNotificationEmail(`New order placed by ${customer.name}`, staffBodyHtml, supportEmail || undefined);
 
             if (customer.email) {
+                let customerBody = null;
+                let customerSubject = null;
                 try {
                     let templateRow;
                     try {
@@ -8854,9 +9487,12 @@ app.post('/api/orders', async (req, res) => {
                         console.debug('Invoice customer template column missing; falling back to legacy field', tplErr?.message || tplErr);
                         templateRow = await db.get('SELECT COALESCE(email_template_invoice, "") AS customer_template, outlet_name FROM settings WHERE id = 1');
                     }
-                    const customerItemsHtml = sanitizedCart.length
-                        ? `<ul>${sanitizedCart.map((it) => `<li>${escapeHtml(it.name || 'Item')} &times; ${escapeHtml(it.quantity ?? '0')} - ${escapeHtml(it.price ?? '0')}</li>`).join('')}</ul>`
+                    const customerItemsHtml = itemsWithDetails.length
+                        ? `<ul>${itemsWithDetails.map((it) => `<li>${escapeHtml(it.productName || 'Item')} &times; ${escapeHtml(it.quantity ?? '0')} - ${escapeHtml((it.price ?? 0).toFixed(2))}</li>`).join('')}</ul>`
                         : '<p>No individual items were provided.</p>';
+                    const trackingBlock = trackingLink
+                        ? `<p>Track your order: <a href="${escapeHtml(trackingLink)}" style="color:#2563eb;text-decoration:none;">${escapeHtml(trackingLink)}</a></p>`
+                        : '';
                     const customerTemplateVars = {
                         customer_name: escapeHtml(customer.name || 'Customer'),
                         order_id: escapeHtml(orderId),
@@ -8869,6 +9505,8 @@ app.post('/api/orders', async (req, res) => {
                         preorder_flag: escapeHtml(hasPreorderItems ? 'Yes' : 'No'),
                         items_html: customerItemsHtml,
                         outlet_name: escapeHtml(templateRow?.outlet_name || settingsRow?.outlet_name || ''),
+                        tracking_url: escapeHtml(trackingLink || ''),
+                        tracking_block: trackingBlock,
                     };
                     const customerFallback = `
 <p>Hi {{customer_name}},</p>
@@ -8880,13 +9518,25 @@ app.post('/api/orders', async (req, res) => {
 </ul>
 <p><strong>Items</strong></p>
 {{items_html}}
+{{tracking_block}}
 <p>If you have any questions just reply to this message.</p>
 `.trim();
-                    const customerBody = renderEmailTemplate(templateRow?.customer_template, customerFallback, customerTemplateVars);
-                    const customerSubject = renderEmailTemplate(null, 'Your order #{{order_id}} has been received', { order_id: customerTemplateVars.order_id });
-                    await sendNotificationEmail(customerSubject, customerBody, customer.email);
+                    customerBody = renderEmailTemplate(templateRow?.customer_template, customerFallback, customerTemplateVars);
+                    customerSubject = renderEmailTemplate(null, 'Your order #{{order_id}} has been received', { order_id: customerTemplateVars.order_id });
+                    await sendNotificationEmail(customerSubject, customerBody, customer.email, true);
+                    if (supportEmail && supportEmail.toLowerCase() !== (customer.email || '').toLowerCase()) {
+                        await sendNotificationEmail(`[Copy] ${customerSubject}`, customerBody, supportEmail);
+                    }
                 } catch (customerEmailErr) {
                     console.warn('Failed to send customer order confirmation', customerEmailErr?.message || customerEmailErr);
+                    if (supportEmail && customerBody && customerSubject) {
+                        try {
+                            const forwardNotice = `<p>Automatic delivery to ${escapeHtml(customer.email)} failed.</p><p>Please forward the confirmation below manually.</p>${customerBody}`;
+                            await sendNotificationEmail(`[Forward required] ${customerSubject}`, forwardNotice, supportEmail);
+                        } catch (fallbackErr) {
+                            console.warn('Failed to deliver fallback order copy', fallbackErr?.message || fallbackErr);
+                        }
+                    }
                 }
             }
         } catch (err) {
@@ -8907,7 +9557,43 @@ app.post('/api/orders', async (req, res) => {
             console.warn('Failed to queue order notification', notifyErr?.message || notifyErr);
         }
 
-        res.status(201).json({ message: 'Order created successfully', orderId, invoiceId, preorderId });
+        try {
+            const vendorGroups = new Map();
+            for (const item of itemsWithDetails) {
+                if (!item.vendorId) continue;
+                if (!vendorGroups.has(item.vendorId)) vendorGroups.set(item.vendorId, []);
+                vendorGroups.get(item.vendorId).push(item);
+            }
+            if (vendorGroups.size > 0) {
+                const vendorIds = Array.from(vendorGroups.keys());
+                const placeholders = vendorIds.map(() => '?').join(',');
+                const vendorRows = await db.all(`SELECT id, email, legal_name FROM vendors WHERE id IN (${placeholders})`, vendorIds);
+                const vendorLoginUrl = (process.env.VENDOR_LOGIN_URL || `${req.protocol}://${req.get('host')}/vendor/login`).trim();
+                for (const vendor of vendorRows) {
+                    if (!vendor?.email) continue;
+                    const vendorItems = vendorGroups.get(vendor.id) || [];
+                    if (!vendorItems.length) continue;
+                    const vendorTotal = vendorItems.reduce((sum, it) => sum + it.price * it.quantity, 0);
+                    const vendorItemsHtml = vendorItems
+                        .map((it) => `<li>${escapeHtml(it.productName || 'Item')} × ${escapeHtml(it.quantity)} • ${escapeHtml(it.price.toFixed(2))}</li>`)
+                        .join('');
+                    const vendorHtml = `
+                        <p>Hi ${escapeHtml(vendor.legal_name || 'vendor')},</p>
+                        <p>Order <strong>#${escapeHtml(orderId)}</strong> includes items from your catalog.</p>
+                        <p><strong>Items</strong></p>
+                        <ul>${vendorItemsHtml}</ul>
+                        <p>Total for your items: ${escapeHtml(vendorTotal.toFixed(2))}</p>
+                        <p>Customer: ${escapeHtml(customer.name || '-')}${customer.email ? ` · ${escapeHtml(customer.email)}` : ''}</p>
+                        <p><a href="${escapeHtml(vendorLoginUrl)}">Sign in to your vendor dashboard</a> to update status or see payment timelines.</p>
+                    `;
+                    await sendNotificationEmail(`Order #${orderId} includes your items`, vendorHtml, vendor.email);
+                }
+            }
+        } catch (vendorNotifyErr) {
+            console.warn('Failed to email vendors about order', vendorNotifyErr?.message || vendorNotifyErr);
+        }
+
+        res.status(201).json({ message: 'Order created successfully', orderId, invoiceId, preorderId, trackingToken, trackingTokenExpiresAt });
 
         try {
             const wsService = getWebSocketService();
@@ -8924,7 +9610,8 @@ app.post('/api/orders', async (req, res) => {
                 items: sanitizedCart,
                 paymentMethod,
                 status: hasPreorderItems ? 'preorder' : (isTransferMethod ? 'awaiting_verification' : 'pending'),
-                timestamp: new Date()
+                timestamp: new Date(),
+                trackingToken,
             };
             wsService.notifyNewOrder(orderData);
             wsService.notifyInvoiceCreated({
@@ -8974,6 +9661,166 @@ app.post('/api/orders', async (req, res) => {
                 journalId: context.journalId,
             },
         });
+    }
+});
+
+app.get('/api/orders', authMiddleware, requireRole(['accounts', 'manager', 'admin']), async (req, res) => {
+    try {
+        const { status, search, limit = 50, offset = 0 } = req.query;
+        const params = [];
+        let where = 'WHERE 1=1';
+        if (status) {
+            const normalized = normalizeOrderStatus(status);
+            if (!normalized) return res.status(400).json({ error: 'Invalid status filter' });
+            where += ' AND status = ?';
+            params.push(normalized);
+        }
+        if (search) {
+            const term = `%${search.trim()}%`;
+            where += ' AND (customer_name LIKE ? OR customer_email LIKE ? OR CAST(id AS TEXT) LIKE ?)';
+            params.push(term, term, term);
+        }
+        const rows = await db.all(
+            `SELECT id, customer_name, customer_email, customer_phone, total, status, payment_method, payment_reference, created_at, updated_at, source
+             FROM orders ${where} ORDER BY created_at DESC LIMIT ? OFFSET ?`,
+            [...params, Number(limit) || 50, Number(offset) || 0]
+        );
+        res.json(rows);
+    } catch (err) {
+        console.error('Failed to list orders', err);
+        res.status(500).json({ error: 'Failed to list orders' });
+    }
+});
+
+app.get('/api/orders/:orderId', authMiddleware, requireRole(['accounts', 'manager', 'admin']), async (req, res) => {
+    const { orderId } = req.params;
+    try {
+        const order = await db.get(
+            'SELECT id, customer_name, customer_email, customer_phone, customer_company, total, status, payment_method, payment_reference, created_at, updated_at, tracking_token, tracking_token_expires_at FROM orders WHERE id = ?',
+            [orderId]
+        );
+        if (!order) return res.status(404).json({ error: 'Order not found' });
+        const items = await db.all(
+            `SELECT oi.id, oi.product_id, oi.quantity, oi.price, oi.is_preorder, p.name AS product_name, p.vendor_id
+             FROM order_items oi LEFT JOIN products p ON p.id = oi.product_id WHERE oi.order_id = ?`,
+            [order.id]
+        );
+        const history = await db.all(
+            'SELECT status, note, actor, role, created_at FROM order_status_history WHERE order_id = ? ORDER BY created_at ASC',
+            [order.id]
+        );
+        res.json({ order, items, history });
+    } catch (err) {
+        console.error('Failed to load order detail', err);
+        res.status(500).json({ error: 'Failed to load order' });
+    }
+});
+
+app.put('/api/orders/:orderId/status', authMiddleware, requireRole(['accounts', 'manager', 'admin']), async (req, res) => {
+    const { orderId } = req.params;
+    const { status, note } = req.body || {};
+    const normalized = normalizeOrderStatus(status);
+    if (!normalized) return res.status(400).json({ error: 'Invalid status' });
+    try {
+        const updated = await applyOrderStatus(orderId, normalized, {
+            actor: req.user?.username || null,
+            role: req.user?.role || null,
+            note: note || null,
+            notifyCustomer: true,
+        });
+        res.json({ success: true, orderId, status: updated.status });
+    } catch (err) {
+        console.error('Failed to update order status', err);
+        res.status(500).json({ error: err?.message || 'Failed to update order status' });
+    }
+});
+
+app.get('/api/vendor/orders', authMiddleware, requireVendorAccess(), async (req, res) => {
+    const vendorId = req.vendor.id;
+    const { status, limit = 50, offset = 0 } = req.query || {};
+    const statusFilter = status ? normalizeOrderStatus(status) : null;
+    if (status && !statusFilter) return res.status(400).json({ error: 'Invalid status filter' });
+    try {
+        const rows = await db.all(
+            `SELECT o.id, o.status, o.total, o.created_at, o.payment_method, o.source,
+                    SUM(vs.gross_amount) AS vendor_gross,
+                    SUM(vs.net_amount) AS vendor_net,
+                    SUM(vs.quantity) AS vendor_quantity
+             FROM vendor_sales vs
+             JOIN orders o ON o.id = vs.order_id
+             WHERE vs.vendor_id = ?
+             ${statusFilter ? 'AND o.status = ?' : ''}
+             GROUP BY o.id
+             ORDER BY o.created_at DESC
+             LIMIT ? OFFSET ?`,
+            statusFilter
+                ? [vendorId, statusFilter, Number(limit) || 50, Number(offset) || 0]
+                : [vendorId, Number(limit) || 50, Number(offset) || 0]
+        );
+        res.json(rows);
+    } catch (err) {
+        console.error('Failed to load vendor orders', err);
+        res.status(500).json({ error: 'Failed to load vendor orders' });
+    }
+});
+
+app.get('/api/vendor/orders/:orderId', authMiddleware, requireVendorAccess(), async (req, res) => {
+    const vendorId = req.vendor.id;
+    const { orderId } = req.params;
+    try {
+        const order = await db.get('SELECT id, status, total, payment_method, payment_reference, created_at, source FROM orders WHERE id = ?', [orderId]);
+        if (!order) return res.status(404).json({ error: 'Order not found' });
+        const sales = await db.all(
+            `SELECT vs.product_id, vs.quantity, vs.gross_amount, vs.fee_percent, vs.fee_amount, vs.net_amount, p.name AS product_name
+             FROM vendor_sales vs
+             LEFT JOIN products p ON p.id = vs.product_id
+             WHERE vs.order_id = ? AND vs.vendor_id = ?`,
+            [order.id, vendorId]
+        );
+        if (!sales.length) return res.status(403).json({ error: 'Order does not include your products' });
+        const history = await db.all(
+            'SELECT status, note, actor, role, created_at FROM order_status_history WHERE order_id = ? ORDER BY created_at ASC',
+            [order.id]
+        );
+        const vendorGross = sales.reduce((sum, entry) => sum + (Number(entry.gross_amount) || 0), 0);
+        const vendorNet = sales.reduce((sum, entry) => sum + (Number(entry.net_amount) || 0), 0);
+        const enrichedOrder = { ...order, vendor_gross: vendorGross, vendor_net: vendorNet };
+        res.json({ order: enrichedOrder, sales, history });
+    } catch (err) {
+        console.error('Failed to load vendor order detail', err);
+        res.status(500).json({ error: 'Failed to load order' });
+    }
+});
+
+app.put('/api/vendor/orders/:orderId/status', authMiddleware, requireVendorAccess(), async (req, res) => {
+    const vendorId = req.vendor.id;
+    const { orderId } = req.params;
+    const { status, note } = req.body || {};
+    const normalized = normalizeOrderStatus(status);
+    const allowedVendorStatuses = new Set(['processing', 'ready', 'completed']);
+    if (!normalized || !allowedVendorStatuses.has(normalized)) {
+        return res.status(400).json({ error: 'Status not allowed for vendors' });
+    }
+    try {
+        const owns = await db.get(
+            `SELECT COUNT(*) as count FROM order_items oi
+             JOIN products p ON p.id = oi.product_id
+             WHERE oi.order_id = ? AND p.vendor_id = ?`,
+            [orderId, vendorId]
+        );
+        if (!owns || Number(owns.count || 0) === 0) {
+            return res.status(403).json({ error: 'Order does not include your items' });
+        }
+        const updated = await applyOrderStatus(orderId, normalized, {
+            actor: req.user?.username || `vendor-${vendorId}`,
+            role: 'vendor',
+            note: note || null,
+            notifyCustomer: true,
+        });
+        res.json({ success: true, orderId, status: updated.status });
+    } catch (err) {
+        console.error('Vendor order status update failed', err);
+        res.status(500).json({ error: err?.message || 'Failed to update order status' });
     }
 });
 

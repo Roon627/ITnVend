@@ -71,6 +71,11 @@ export default function Sidebar() {
         <NavLink to="/invoices" className={linkClass} onClick={handleNavClick}>
           <FaFileInvoice /> {!collapsedLabelsHidden && 'Invoices'}
         </NavLink>
+        {user && ['accounts', 'manager', 'admin'].includes(user.role) && (
+          <NavLink to="/orders" className={linkClass} onClick={handleNavClick}>
+            <FaClipboardList /> {!collapsedLabelsHidden && 'Orders'}
+          </NavLink>
+        )}
         <NavLink to="/products" className={linkClass} onClick={handleNavClick}>
           <FaBoxOpen /> {!collapsedLabelsHidden && 'Products'}
         </NavLink>

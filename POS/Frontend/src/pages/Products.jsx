@@ -26,6 +26,26 @@ const normalizeAvailabilityStatus = (value, fallback = 'in_stock') => {
   return AVAILABILITY_STATUS_LABELS[normalized] ? normalized : fallback;
 };
 
+const getSaleState = (product) => {
+  const price = Number(product?.price);
+  const salePrice = Number(product?.sale_price ?? product?.salePrice);
+  const flag = Number(product?.is_on_sale ?? product?.isOnSale ?? 0) === 1;
+  if (flag && Number.isFinite(price) && price > 0 && Number.isFinite(salePrice) && salePrice > 0 && salePrice < price) {
+    const discount =
+      product?.discount_percent ??
+      product?.discountPercent ??
+      ((price - salePrice) / price) * 100;
+    return {
+      isOnSale: true,
+      basePrice: price,
+      salePrice,
+      discountPercent: discount,
+      savings: price - salePrice,
+    };
+  }
+  return { isOnSale: false, basePrice: Number.isFinite(price) ? price : 0 };
+};
+
 function normalizeKey(key) {
   return key.toLowerCase().replace(/[^a-z0-9]/g, '');
 }
@@ -231,6 +251,9 @@ function ProductInsight({ product, formatCurrency, lookups }) {
     product.brand_id ||
     '—';
 
+  const sale = getSaleState(product);
+  const discountLabel = sale.isOnSale && sale.discountPercent != null ? `${Math.round(sale.discountPercent)}% OFF` : null;
+
   return (
     <div className="relative bg-white rounded-lg border border-slate-100 p-4 shadow-sm">
       {/* Action buttons moved to the Product insight header (handled by parent) */}
@@ -253,7 +276,19 @@ function ProductInsight({ product, formatCurrency, lookups }) {
           </div>
 
           <div className="text-right">
-            <div className="text-xl font-bold text-slate-800">{formatCurrency(product.price || 0)}</div>
+            {sale.isOnSale ? (
+              <div className="space-y-1">
+                <div className="text-xl font-bold text-emerald-600">{formatCurrency(sale.salePrice)}</div>
+                <div className="text-sm line-through text-slate-400">{formatCurrency(sale.basePrice)}</div>
+                {discountLabel && (
+                  <span className="inline-flex items-center rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-semibold text-emerald-700">
+                    {discountLabel}
+                  </span>
+                )}
+              </div>
+            ) : (
+              <div className="text-xl font-bold text-slate-800">{formatCurrency(product.price || 0)}</div>
+            )}
             <div className="text-sm text-slate-500">{product.stock ?? 0} in stock</div>
           </div>
         </div>
@@ -666,7 +701,29 @@ export default function Products() {
                             <div className="font-medium text-slate-800">{product.name}</div>
                             {product.availability_status === 'archived' && <div className="text-xs text-rose-600 mt-1">Archived</div>}
                           </td>
-                          <td className="px-4 py-3 text-slate-700">{formatCurrency(product.price || 0)}</td>
+                          <td className="px-4 py-3 text-slate-700">
+                            {(() => {
+                              const sale = getSaleState(product);
+                              if (sale.isOnSale) {
+                                return (
+                                  <div className="flex flex-col gap-0.5">
+                                    <span className="text-sm font-semibold text-emerald-600">
+                                      {formatCurrency(sale.salePrice)}
+                                    </span>
+                                    <span className="text-xs text-slate-400 line-through">
+                                      {formatCurrency(sale.basePrice)}
+                                    </span>
+                                    {sale.discountPercent != null && (
+                                      <span className="inline-flex w-fit items-center rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-700">
+                                        -{Math.round(sale.discountPercent)}%
+                                      </span>
+                                    )}
+                                  </div>
+                                );
+                              }
+                              return <span>{formatCurrency(product.price || 0)}</span>;
+                            })()}
+                          </td>
                           <td className="px-4 py-3 text-slate-700">{product.track_inventory === 0 ? '--' : product.stock ?? 0}</td>
                           <td className="px-4 py-3 text-slate-700">{product.category || '--'}{product.subcategory ? ` / ${product.subcategory}` : ''}</td>
                           <td className="px-4 py-3 text-slate-700">

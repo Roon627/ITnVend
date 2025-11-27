@@ -67,40 +67,62 @@ export default function Contact() {
   };
 
   return (
-    <div className="bg-gradient-to-br from-rose-50 via-white to-sky-50 py-16">
-      <div className="container mx-auto grid gap-10 px-6 lg:grid-cols-[1fr,1fr] lg:items-start">
-        <section className="space-y-6">
-          <span className="inline-flex items-center rounded-full bg-rose-100 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-rose-400">
-            Need a hand?
-          </span>
-          <h1 className="text-3xl font-bold text-slate-900 sm:text-4xl">Talk to a real human</h1>
-          <p className="text-base text-rose-400 sm:text-lg">
-            Our support team is based in the Maldives and replies from <strong>@itnvend.com</strong> email addresses only. Share a few
-            details and we’ll get back to you soon—typically within one business day.
-          </p>
-          <div className="rounded-3xl border border-rose-100 bg-white/90 p-6 shadow-rose-100">
-            <h2 className="text-lg font-semibold text-slate-900">Quick safety checklist</h2>
-            <ul className="mt-3 space-y-2 text-sm text-rose-500">
-              <li>• Always verify the sender’s domain before responding to payment requests.</li>
-              <li>• We will never ask for your password, OTPs, or credit card information over chat or email.</li>
-              <li>• If something feels off, report it using the form—we’ll investigate right away.</li>
+    <div className="bg-gradient-to-b from-rose-50 via-white to-emerald-50 py-16">
+      <div className="mx-auto flex w-full max-w-6xl flex-col gap-8 px-5 lg:flex-row">
+        <section className="flex-1 space-y-6">
+          <div className="rounded-[32px] border border-white/80 bg-white/95 p-6 shadow-2xl shadow-rose-100/60">
+            <span className="inline-flex items-center rounded-full bg-rose-100 px-3 py-1 text-xs font-semibold uppercase tracking-[0.35em] text-rose-400">
+              Need a hand?
+            </span>
+            <h1 className="mt-4 text-3xl font-black text-slate-900 sm:text-4xl">Talk to the ITnVend crew</h1>
+            <p className="mt-3 text-sm text-slate-600">
+              Our support folks sit in the Maldives and reply from <strong>@itnvend.com</strong> inboxes only. Send a note and we’ll respond within one business day—often faster.
+            </p>
+            <div className="mt-6 grid gap-4 sm:grid-cols-2">
+              {[
+                { title: 'Retail operations', detail: 'ops@itnvend.com', sub: 'Daily logistics & onboarding' },
+                { title: 'Trust & safety', detail: 'trust@itnvend.com', sub: 'Report suspicious activity' },
+                { title: 'Call us', detail: '+960 723 3399', sub: 'Sun–Thu • 09:00–20:00' },
+                { title: 'Response time', detail: '< 1 business day', sub: 'Priority for onboarded vendors' },
+              ].map((card) => (
+                <div key={card.title} className="rounded-2xl border border-rose-100 bg-rose-50/70 p-4 shadow-sm shadow-rose-100/80">
+                  <p className="text-xs uppercase tracking-[0.3em] text-rose-400">{card.title}</p>
+                  <p className="mt-2 text-lg font-semibold text-slate-900">{card.detail}</p>
+                  <p className="text-xs text-slate-500">{card.sub}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="rounded-[28px] border border-white/70 bg-white/95 p-5 shadow-lg shadow-emerald-100/50">
+            <h2 className="text-lg font-semibold text-slate-900">Other channels</h2>
+            <ul className="mt-3 space-y-2 text-sm text-slate-600">
+              <li>
+                • Email: <a href="mailto:hello@itnvend.com" className="font-semibold text-emerald-600 hover:text-emerald-500">hello@itnvend.com</a>
+              </li>
+              <li>• POS: Settings → Support → “Raise a ticket”</li>
+              <li>• Socials: <span className="font-semibold text-emerald-600">@itnvend</span></li>
             </ul>
           </div>
-          <div className="rounded-3xl border border-rose-100 bg-white/90 p-6 shadow-rose-100">
-            <h2 className="text-lg font-semibold text-slate-900">Other ways to reach us</h2>
-            <ul className="mt-3 space-y-2 text-sm text-rose-500">
-              <li>
-                • Email: <a href="mailto:hello@itnvend.com" className="font-semibold text-rose-500 hover:text-rose-400">hello@itnvend.com</a>
-              </li>
-              <li>• Admin console: Settings → Support → “Raise a ticket”</li>
-              <li>• Socials: @itnvend (Instagram, LinkedIn)</li>
+
+          <div className="rounded-[28px] border border-white/70 bg-white/95 p-5 shadow-lg shadow-rose-100/50">
+            <h2 className="text-lg font-semibold text-slate-900">Safety checklist</h2>
+            <ul className="mt-3 space-y-2 text-sm text-slate-600">
+              <li>• Confirm sender domain before paying invoices.</li>
+              <li>• We never request passwords or OTPs over chat/email.</li>
+              <li>• Suspect phishing? Forward headers—we’ll audit immediately.</li>
             </ul>
           </div>
         </section>
 
-        <section className="rounded-3xl border border-rose-100 bg-white/95 p-6 shadow-rose-100">
-          <h2 className="text-lg font-semibold text-slate-900">Send us a note</h2>
-          <form className="mt-6 space-y-5" onSubmit={handleSubmit}>
+        <section className="flex-1 rounded-[32px] border border-white/80 bg-white text-slate-900 shadow-2xl shadow-rose-100/50">
+          <div className="border-b border-slate-100 px-5 py-5">
+            <h2 className="text-2xl font-bold text-slate-900">Send us a message</h2>
+            <p className="mt-2 text-sm text-slate-500">
+              Fill in the form below and we’ll respond from a verified itnvend.com inbox. We only use your details to reply to this request.
+            </p>
+          </div>
+          <form className="grid grid-cols-1 gap-5 px-5 pb-7 pt-5 md:grid-cols-2 md:gap-6" onSubmit={handleSubmit}>
             <div>
               <label htmlFor="name" className="block text-sm font-semibold text-slate-700">
                 Your name
@@ -117,21 +139,6 @@ export default function Contact() {
               />
             </div>
             <div>
-              <label htmlFor="email" className="block text-sm font-semibold text-slate-700">
-                Email address
-              </label>
-              <input
-                id="email"
-                name="email"
-                type="email"
-                value={form.email}
-                onChange={handleChange}
-                className="mt-2 w-full rounded-xl border border-rose-200 bg-white px-4 py-3 text-sm text-slate-800 shadow-sm focus:border-rose-400 focus:outline-none focus:ring-2 focus:ring-rose-200"
-                placeholder="you@company.com"
-                autoComplete="email"
-              />
-            </div>
-            <div>
               <label htmlFor="company" className="block text-sm font-semibold text-slate-700">
                 Company (optional)
               </label>
@@ -144,6 +151,21 @@ export default function Contact() {
                 className="mt-2 w-full rounded-xl border border-rose-200 bg-white px-4 py-3 text-sm text-slate-800 shadow-sm focus:border-rose-400 focus:outline-none focus:ring-2 focus:ring-rose-200"
                 placeholder="Business or outlet name"
                 autoComplete="organization"
+              />
+            </div>
+            <div>
+              <label htmlFor="email" className="block text-sm font-semibold text-slate-700">
+                Email address
+              </label>
+              <input
+                id="email"
+                name="email"
+                type="email"
+                value={form.email}
+                onChange={handleChange}
+                className="mt-2 w-full rounded-xl border border-rose-200 bg-white px-4 py-3 text-sm text-slate-800 shadow-sm focus:border-rose-400 focus:outline-none focus:ring-2 focus:ring-rose-200"
+                placeholder="you@company.com"
+                autoComplete="email"
               />
             </div>
             <div>
@@ -164,7 +186,7 @@ export default function Contact() {
                 ))}
               </select>
             </div>
-            <div>
+            <div className="md:col-span-2">
               <label htmlFor="message" className="block text-sm font-semibold text-slate-700">
                 Message
               </label>
@@ -174,22 +196,24 @@ export default function Contact() {
                 rows={5}
                 value={form.message}
                 onChange={handleChange}
-                className="mt-2 w-full rounded-xl border border-rose-200 bg-white px-4 py-3 text-sm text-slate-800 shadow-sm focus:border-rose-400 focus:outline-none focus:ring-2 focus:ring-rose-200"
+                className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-800 shadow-sm focus:border-emerald-300 focus:outline-none focus:ring-2 focus:ring-emerald-200"
                 placeholder="Share details so we can help quickly."
               />
             </div>
-            <button
-              type="submit"
-              disabled={submitting}
-              className="btn-sm btn-sm-primary inline-flex items-center gap-2 rounded-full bg-gradient-to-r from-rose-500 to-sky-400 text-white shadow-lg shadow-rose-200 transition hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              <FaEnvelope aria-hidden="true" />
-              {submitting ? 'Sending...' : 'Send message'}
-              {!submitting && <FaArrowRight aria-hidden="true" />}
-            </button>
-            <p className="text-xs text-rose-400">
-              By submitting this form you agree to let us contact you regarding your request. We respond from verified <strong>@itnvend.com</strong> email addresses only.
-            </p>
+            <div className="md:col-span-2 flex flex-col gap-3 items-center text-center md:text-left">
+              <p className="text-xs text-slate-400">
+                By submitting this form you agree to let us contact you regarding your request. We respond from verified <strong>@itnvend.com</strong> email addresses only.
+              </p>
+              <button
+                type="submit"
+                disabled={submitting}
+                className="inline-flex w-full items-center justify-center gap-2 rounded-full bg-emerald-600 px-5 py-3 text-sm font-semibold text-white shadow-lg shadow-emerald-200 transition hover:-translate-y-0.5 hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-60 md:w-auto"
+              >
+                <FaEnvelope aria-hidden="true" />
+                {submitting ? 'Sending...' : 'Send message'}
+                {!submitting && <FaArrowRight aria-hidden="true" />}
+              </button>
+            </div>
           </form>
         </section>
       </div>

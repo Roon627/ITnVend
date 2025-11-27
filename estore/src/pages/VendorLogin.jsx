@@ -17,87 +17,114 @@ export default function VendorLogin() {
     'ITnVend';
 
   return (
-    <section className="bg-gradient-to-br from-rose-50 via-white to-sky-50 py-16">
-      <div className="mx-auto max-w-3xl px-6">
-        <div className="rounded-3xl bg-white/85 p-10 text-center shadow-xl shadow-rose-100/60 backdrop-blur">
-          <div className="mb-8 flex flex-col items-center gap-3 text-center">
-            <img
-              src={brandLogo}
-              alt={`${brandName} Logo`}
-              className="h-16 w-16 rounded-2xl border border-white/80 bg-white p-2 shadow-md shadow-rose-100"
-              loading="lazy"
-            />
-            <p className="text-[10px] font-semibold uppercase tracking-[0.45em] text-rose-300">Vendor console</p>
-            <h1 className="text-3xl font-black text-slate-800">Secure partner access</h1>
-            <p className="mt-2 text-sm text-slate-600 max-w-xl">
-              Only approved ITnVend vendors can sign in here. Use the same credentials you received in your onboarding email.
-              Keep this tab open; the login opens in a new window and will not interrupt your shopping session.
-            </p>
-          </div>
-
-          <div className="space-y-6">
-            <div className="rounded-2xl border border-slate-200 bg-white p-6 text-center shadow-sm">
-              <FaLock className="mx-auto mb-3 h-6 w-6 text-rose-500" />
-              <p className="text-sm text-slate-500 mb-3">
-                Vendor accounts live inside the secure POS console. Use the button below to launch the portal in a new tab.
-              </p>
-              <a
-                href={vendorPortalUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center justify-center gap-2 rounded-full bg-rose-500 px-5 py-2 text-sm font-semibold text-white shadow-sm shadow-rose-200 transition hover:-translate-y-0.5 hover:bg-rose-600"
-              >
-                Launch vendor login
-                <FaArrowRight className="h-4 w-4" />
-              </a>
-              <p className="mt-2 text-xs text-slate-400">
-                Tip: keep this tab open. Logging in no longer signs you out of the public store.
-              </p>
-            </div>
-            <div className="p-6 bg-blue-50 rounded-xl border border-blue-200">
-              <div className="flex items-start gap-3">
-                <FaShieldAlt className="w-5 h-5 text-blue-600 mt-0.5 flex-shrink-0" />
+    <section className="bg-gradient-to-br from-rose-50 via-white to-sky-50 py-10 sm:py-16">
+      <div className="mx-auto max-w-5xl px-4 sm:px-6">
+        <div className="rounded-[32px] bg-white/90 px-5 py-8 sm:px-10 sm:py-12 shadow-2xl shadow-rose-100/70 backdrop-blur">
+          <div className="grid gap-8 lg:grid-cols-[1.15fr_0.85fr]">
+            <div className="flex flex-col gap-6">
+              <div className="flex flex-col items-center gap-3 text-center sm:items-start sm:text-left">
+                <img
+                  src={brandLogo}
+                  alt={`${brandName} Logo`}
+                  className="h-14 w-14 rounded-2xl border border-white/80 bg-white p-2 shadow-md shadow-rose-100"
+                  loading="lazy"
+                />
                 <div>
-                  <h3 className="font-semibold text-blue-800 mb-2">How to Access Your Account</h3>
-                  <div className="text-sm text-blue-700 space-y-2">
-                    <p>1. <strong>Check your email</strong> - You should have received login credentials when your vendor account was approved.</p>
-                    <p>2. <strong>Use the secure link</strong> - Your email contains a direct link to sign in to your vendor dashboard.</p>
-                    <p>3. <strong>Change your password</strong> - After first login, update your password for security.</p>
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.4em] text-rose-300">Vendor console</p>
+                  <h1 className="text-3xl font-black text-slate-800 sm:text-4xl">Secure partner access</h1>
+                  <p className="mt-2 text-sm text-slate-600">
+                    Approved vendors manage catalog, orders, and payouts inside the POS portal. Keep this page open—your login launches in a new tab so you can hop back to the store without losing context.
+                  </p>
+                </div>
+              </div>
+
+              <div className="rounded-2xl border border-slate-200 bg-white/95 p-6 text-center shadow-inner sm:text-left">
+                <div className="flex flex-col items-center gap-4 sm:flex-row sm:items-center">
+                  <div className="rounded-2xl bg-rose-50 p-3">
+                    <FaLock className="h-6 w-6 text-rose-500" />
+                  </div>
+                  <div className="flex-1">
+                    <p className="text-sm text-slate-600">
+                      Use the secure POS vendor login. Your session opens in a fresh window and inherits all the security controls from HQ.
+                    </p>
+                  </div>
+                </div>
+                <a
+                  href={vendorPortalUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="mt-6 inline-flex w-full items-center justify-center gap-2 rounded-full bg-emerald-600 px-6 py-3 text-sm font-semibold text-white shadow-lg shadow-emerald-200/80 transition hover:-translate-y-0.5 hover:bg-emerald-500 focus:outline-none focus:ring-4 focus:ring-emerald-200"
+                >
+                  Launch vendor login
+                  <FaArrowRight className="h-4 w-4" />
+                </a>
+                <p className="mt-2 text-xs text-slate-400 text-center sm:text-left">
+                  Tip: bookmark the next tab. This splash screen stays put for quick re-entry.
+                </p>
+              </div>
+
+              <div className="grid gap-4 rounded-2xl bg-emerald-50/70 p-5 sm:grid-cols-3">
+                {[
+                  { title: 'Trusted sessions', body: '2FA + IP guardrails keep intruders out.' },
+                  { title: 'POS synced', body: 'Inventory, orders, and payouts stay live.' },
+                  { title: 'Fast support', body: '24/7 inbox with human escalation.' },
+                ].map((card) => (
+                  <div key={card.title} className="rounded-xl border border-emerald-100 bg-white/70 p-3 text-center text-xs font-medium text-emerald-700 shadow-sm">
+                    <p className="uppercase tracking-wide text-[10px] text-emerald-500">{card.title}</p>
+                    <p className="mt-1 text-emerald-800">{card.body}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="space-y-5">
+              <div className="rounded-2xl border border-blue-100 bg-blue-50/90 p-5 shadow-sm">
+                <div className="flex items-start gap-3">
+                  <FaShieldAlt className="h-5 w-5 text-blue-600 flex-shrink-0" />
+                  <div>
+                    <h3 className="font-semibold text-blue-900">How to access</h3>
+                    <ul className="mt-3 space-y-2 text-sm text-blue-800">
+                      <li><strong>1.</strong> Find the onboarding email with your username.</li>
+                      <li><strong>2.</strong> Use the “Launch vendor login” button or the secure link inside the email.</li>
+                      <li><strong>3.</strong> Update your password + enable MFA on first login.</li>
+                    </ul>
                   </div>
                 </div>
               </div>
-            </div>
 
-            <div className="p-6 bg-amber-50 rounded-xl border border-amber-200">
-              <div className="flex items-start gap-3">
-                <FaEnvelope className="w-5 h-5 text-amber-600 mt-0.5 flex-shrink-0" />
-                <div>
-                  <h3 className="font-semibold text-amber-800 mb-2">Need Help?</h3>
-                  <p className="text-sm text-amber-700 mb-3">
-                    If you haven't received your login credentials or need assistance accessing your account:
-                  </p>
-                  <a
-                    href="/contact?topic=support"
-                    className="inline-flex items-center gap-2 rounded-lg bg-amber-600 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-700 transition"
-                  >
-                    Contact Support
-                    <FaArrowRight className="w-4 h-4" />
-                  </a>
+              <div className="rounded-2xl border border-amber-100 bg-amber-50/90 p-5 shadow-sm">
+                <div className="flex items-start gap-3">
+                  <FaEnvelope className="h-5 w-5 text-amber-600 flex-shrink-0" />
+                  <div className="space-y-3">
+                    <div>
+                      <h3 className="font-semibold text-amber-900">Need a reset?</h3>
+                      <p className="text-sm text-amber-800">
+                        Lost credentials or waiting for approval? Ping the operations desk—we reply with a reset link or onboarding ETA.
+                      </p>
+                    </div>
+                    <a
+                      href="/contact?topic=support"
+                      className="inline-flex items-center gap-2 rounded-xl bg-amber-600 px-4 py-2 text-sm font-semibold text-white shadow-sm shadow-amber-200 transition hover:-translate-y-0.5 hover:bg-amber-700"
+                    >
+                      Contact support
+                      <FaArrowRight className="h-4 w-4" />
+                    </a>
+                  </div>
                 </div>
               </div>
-            </div>
 
-            <div className="text-center">
-              <p className="text-sm text-slate-600 mb-4">
-                Don't have a vendor account yet?
-              </p>
-              <a
-                href="/sell"
-                className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-rose-500 to-sky-400 px-6 py-3 text-sm font-semibold text-white shadow-lg shadow-rose-200/80 transition hover:-translate-y-0.5"
-              >
-                Apply to Become a Vendor
-                <FaArrowRight className="w-4 h-4" />
-              </a>
+              <div className="rounded-2xl border border-slate-100 bg-white/80 p-5 text-center sm:text-left">
+                <p className="text-sm text-slate-600">
+                  Want to sell with ITnVend but don’t have credentials yet?
+                </p>
+                <a
+                  href="/sell"
+                  className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-emerald-600 to-sky-500 px-5 py-3 text-sm font-semibold text-white shadow-lg shadow-emerald-200/80 transition hover:-translate-y-0.5 sm:w-auto"
+                >
+                  Apply to become a vendor
+                  <FaArrowRight className="h-4 w-4" />
+                </a>
+              </div>
             </div>
           </div>
         </div>

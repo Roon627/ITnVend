@@ -145,6 +145,12 @@ export default function VendorDashboard() {
                 Manage products
               </Link>
               <Link
+                to="/vendor/orders"
+                className="inline-flex items-center justify-center rounded-full border border-white/40 px-5 py-2 text-sm font-semibold text-white/90 hover:bg-white/10"
+              >
+                View orders
+              </Link>
+              <Link
                 to="/vendor/settings"
                 className="inline-flex items-center justify-center rounded-full border border-white/40 px-5 py-2 text-sm font-semibold text-white/90 hover:bg-white/10"
               >

@@ -103,7 +103,7 @@ export default function VendorLogin() {
 
           <button
             type="submit"
-            className={`w-full rounded-full bg-rose-500 px-4 py-3 text-sm font-semibold uppercase tracking-wide text-white shadow-lg shadow-rose-200 transition hover:-translate-y-0.5 hover:bg-rose-600 ${
+            className={`w-full rounded-full bg-emerald-600 px-4 py-3 text-sm font-semibold uppercase tracking-wide text-white shadow-lg shadow-emerald-200 transition hover:-translate-y-0.5 hover:bg-emerald-500 ${
               loading ? 'opacity-70' : ''
             }`}
             disabled={loading}

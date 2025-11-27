@@ -56,6 +56,14 @@ export default function OrderConfirmation() {
   const total = (state.order && state.order.total) || state.total || 0;
   const paymentMethod = state.order?.paymentMethod || null;
   const paymentReference = state.order?.paymentReference || null;
+  const orderId = state.order?.orderId || null;
+  const trackingToken = state.order?.trackingToken || null;
+  const trackingExpires = state.order?.trackingExpiresAt || null;
+  const savings = Number(state.order?.savings || 0);
+  const trackingLink =
+    orderId && trackingToken
+      ? `${typeof window !== 'undefined' ? window.location.origin : ''}/order-status?order=${orderId}&token=${trackingToken}`
+      : null;
   const quoteInfo = state.quote || null;
 
   return (
@@ -93,6 +101,11 @@ export default function OrderConfirmation() {
               <span>Total</span>
               <span>{formatCurrency(total)}</span>
             </div>
+            {isOrder && savings > 0 && (
+              <p className="text-right text-sm font-semibold text-emerald-600">
+                You saved {formatCurrency(savings)} on this order.
+              </p>
+            )}
           </div>
         )}
 
@@ -104,6 +117,26 @@ export default function OrderConfirmation() {
             </p>
             {paymentReference && (
               <p className="text-sm text-gray-600">Reference: {paymentReference}</p>
+            )}
+          </div>
+        )}
+
+        {isOrder && orderId && (
+          <div className="mt-6 text-left border-t pt-4">
+            <h3 className="font-semibold mb-2">Track your order</h3>
+            <p className="text-sm text-gray-600">Order ID: #{orderId}</p>
+            {trackingLink ? (
+              <a
+                href={trackingLink}
+                className="mt-2 inline-flex items-center justify-center rounded-full border border-rose-200 px-4 py-2 text-sm font-semibold text-rose-600 transition hover:bg-rose-50"
+              >
+                View live status
+              </a>
+            ) : (
+              <p className="text-sm text-gray-600">Check your inbox for the latest updates.</p>
+            )}
+            {trackingExpires && (
+              <p className="mt-1 text-xs text-gray-400">Tracking link expires on {new Date(trackingExpires).toLocaleDateString()}.</p>
             )}
           </div>
         )}

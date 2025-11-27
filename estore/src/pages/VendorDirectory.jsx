@@ -37,7 +37,7 @@ export default function VendorDirectory() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-rose-50 via-white to-sky-50 py-16 text-slate-800">
-      <div className="container mx-auto px-6">
+      <div className="mx-auto w-full max-w-screen-2xl px-6">
         <div className="mb-10 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.4em] text-rose-300">Vendor directory</p>

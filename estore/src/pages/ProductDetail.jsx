@@ -4,12 +4,14 @@ import { FaPhone, FaEnvelope, FaHashtag, FaBarcode, FaBox, FaTags, FaIndustry, F
 import api from '../lib/api';
 import { useCart } from '../components/CartContext';
 import { useSettings } from '../components/SettingsContext';
+import { useToast } from '../components/ToastContext';
 import { resolveMediaUrl } from '../lib/media';
 import ProductCard from '../components/ProductCard';
 import ImageCarousel from '../components/ImageCarousel';
 import SpecsPanel from '../components/SpecsPanel';
 import { withPreorderFlags, isPreorderProduct } from '../lib/preorder';
 import AvailabilityTag from '../components/AvailabilityTag';
+import { getSaleInfo } from '../lib/sale';
 import {
   isUserListing,
   isVendorListing,
@@ -64,6 +66,7 @@ export default function ProductDetail() {
   const [snapshotExpanded, setSnapshotExpanded] = useState(false);
   const { addToCart } = useCart();
   const { formatCurrency } = useSettings();
+  const toast = useToast();
   const navigate = useNavigate();
   const location = useLocation();
   const vendorSocialEntries = buildVendorSocialEntries(product?.vendor_social_links);
@@ -197,7 +200,6 @@ export default function ProductDetail() {
   const digitalSupportUrl = product.digital_support_url || product.digitalSupportUrl || '';
   const categoryPath = [product.category, product.subcategory, product.subsubcategory].filter(Boolean).join(' › ');
   const availabilityLabel = availabilityStatus ? availabilityStatus.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()) : 'In stock';
-  const stockLabel = product.track_inventory === 0 ? 'On request' : `${product.stock ?? 0} units`;
   const vendorName = product.vendor_name || product.vendorName || null;
   const vendorVerified = Number(product.vendor_verified ?? product.vendorVerified ?? 0) === 1;
   const technicalDetails = product.technical_details || product.technicalDetails || '';
@@ -217,13 +219,25 @@ export default function ProductDetail() {
   const warrantyTerm = product.warranty_term || product.warrantyTerm || '';
   const audienceLabel = product.audience || product.target_audience || '';
   const modelLabel = product.model || '';
+  const trackLimited = product?.track_inventory !== 0 && product?.track_inventory !== false;
+  const numericStock = Number(product?.stock);
+  const stockValue = Number.isFinite(numericStock) ? numericStock : null;
+  const outOfStock = trackLimited && (!stockValue || stockValue <= 0);
+  const sale = getSaleInfo(product);
+  const displayPrice = sale.effectivePrice ?? product.price;
+  const priceSavings = sale.isOnSale ? Math.max(0, (sale.basePrice || 0) - (sale.effectivePrice || 0)) : 0;
+  const displayStockLabel = trackLimited
+    ? stockValue && stockValue > 0
+      ? `${stockValue} in stock`
+      : 'Out of stock'
+    : 'Available on request';
   const metadataEntries = [
     { label: 'SKU', value: product.sku || '—', icon: <FaHashtag className="text-rose-400" /> },
     { label: 'Barcode', value: product.barcode || '—', icon: <FaBarcode className="text-rose-400" /> },
     { label: 'Category', value: categoryPath || '—', icon: <FaBox className="text-rose-400" /> },
     { label: 'Availability', value: availabilityLabel, icon: <FaTags className="text-rose-400" /> },
     { label: 'Brand', value: brandName || '—', icon: <FaIndustry className="text-rose-400" /> },
-    { label: 'Stock level', value: stockLabel, icon: <FaWarehouse className="text-rose-400" /> },
+    { label: 'Stock level', value: displayStockLabel, icon: <FaWarehouse className="text-rose-400" /> },
     { label: 'Delivery', value: deliveryType || '—', icon: <FaTruck className="text-rose-400" /> },
     { label: 'Warranty', value: warrantyTerm || '—', icon: <FaShieldAlt className="text-rose-400" /> },
     { label: 'Model', value: modelLabel },
@@ -247,6 +261,10 @@ export default function ProductDetail() {
   };
 
   const handleBuyNow = () => {
+    if (outOfStock && !preorder) {
+      toast?.push('This item is currently out of stock.', 'error');
+      return;
+    }
     // Add item to cart and jump straight to checkout for immediate purchase.
     // Pass the full product in navigation state to avoid race with async cart update.
     const normalized = withPreorderFlags(product);
@@ -271,7 +289,7 @@ export default function ProductDetail() {
 
         <div className="grid gap-4 rounded-xl border border-white/60 bg-white/95 p-2 sm:gap-8 sm:p-5 lg:grid-cols-[1.05fr_0.95fr]">
           <div className="order-2 relative flex flex-col rounded-2xl bg-gradient-to-br from-white via-rose-50 to-sky-50 p-3 shadow-inner sm:p-6 lg:order-1">
-            <AvailabilityTag availabilityStatus={availabilityStatus} className="top-3 left-3 sm:top-4 sm:left-4" />
+            <AvailabilityTag availabilityStatus={availabilityStatus} stock={product.stock} className="top-3 left-3 sm:top-4 sm:left-4" />
             {gallery && gallery.length ? (
               <div className="w-full">
                 <ImageCarousel images={gallery} alt={product.name} />
@@ -333,9 +351,31 @@ export default function ProductDetail() {
             )}
             <p className="text-xs uppercase tracking-wide text-rose-400">{product.subcategory || ''}</p>
             </header>
-            <div className="rounded-lg bg-rose-50/60 p-3 text-rose-700 sm:p-4">
-              <p className="text-[11px] font-semibold uppercase tracking-wide text-rose-400 sm:text-xs">Price</p>
-              <p className="mt-1 text-xl font-bold text-rose-600 sm:text-2xl">{formatCurrency(product.price)}</p>
+            <div className="rounded-2xl border border-rose-100 bg-rose-50/80 p-4 text-rose-700 shadow-sm">
+              <div className="flex flex-wrap items-center gap-3">
+                <div>
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-rose-400 sm:text-xs">Price</p>
+                  <p className="mt-1 text-3xl font-bold text-slate-900 sm:text-4xl">{formatCurrency(displayPrice)}</p>
+                </div>
+                {sale.isOnSale && (
+                  <div className="flex flex-col gap-1 text-xs font-semibold text-rose-500 sm:text-sm">
+                    <span className="line-through text-slate-400">{formatCurrency(sale.basePrice)}</span>
+                    {sale.discountPercent && (
+                      <span className="inline-flex items-center rounded-full bg-emerald-600/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-emerald-700">
+                        Save {Math.round(sale.discountPercent)}%
+                      </span>
+                    )}
+                  </div>
+                )}
+              </div>
+              {sale.isOnSale && priceSavings > 0 && (
+                <p className="mt-2 text-sm font-semibold text-emerald-700">
+                  You save {formatCurrency(priceSavings)} this week.
+                </p>
+              )}
+              <p className={`mt-2 text-sm ${outOfStock && !preorder ? 'text-rose-500' : 'text-emerald-600'}`}>
+                {preorder ? 'Preorder item' : displayStockLabel}
+              </p>
               {userListing ? (
                 <p className="mt-2 text-xs text-rose-500">Community seller listing — coordinate inspection, payment, and delivery directly with the seller.</p>
               ) : (
@@ -503,17 +543,20 @@ export default function ProductDetail() {
                 )}
                 {vendorSocialEntries.length > 0 && (
                   <div className="flex flex-wrap gap-2">
-                    {vendorSocialEntries.map(({ key, url, Icon }) => (
-                      <a
-                        key={key}
-                        href={url}
-                        target="_blank"
-                        rel="noreferrer noopener"
-                        className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-emerald-100 bg-white/80 text-emerald-700 shadow-sm transition hover:bg-white"
-                      >
-                        <Icon />
-                      </a>
-                    ))}
+                    {vendorSocialEntries.map(({ key, url, Icon }) => {
+                      const IconComponent = Icon;
+                      return (
+                        <a
+                          key={key}
+                          href={url}
+                          target="_blank"
+                          rel="noreferrer noopener"
+                          className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-emerald-100 bg-white/80 text-emerald-700 shadow-sm transition hover:bg-white"
+                        >
+                          <IconComponent />
+                        </a>
+                      );
+                    })}
                   </div>
                 )}
               </section>
@@ -564,14 +607,16 @@ export default function ProductDetail() {
                   <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:flex-1 sm:gap-3">
                   <button
                     onClick={() => addToCart(product)}
-                    className="btn-sm btn-sm-primary w-full justify-center text-xs sm:flex-1"
+                    className={`btn-sm btn-sm-primary w-full justify-center text-xs sm:flex-1 ${outOfStock && !preorder ? 'opacity-50 cursor-not-allowed' : ''}`}
                     aria-label={`Add ${product.name} to cart`}
+                    disabled={outOfStock && !preorder}
                   >
                     Add to cart
                   </button>
                   <button
                     onClick={handleBuyNow}
-                    className="btn-sm btn-sm-primary w-full justify-center text-xs sm:flex-1"
+                    className={`btn-sm btn-sm-primary w-full justify-center text-xs sm:flex-1 ${outOfStock && !preorder ? 'opacity-50 cursor-not-allowed' : ''}`}
+                    disabled={outOfStock && !preorder}
                   >
                     Buy now
                   </button>

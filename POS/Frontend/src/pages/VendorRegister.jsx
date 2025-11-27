@@ -44,6 +44,7 @@ export default function VendorRegister() {
     monthlyFee: '',
     billingStartDate: getNextBillingStart(),
     currency: 'USD',
+    salesFeePercent: '5',
   });
   const toast = useToast();
   const navigate = useNavigate();
@@ -90,8 +91,11 @@ export default function VendorRegister() {
       payload.monthly_fee = Number.isFinite(monthlyFeeValue) ? monthlyFeeValue : null;
       payload.billing_start_date = form.billingStartDate || null;
       payload.currency = form.currency;
+      const salesFeeValue = form.salesFeePercent === '' ? null : Number(form.salesFeePercent);
+      payload.sales_fee_percent = Number.isFinite(salesFeeValue) ? salesFeeValue : undefined;
       delete payload.monthlyFee;
       delete payload.billingStartDate;
+      delete payload.salesFeePercent;
       const result = await api.post('/vendors/register', payload);
       toast.push(result?.message || 'Vendor registered', 'success');
       navigate('/vendors');
@@ -233,7 +237,7 @@ export default function VendorRegister() {
 
         {step === 2 && (
           <div className="space-y-5">
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-5">
               <label className="text-sm font-medium text-slate-600">
                 Monthly fee*
                 <div className="relative mt-1">
@@ -262,6 +266,17 @@ export default function VendorRegister() {
                     </option>
                   ))}
                 </select>
+              </label>
+              <label className="text-sm font-medium text-slate-600">
+                Sales fee %
+                <input
+                  type="number"
+                  min="0"
+                  step="0.1"
+                  value={form.salesFeePercent}
+                  onChange={(e) => change('salesFeePercent', e.target.value)}
+                  className="mt-1 w-full rounded border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
               </label>
               <label className="text-sm font-medium text-slate-600">
                 Billing start date

@@ -68,15 +68,18 @@ export default function UsePolicy() {
             </div>
           </div>
           <div className="mt-6 grid gap-4 md:grid-cols-3">
-            {VALUES.map(({ icon: Icon, title, body }) => (
-              <article key={title} className="rounded-2xl border border-slate-100 bg-white/80 p-5 text-sm text-slate-500 shadow-sm">
-                <div className="flex items-center gap-2 text-base font-semibold text-slate-800">
-                  <Icon className="text-rose-400" aria-hidden />
-                  {title}
-                </div>
-                <p className="mt-2 leading-relaxed">{body}</p>
-              </article>
-            ))}
+            {VALUES.map(({ icon, title, body }) => {
+              const IconComponent = icon;
+              return (
+                <article key={title} className="rounded-2xl border border-slate-100 bg-white/80 p-5 text-sm text-slate-500 shadow-sm">
+                  <div className="flex items-center gap-2 text-base font-semibold text-slate-800">
+                    <IconComponent className="text-rose-400" aria-hidden />
+                    {title}
+                  </div>
+                  <p className="mt-2 leading-relaxed">{body}</p>
+                </article>
+              );
+            })}
           </div>
         </section>
 

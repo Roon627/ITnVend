@@ -2,6 +2,7 @@ import React, { useRef } from 'react';
 import { FaChevronLeft, FaChevronRight } from 'react-icons/fa';
 import { Link } from 'react-router-dom';
 import { resolveMediaUrl } from '../lib/media';
+import { getSaleInfo } from '../lib/sale';
 
 export default function NewArrivalsStrip({ items = [], onView = () => {}, onBrowse = () => {}, formatCurrency = null }) {
   const listRef = useRef(null);
@@ -54,7 +55,18 @@ export default function NewArrivalsStrip({ items = [], onView = () => {}, onBrow
             className="flex gap-3 overflow-x-auto no-scrollbar scroll-smooth py-1 pl-10 pr-10 sm:pl-12 sm:pr-12"
             style={{ scrollBehavior: 'smooth' }}
           >
-            {items.map((p) => (
+            {items.map((p) => {
+              const sale = getSaleInfo(p);
+              const effectivePrice = sale.effectivePrice ?? p.price;
+              const formatPriceValue =
+                typeof formatCurrency === 'function'
+                  ? formatCurrency(effectivePrice)
+                  : `MVR ${Number(effectivePrice || 0).toFixed(2)}`;
+              const basePriceLabel =
+                typeof formatCurrency === 'function'
+                  ? formatCurrency(sale.basePrice || p.price)
+                  : `MVR ${Number(sale.basePrice || p.price || 0).toFixed(2)}`;
+              return (
                 <Link
                   key={p.id}
                   to={`/product/${p.id}`}
@@ -69,9 +81,17 @@ export default function NewArrivalsStrip({ items = [], onView = () => {}, onBrow
                     />
                   </div>
                   <div className="mt-2 text-xs font-semibold text-slate-800 line-clamp-2">{p.name}</div>
-                  <div className="mt-1 text-sm text-rose-500 font-bold">{typeof p.price === 'number' ? (formatCurrency ? formatCurrency(p.price) : `MVR ${p.price}`) : p.price}</div>
+                  <div className="mt-1 text-sm font-bold text-emerald-600">
+                    {formatPriceValue}
+                    {sale.isOnSale && (
+                      <span className="ml-1 text-[11px] font-normal text-slate-400 line-through">
+                        {basePriceLabel}
+                      </span>
+                    )}
+                  </div>
                 </Link>
-            ))}
+              );
+            })}
           </div>
           <button
             aria-label="Scroll right"

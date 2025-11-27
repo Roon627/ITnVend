@@ -111,6 +111,13 @@ export default function AddProduct() {
         tags: payload.tags || [],
         newArrival: payload.newArrival ? 1 : 0,
       };
+      const salePriceNumber = Number(payload.salePrice);
+      const discountPercentNumber = Number(payload.discountPercent);
+      createdPayload.isOnSale = !!payload.isOnSale;
+      createdPayload.salePrice =
+        createdPayload.isOnSale && Number.isFinite(salePriceNumber) ? salePriceNumber : null;
+      createdPayload.discountPercent =
+        createdPayload.isOnSale && Number.isFinite(discountPercentNumber) ? discountPercentNumber : null;
 
       await api.post('/products', createdPayload);
       toast.push('Product created', 'success');

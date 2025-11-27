@@ -393,12 +393,15 @@ export async function setupDatabase() {
         // add customer_type column non-destructively
         await ensureColumn(db, 'customers', 'customer_type', "TEXT DEFAULT 'regular'");
     // allow storing uploaded logo URL and attachments metadata for business customers
-    await ensureColumn(db, 'customers', 'logo_url', 'TEXT');
+        await ensureColumn(db, 'customers', 'logo_url', 'TEXT');
     await ensureColumn(db, 'customers', 'attachments', 'TEXT');
     // vendor attachments metadata
     await ensureColumn(db, 'vendors', 'attachments', 'TEXT');
     await ensureColumn(db, 'vendors', 'verified', 'INTEGER DEFAULT 0');
         await ensureColumn(db, 'products', 'availability_status', "TEXT DEFAULT 'in_stock'");
+        await ensureColumn(db, 'products', 'is_on_sale', 'INTEGER DEFAULT 0');
+        await ensureColumn(db, 'products', 'sale_price', 'REAL');
+        await ensureColumn(db, 'products', 'discount_percent', 'REAL');
         try {
             await db.run("UPDATE products SET availability_status = 'preorder' WHERE preorder_enabled = 1 AND (availability_status IS NULL OR availability_status = '' OR availability_status = 'in_stock')");
         } catch (err) {
@@ -418,6 +421,7 @@ export async function setupDatabase() {
             type TEXT DEFAULT 'invoice',
             status TEXT DEFAULT 'issued',
             due_date DATETIME,
+            visible_in_pos INTEGER DEFAULT 1,
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (customer_id) REFERENCES customers(id)
         );
@@ -629,6 +633,17 @@ export async function setupDatabase() {
             FOREIGN KEY (product_id) REFERENCES products(id)
         );
 
+        CREATE TABLE IF NOT EXISTS order_status_history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            order_id INTEGER NOT NULL,
+            status TEXT NOT NULL,
+            note TEXT,
+            actor TEXT,
+            role TEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (order_id) REFERENCES orders(id)
+        );
+
         CREATE TABLE IF NOT EXISTS preorders (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             source_store TEXT,
@@ -678,7 +693,8 @@ export async function setupDatabase() {
             social_links TEXT,
             social_showcase_enabled INTEGER DEFAULT 1,
             verified INTEGER DEFAULT 0,
-            currency TEXT,
+            currency TEXT DEFAULT 'USD',
+            sales_fee_percent REAL DEFAULT 5.0,
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP
         );
 
@@ -697,6 +713,25 @@ export async function setupDatabase() {
         );
         CREATE INDEX IF NOT EXISTS idx_vendor_profile_requests_status ON vendor_profile_requests(status);
         CREATE INDEX IF NOT EXISTS idx_vendor_profile_requests_vendor ON vendor_profile_requests(vendor_id);
+
+        CREATE TABLE IF NOT EXISTS vendor_sales (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            vendor_id INTEGER NOT NULL,
+            order_id INTEGER,
+            invoice_id INTEGER,
+            product_id INTEGER,
+            quantity INTEGER NOT NULL,
+            gross_amount REAL NOT NULL,
+            fee_percent REAL NOT NULL,
+            fee_amount REAL NOT NULL,
+            net_amount REAL NOT NULL,
+            source TEXT DEFAULT 'pos',
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (vendor_id) REFERENCES vendors(id),
+            FOREIGN KEY (order_id) REFERENCES orders(id),
+            FOREIGN KEY (invoice_id) REFERENCES invoices(id),
+            FOREIGN KEY (product_id) REFERENCES products(id)
+        );
 
         -- Activity logs for audit trail
         CREATE TABLE IF NOT EXISTS activity_logs (
@@ -1054,6 +1089,7 @@ export async function setupDatabase() {
     await ensureColumn(db, 'vendors', 'social_links', 'TEXT');
     await ensureColumn(db, 'vendors', 'social_showcase_enabled', 'INTEGER DEFAULT 1');
     await ensureColumn(db, 'vendors', 'currency', 'TEXT');
+    await ensureColumn(db, 'vendors', 'sales_fee_percent', 'REAL DEFAULT 5.0');
     await ensureVendorSlugs(db);
     await db.run('CREATE UNIQUE INDEX IF NOT EXISTS idx_vendors_slug ON vendors(slug)');
 
@@ -1217,6 +1253,9 @@ export async function setupDatabase() {
     await ensureColumn(db, 'orders', 'payment_slip', 'TEXT');
     await ensureColumn(db, 'orders', 'source', "TEXT DEFAULT 'pos'");
     await ensureColumn(db, 'orders', 'is_preorder', 'INTEGER DEFAULT 0');
+    await ensureColumn(db, 'orders', 'tracking_token', 'TEXT');
+    await ensureColumn(db, 'orders', 'tracking_token_expires_at', 'TEXT');
+    await ensureColumn(db, 'orders', 'updated_at', 'DATETIME');
     await ensureColumn(db, 'order_items', 'is_preorder', 'INTEGER DEFAULT 0');
     await ensureColumn(db, 'payments', 'reference', 'TEXT');
     await ensureColumn(db, 'payments', 'slip_path', 'TEXT');
@@ -1272,6 +1311,7 @@ export async function setupDatabase() {
     await ensureColumn(db, 'invoices', 'outlet_id', 'INTEGER');
     await ensureColumn(db, 'invoices', 'type', "TEXT DEFAULT 'invoice'");
     await ensureColumn(db, 'invoices', 'status', "TEXT DEFAULT 'issued'");
+    await ensureColumn(db, 'invoices', 'visible_in_pos', 'INTEGER DEFAULT 1');
 
     // Ensure customers table has extra fields for GST/business details
     await ensureColumn(db, 'customers', 'phone', 'TEXT');

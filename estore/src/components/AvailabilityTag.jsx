@@ -17,12 +17,18 @@ const STATUS_META = {
   },
 };
 
-export default function AvailabilityTag({ availabilityStatus = 'in_stock', className = '' }) {
+export default function AvailabilityTag({ availabilityStatus = 'in_stock', className = '', stock }) {
   const key = (availabilityStatus || '').toString().toLowerCase();
-  const meta = STATUS_META[key] || STATUS_META.in_stock;
+  let meta = STATUS_META[key] || STATUS_META.in_stock;
+  const numericStock = Number(stock);
+  if (Number.isFinite(numericStock) && numericStock <= 0) {
+    meta = STATUS_META.used || { label: 'OUT OF STOCK', className: 'bg-rose-100 text-rose-600' };
+    meta.label = 'OUT OF STOCK';
+    meta.className = 'bg-rose-100 text-rose-600';
+  }
   return (
     <span
-      className={`pointer-events-none select-none absolute top-3 left-3 z-10 rounded-full px-3 py-1 text-[0.65rem] font-semibold tracking-wide shadow-sm ${meta.className} ${className}`.trim()}
+      className={`pointer-events-none select-none absolute top-2 left-2 z-10 rounded-full px-2 py-0.5 text-[0.55rem] font-semibold tracking-wide shadow-sm ${meta.className} ${className}`.trim()}
     >
       {meta.label}
     </span>

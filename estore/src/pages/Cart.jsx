@@ -4,12 +4,14 @@ import { useCart } from '../components/CartContext';
 import { useSettings } from '../components/SettingsContext';
 import { resolveMediaUrl } from '../lib/media';
 import { isPreorderProduct } from '../lib/preorder';
+import { getSaleInfo } from '../lib/sale';
 
 export default function Cart() {
   const { cart, removeFromCart, updateQuantity, cartTotal, clearCart } = useCart();
   const { formatCurrency } = useSettings();
 
   const cartHasPreorder = cart.some((item) => item?.preorder || isPreorderProduct(item));
+  const cartHasSale = cart.some((item) => getSaleInfo(item).isOnSale);
 
   if (cart.length === 0) {
     return (
@@ -57,6 +59,11 @@ export default function Cart() {
           {cart.map((item) => {
             const imageSrc = resolveMediaUrl(item.image || item.image_source || item.imageUrl);
             const preorder = item?.preorder || isPreorderProduct(item);
+            const stockLimited = item?.track_inventory !== 0 && item?.track_inventory !== false && Number.isFinite(Number(item.stock));
+            const maxStock = stockLimited ? Math.max(0, Number(item.stock) || 0) : null;
+            const atMax = stockLimited && maxStock !== null && item.quantity >= maxStock;
+            const sale = getSaleInfo(item);
+            const unitPrice = sale.effectivePrice ?? item.price;
             return (
               <div
                 key={item.id}
@@ -72,7 +79,20 @@ export default function Cart() {
                   </div>
                   <div>
                     <h2 className="text-lg font-semibold text-slate-900">{item.name}</h2>
-                    <p className="text-sm text-rose-400">{formatCurrency(item.price)}</p>
+                    {sale.isOnSale ? (
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-semibold text-emerald-600">{formatCurrency(unitPrice)}</span>
+                        <span className="text-xs line-through text-slate-400">{formatCurrency(sale.basePrice)}</span>
+                        <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">Sale</span>
+                      </div>
+                    ) : (
+                      <p className="text-sm text-rose-400">{formatCurrency(unitPrice)}</p>
+                    )}
+                    {stockLimited && (
+                      <p className="text-xs text-slate-500">
+                        {maxStock > 0 ? `${maxStock} in stock` : 'Out of stock'}
+                      </p>
+                    )}
                     {preorder && (
                       <span className="mt-1 inline-flex items-center gap-1 rounded-full border border-rose-200 bg-rose-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-rose-500">
                         Preorder item
@@ -99,15 +119,21 @@ export default function Cart() {
                     </span>
                     <button
                       onClick={() => updateQuantity(item.id, item.quantity + 1)}
+                      disabled={atMax}
                       className="px-3 py-2 text-rose-500 hover:bg-rose-50 focus:outline-none focus:ring-2 focus:ring-rose-200"
                       aria-label={`Increase quantity of ${item.name}`}
                     >
                       <FaPlus />
                     </button>
                   </div>
-                  <p className="w-28 text-right text-sm font-semibold text-rose-500">
-                    {formatCurrency(item.price * item.quantity)}
-                  </p>
+                    <div className="text-right">
+                    <p className="text-sm font-semibold text-rose-500">
+                      {formatCurrency(unitPrice * item.quantity)}
+                    </p>
+                    {sale.isOnSale && (
+                      <p className="text-xs text-emerald-600">You save {formatCurrency((item.price - unitPrice) * item.quantity)}</p>
+                    )}
+                  </div>
                   <button
                     onClick={() => removeFromCart(item.id)}
                     className="text-rose-400 transition hover:text-rose-500 focus:outline-none focus:ring-2 focus:ring-rose-200"
@@ -115,6 +141,11 @@ export default function Cart() {
                   >
                     <FaTrash />
                   </button>
+                  {atMax && (
+                    <p className="w-full text-xs text-amber-600">
+                      You've reached the available stock for this item.
+                    </p>
+                  )}
                 </div>
               </div>
             );
@@ -124,7 +155,12 @@ export default function Cart() {
             <button onClick={clearCart} className="text-sm font-semibold hover:text-rose-400">
               Clear cart
             </button>
-            <div className="text-2xl font-bold text-rose-500">Total: {formatCurrency(cartTotal)}</div>
+            <div className="text-center md:text-right">
+              <div className="text-2xl font-bold text-rose-500">Total: {formatCurrency(cartTotal)}</div>
+              {cartHasSale && (
+                <p className="text-xs text-emerald-600">Sale savings applied at checkout.</p>
+              )}
+            </div>
           </div>
 
           <div className="mt-6 flex flex-wrap justify-between gap-4">

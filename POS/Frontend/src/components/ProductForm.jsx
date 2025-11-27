@@ -93,6 +93,12 @@ const safeNumber = (value) => {
   return Number.isFinite(parsed) ? parsed : '';
 };
 
+const formatPercentValue = (value) => {
+  if (!Number.isFinite(value)) return '';
+  const rounded = Math.round(value * 10) / 10;
+  return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1);
+};
+
 const cleanDateInput = (value) => {
   if (!value) return '';
   const text = String(value).trim().slice(0, 10);
@@ -207,6 +213,9 @@ const buildInitialForm = (initial = {}) => {
     ),
     digitalExpiry: cleanDateInput(initial.digitalExpiry || initial.digital_expiry || ''),
     digitalSupportUrl: initial.digitalSupportUrl || initial.digital_support_url || '',
+    isOnSale: initial.isOnSale ?? initial.is_on_sale ?? false,
+    salePrice: cleanNumberInput(initial.salePrice ?? initial.sale_price, { fallback: '' }),
+    discountPercent: cleanNumberInput(initial.discountPercent ?? initial.discount_percent, { fallback: '' }),
   };
 };
 
@@ -379,6 +388,40 @@ export default function ProductForm({
     });
   }, [form.autoSku, form.name, form.year, currentBrandName, notifyExternalChange]);
 
+  const saleSummary = useMemo(() => {
+    if (!form.isOnSale) return null;
+    const base = parseFloat(form.price);
+    const sale = parseFloat(form.salePrice);
+    if (!Number.isFinite(base) || base <= 0 || !Number.isFinite(sale) || sale <= 0 || sale >= base) {
+      return { valid: false, base, sale };
+    }
+    const percent = ((base - sale) / base) * 100;
+    return {
+      valid: true,
+      base,
+      sale,
+      percent: formatPercentValue(percent),
+      savings: Math.max(0, base - sale),
+    };
+  }, [form.isOnSale, form.price, form.salePrice]);
+
+  useEffect(() => {
+    if (!form.isOnSale) {
+      if (form.discountPercent) update('discountPercent', '');
+      return;
+    }
+    const base = parseFloat(form.price);
+    const sale = parseFloat(form.salePrice);
+    if (!Number.isFinite(base) || base <= 0 || !Number.isFinite(sale) || sale <= 0 || sale >= base) {
+      if (form.discountPercent) update('discountPercent', '');
+      return;
+    }
+    const computed = formatPercentValue(((base - sale) / base) * 100);
+    if (computed !== form.discountPercent) {
+      update('discountPercent', computed);
+    }
+  }, [form.isOnSale, form.price, form.salePrice, form.discountPercent, update]);
+
   const validate = useCallback(() => {
     const validationErrors = {};
     if (!form.name || !String(form.name).trim()) validationErrors.name = 'Name is required';
@@ -397,6 +440,14 @@ export default function ProductForm({
     }
     if (form.barcode && !/^[0-9]{8,13}$/.test(form.barcode.trim())) {
       validationErrors.barcode = 'Barcode must be 8-13 digits';
+    }
+    if (form.isOnSale) {
+      const saleValue = parseFloat(form.salePrice);
+      if (!Number.isFinite(saleValue) || saleValue <= 0) {
+        validationErrors.salePrice = 'Enter a valid sale price';
+      } else if (Number.isFinite(priceValue) && saleValue >= priceValue) {
+        validationErrors.salePrice = 'Sale price must be lower than the standard price';
+      }
     }
     return validationErrors;
   }, [form]);
@@ -569,12 +620,29 @@ export default function ProductForm({
     });
   };
 
+  const handleSaleToggle = (checked) => {
+    if (checked) {
+      updateMany({
+        isOnSale: true,
+        salePrice: form.salePrice || '',
+      });
+    } else {
+      updateMany({
+        isOnSale: false,
+        salePrice: '',
+        discountPercent: '',
+      });
+    }
+  };
+
   const handleSubmit = (event) => {
     if (event?.preventDefault) event.preventDefault();
     const validationErrors = validate();
     setErrors(validationErrors);
     if (Object.keys(validationErrors).length) return;
     const normalizedType = form.type === 'digital' ? 'digital' : 'physical';
+    const salePriceNumber = Number(form.salePrice);
+    const discountPercentNumber = Number(form.discountPercent);
     const payload = {
       ...(form.id && { id: form.id }),
       name: form.name,
@@ -624,6 +692,10 @@ export default function ProductForm({
         : null,
       digitalExpiry: form.digitalExpiry || '',
       digitalSupportUrl: form.digitalSupportUrl || '',
+      isOnSale: !!form.isOnSale,
+      salePrice: form.isOnSale ? salePriceNumber : null,
+      discountPercent:
+        form.isOnSale && Number.isFinite(discountPercentNumber) ? discountPercentNumber : null,
     };
     onSave(payload, { setFieldErrors: setErrors });
   };
@@ -990,6 +1062,53 @@ export default function ProductForm({
               Enable stock tracking
             </label>
           </div>
+        </div>
+        <div className={`mt-4 rounded-xl border p-4 ${form.isOnSale ? 'border-emerald-200 bg-emerald-50/60' : 'border-slate-200 bg-slate-50/60'}`}>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <label className="flex items-center gap-2 text-sm font-semibold text-slate-700">
+              <input
+                type="checkbox"
+                checked={!!form.isOnSale}
+                onChange={(event) => handleSaleToggle(event.target.checked)}
+              />
+              Enable sale pricing
+            </label>
+            {form.isOnSale && (
+              <div className="text-xs font-semibold text-emerald-600">
+                {saleSummary?.valid
+                  ? `${saleSummary?.percent || form.discountPercent || '0'}% off · Save MVR ${saleSummary?.savings?.toFixed(2)}`
+                  : 'Choose a sale price lower than the standard price'}
+              </div>
+            )}
+          </div>
+          {form.isOnSale && (
+            <div className="mt-4 grid gap-4 md:grid-cols-3">
+              <div>
+                <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">Sale price</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  value={form.salePrice}
+                  onChange={(event) => update('salePrice', event.target.value)}
+                  className="mt-1 w-full rounded-md border px-3 py-2 text-sm"
+                  placeholder="0.00"
+                />
+                {errors.salePrice && <p className="mt-1 text-xs text-rose-500">{errors.salePrice}</p>}
+              </div>
+              <div>
+                <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">Discount</label>
+                <div className="mt-1 flex h-11 items-center justify-center rounded-md border border-emerald-200 bg-white px-3 text-sm font-semibold text-emerald-700">
+                  {saleSummary?.valid ? `${saleSummary?.percent || form.discountPercent || '0'}% OFF` : '—'}
+                </div>
+              </div>
+              <div>
+                <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">Savings</label>
+                <div className="mt-1 flex h-11 items-center justify-center rounded-md border border-emerald-200 bg-white px-3 text-sm font-semibold text-emerald-700">
+                  {saleSummary?.valid ? `MVR ${saleSummary?.savings?.toFixed(2)}` : '—'}
+                </div>
+              </div>
+            </div>
+          )}
         </div>
         <div className="mt-4 grid gap-4 md:grid-cols-3">
           <div>

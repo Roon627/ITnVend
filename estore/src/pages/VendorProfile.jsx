@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { useEffect, useMemo, useState } from 'react';
+import { Link, useLocation, useParams } from 'react-router-dom';
 import api from '../lib/api';
 import { resolveMediaUrl } from '../lib/media';
 import ProductCard from '../components/ProductCard';
@@ -21,18 +21,25 @@ const SOCIAL_ICON_MAP = {
 
 const MODULE_RENDER_TIMESTAMP = Date.now();
 
-export default function VendorProfile() {
+export default function VendorProfile({ saleOnly = false }) {
   const { slug } = useParams();
+  const location = useLocation();
+  const showSaleOnly = saleOnly || location.pathname.endsWith('/sale');
   const [vendor, setVendor] = useState(null);
   const [vendorError, setVendorError] = useState('');
   const [loadingVendor, setLoadingVendor] = useState(true);
   const [products, setProducts] = useState([]);
   const [loadingProducts, setLoadingProducts] = useState(false);
+  const [saleProducts, setSaleProducts] = useState([]);
+  const [loadingSale, setLoadingSale] = useState(true);
   const { addToCart } = useCart();
   const { formatCurrency } = useSettings();
   const initialTimestamp = MODULE_RENDER_TIMESTAMP;
-  const socialLinks = vendor?.social_links || {};
-  const socialEntries = Object.entries(socialLinks).filter(([key, value]) => SOCIAL_ICON_MAP[key] && value);
+
+  const socialEntries = useMemo(() => {
+    if (!vendor?.social_links) return [];
+    return Object.entries(vendor.social_links).filter(([key, value]) => SOCIAL_ICON_MAP[key] && value);
+  }, [vendor]);
   const isVerified = Number(vendor?.verified ?? 0) === 1;
 
   useEffect(() => {
@@ -41,9 +48,7 @@ export default function VendorProfile() {
     setVendorError('');
     api
       .get(`/public/vendors/${slug}`)
-      .then((data) => {
-        setVendor(data);
-      })
+      .then((data) => setVendor(data))
       .catch((err) => {
         setVendor(null);
         setVendorError(err?.message || 'Vendor not found.');
@@ -56,21 +61,34 @@ export default function VendorProfile() {
     setLoadingProducts(true);
     api
       .get(`/public/vendors/${slug}/products`)
-      .then((list) => {
-        const normalized = Array.isArray(list) ? mapPreorderFlags(list) : [];
-        setProducts(normalized);
-      })
+      .then((list) => setProducts(Array.isArray(list) ? mapPreorderFlags(list) : []))
       .catch(() => setProducts([]))
       .finally(() => setLoadingProducts(false));
+  }, [slug]);
+
+  useEffect(() => {
+    if (!slug) return;
+    setLoadingSale(true);
+    api
+      .get(`/public/vendors/${slug}/products`, { params: { saleOnly: true } })
+      .then((list) => setSaleProducts(Array.isArray(list) ? mapPreorderFlags(list) : []))
+      .catch(() => setSaleProducts([]))
+      .finally(() => setLoadingSale(false));
   }, [slug]);
 
   const hero = resolveMediaUrl(vendor?.hero_image || '');
   const logo = resolveMediaUrl(vendor?.logo_url || '');
   const heroSizes = '(max-width: 768px) 100vw, 960px';
+  const hasSaleProducts = saleProducts.length > 0;
+  const displayProducts = showSaleOnly ? saleProducts : products;
+  const displayLoading = showSaleOnly ? loadingSale : loadingProducts;
+  const emptyMessage = showSaleOnly
+    ? 'This partner is not running any sale listings right now. Hop back to their main profile for the full catalogue.'
+    : `No products yet. Once ${vendor?.legal_name || 'this vendor'} publishes inventory in the POS, it appears automatically here.`;
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-rose-50 via-white to-sky-50 py-14 text-slate-800">
-      <div className="container mx-auto px-6">
+      <div className="mx-auto w-full max-w-screen-2xl px-6">
         <div className="mb-6 text-sm text-rose-400">
           <Link to="/" className="font-semibold text-rose-500 hover:text-rose-400">
             Home
@@ -157,6 +175,14 @@ export default function VendorProfile() {
                     >
                       Become a vendor
                     </Link>
+                    {hasSaleProducts && !showSaleOnly && (
+                      <Link
+                        to={`/vendors/${slug}/sale`}
+                        className="btn-sm inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-white/80 text-sm font-semibold text-emerald-700 transition hover:bg-white"
+                      >
+                        View sale items
+                      </Link>
+                    )}
                     {socialEntries.length > 0 && (
                       <div className="flex flex-wrap gap-2">
                         {socialEntries.map(([key, url]) => {
@@ -197,50 +223,91 @@ export default function VendorProfile() {
               </div>
             </section>
 
+            {hasSaleProducts && !showSaleOnly && (
+              <section className="mb-10 rounded-3xl border border-emerald-100 bg-emerald-50/70 p-6 shadow-lg shadow-emerald-100/40">
+                <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-[0.4em] text-emerald-400">On sale</p>
+                    <h3 className="text-2xl font-bold text-emerald-900">Discounted from {vendor.legal_name}</h3>
+                    <p className="text-sm text-emerald-700">
+                      Limited sets currently priced below their usual rate. Add to cart to lock the savings.
+                    </p>
+                  </div>
+                  <Link
+                    to={`/vendors/${slug}/sale`}
+                    className="btn-sm inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-white text-sm font-semibold text-emerald-700 transition hover:bg-emerald-50"
+                  >
+                    Browse all sale items
+                  </Link>
+                </div>
+                {loadingSale ? (
+                  <div className="rounded-2xl border border-dashed border-emerald-200 bg-white/80 p-8 text-center text-emerald-400">
+                    Syncing sale catalogue…
+                  </div>
+                ) : (
+                  <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                    {saleProducts.slice(0, 6).map((product) => (
+                      <ProductCard key={`sale-${product.id}`} product={product} />
+                    ))}
+                  </div>
+                )}
+              </section>
+            )}
+
             <section className="rounded-3xl border border-white/70 bg-white/90 p-6 shadow-lg shadow-rose-100/50">
               <div className="mb-8 flex flex-wrap items-center justify-between gap-4">
                 <div>
-                  <h3 className="text-2xl font-bold text-slate-900">Products from {vendor.legal_name}</h3>
+                  <h3 className="text-2xl font-bold text-slate-900">
+                    {showSaleOnly ? `Sale items from ${vendor.legal_name}` : `Products from ${vendor.legal_name}`}
+                  </h3>
                   <p className="text-sm text-slate-500">
-                    Browse their live catalogue. Every action here maps to the same POS workflow staff already use.
+                    {showSaleOnly
+                      ? 'Only listings with an active vendor sale are shown here. Stock syncs with the POS in real time.'
+                      : 'Browse their live catalogue. Every action here maps to the same POS workflow staff already use.'}
                   </p>
                 </div>
-                <Link
-                  to="/market"
-                  className="btn-sm btn-sm-outline inline-flex items-center gap-2 rounded-full border border-rose-200 bg-white text-sm font-semibold text-rose-500 transition hover:bg-rose-50"
-                >
-                  Back to Market Hub
-                </Link>
+                <div className="flex flex-wrap gap-3">
+                  {showSaleOnly && (
+                    <Link
+                      to={`/vendors/${slug}`}
+                      className="btn-sm btn-sm-outline inline-flex items-center gap-2 rounded-full border border-rose-200 bg-white text-sm font-semibold text-rose-500 transition hover:bg-rose-50"
+                    >
+                      View all products
+                    </Link>
+                  )}
+                  <Link
+                    to="/market"
+                    className="btn-sm btn-sm-outline inline-flex items-center gap-2 rounded-full border border-rose-200 bg-white text-sm font-semibold text-rose-500 transition hover:bg-rose-50"
+                  >
+                    Back to Market Hub
+                  </Link>
+                </div>
               </div>
 
-              {loadingProducts ? (
+              {displayLoading ? (
                 <div className="rounded-2xl border border-dashed border-rose-200 bg-rose-50/60 p-10 text-center text-rose-400">
                   Syncing catalogue…
                 </div>
-              ) : products.length > 0 ? (
-                <div className="grid gap-6 sm:grid-cols-2 xl:grid-cols-3">
-                  {products.map((product) => {
+              ) : displayProducts.length > 0 ? (
+                <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                  {displayProducts.map((product) => {
                     const createdAt = product.created_at ? new Date(product.created_at) : null;
-                    const isRecent = createdAt ? initialTimestamp - createdAt.getTime() < 1000 * 60 * 60 * 24 * 30 : false;
+                    const isRecent = createdAt ? initialTimestamp - createdAt.getTime() < 1000 * 60 * 60 * 78 : false;
                     return (
-                      <div key={product.id} className="relative">
-                        {isRecent && (
-                          <span className="absolute left-3 top-3 inline-flex items-center rounded-full bg-rose-500 px-2 py-0.5 text-xs font-semibold text-white shadow">
+                      <div key={`${product.id}-${initialTimestamp}`} className="relative">
+                        {isRecent && !showSaleOnly && (
+                          <span className="pointer-events-none absolute right-2 top-2 z-20 inline-flex items-center rounded-full bg-rose-500 px-1 py-0.5 text-[8px] font-semibold uppercase tracking-wide text-white/90 shadow">
                             New
                           </span>
                         )}
-                        <ProductCard
-                          product={product}
-                          onAdd={() => addToCart(product)}
-                          formatCurrency={formatCurrency}
-                        />
+                        <ProductCard product={product} onAdd={() => addToCart(product)} formatCurrency={formatCurrency} />
                       </div>
                     );
                   })}
                 </div>
               ) : (
                 <div className="rounded-2xl border border-dashed border-rose-200 bg-white/70 p-10 text-center text-slate-500">
-                  This vendor is just getting started. Products will appear once their POS catalog goes live.
+                  {emptyMessage}
                 </div>
               )}
             </section>
