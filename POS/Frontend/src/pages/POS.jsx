@@ -742,10 +742,15 @@ export default function POS() {
                     const imageSrc = resolveMediaUrl(
                       p.image_source || p.imageUrl || p.image || p.image_url || null
                     );
-                    const badgeStatus = normalizeAvailabilityStatusValue(
-                      p.availabilityStatus || p.availability_status || (p.availableForPreorder ? 'preorder' : null),
-                      p.availableForPreorder ? 'preorder' : 'in_stock'
-                    );
+                    const stockValue = Number(p.stock ?? 0);
+                    const outOfStock = !p.availableForPreorder && (!Number.isFinite(stockValue) || stockValue <= 0);
+                    const displayStock = Number.isFinite(stockValue) ? stockValue : null;
+                    const badgeStatus = outOfStock
+                      ? 'out_of_stock'
+                      : normalizeAvailabilityStatusValue(
+                          p.availabilityStatus || p.availability_status || (p.availableForPreorder ? 'preorder' : null),
+                          p.availableForPreorder ? 'preorder' : 'in_stock'
+                        );
                     return (
                       <div
                         key={p.id}
@@ -753,7 +758,7 @@ export default function POS() {
                         tabIndex={0}
                         onKeyDown={(e) => { if (e.key === 'Enter') addToCart(p); }}
                         onClick={() => addToCart(p)}
-                        className={`bg-surface border border-border rounded-lg shadow-sm hover:shadow-md transition-transform hover:scale-[1.01] overflow-hidden flex flex-col ${p.stock > 0 ? '' : 'opacity-60 grayscale'}`}
+                        className={`bg-surface border border-border rounded-lg shadow-sm hover:shadow-md transition-transform hover:scale-[1.01] overflow-hidden flex flex-col ${outOfStock ? 'opacity-60 grayscale' : ''}`}
                         aria-label={`Add ${p.name} to cart`}
                       >
                       <div className="relative">
@@ -762,7 +767,7 @@ export default function POS() {
                         ) : (
                           <div className="w-full h-48 bg-muted/10 flex items-center justify-center text-muted-foreground">No image</div>
                         )}
-                        <AvailabilityTag availabilityStatus={badgeStatus} />
+                        <AvailabilityTag availabilityStatus={badgeStatus} stock={p.stock} />
                       </div>
 
                       <div className="p-4 space-y-2 flex-1 flex flex-col">
@@ -770,14 +775,18 @@ export default function POS() {
                           <h3 className="font-semibold text-foreground truncate">{p.name}</h3>
                           <p className="font-bold text-foreground">{formatCurrency(p.price)}</p>
                         </div>
-                        <p className={`text-xs ${p.stock > 10 ? 'text-emerald-600' : p.stock > 0 ? 'text-amber-600' : 'text-rose-600'}`}>
-                          {p.stock > 0 ? `${p.stock} in stock` : 'Out of stock'}
+                        <p className={`text-xs ${outOfStock ? 'text-rose-600' : stockValue > 10 ? 'text-emerald-600' : 'text-amber-600'}`}>
+                          {outOfStock
+                            ? 'Currently sold out — restock coming soon.'
+                            : displayStock != null
+                            ? `${displayStock} in stock`
+                            : 'Available for order'}
                         </p>
                         {p.category && (
                           <p className="text-xs text-muted-foreground">{p.category}</p>
                         )}
 
-                        {p.stock > 0 && (
+                        {!outOfStock && (
                           <div className="flex items-center justify-between mt-2">
                             <div className="flex items-center rounded-md border border-border overflow-hidden">
                               <input

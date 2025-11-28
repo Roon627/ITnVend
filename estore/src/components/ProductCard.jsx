@@ -66,20 +66,18 @@ export default function ProductCard({
     ? 'relative w-full overflow-hidden rounded-xl aspect-square'
     : 'relative aspect-[4/5] w-full overflow-hidden rounded-xl sm:h-56 sm:aspect-auto';
   const priceClass = compact ? 'text-base' : 'text-sm sm:text-xl';
+  const availabilityBadge = outOfStock ? 'out_of_stock' : availabilityStatus;
+  const addButtonLabel = outOfStock ? 'Sold out' : isPreorder ? 'Preorder' : 'Add';
+  const addDisabled = outOfStock;
 
   return (
     <>
       <article className={cardClassName}>
         <div className={figureClassName}>
-          <AvailabilityTag availabilityStatus={availabilityStatus} stock={product.stock} />
+          <AvailabilityTag availabilityStatus={availabilityBadge} stock={product.stock} />
           {sale.isOnSale && (
             <div className="absolute left-2 top-2 rounded-full bg-rose-500/90 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white shadow">
               Sale
-            </div>
-          )}
-          {outOfStock && (
-            <div className="absolute right-2 top-2 rounded-full bg-slate-900/80 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white shadow">
-              Out of stock
             </div>
           )}
           {image ? (
@@ -170,13 +168,13 @@ export default function ProductCard({
               ) : (
                 <button
                   onClick={() => onAdd(product)}
-                  className={`${primaryButton} ${outOfStock ? 'opacity-50 cursor-not-allowed' : ''}`}
-                  disabled={outOfStock}
-                  aria-label={`${isPreorder ? 'Preorder' : 'Add'} ${product.name}`}
-                  aria-disabled={outOfStock}
+                  className={`${primaryButton} ${addDisabled ? 'opacity-50 cursor-not-allowed' : ''}`}
+                  disabled={addDisabled}
+                  aria-label={`${addButtonLabel} ${product.name}`}
+                  aria-disabled={addDisabled}
                 >
                   <FaShoppingCart className="text-[10px] sm:text-xs" />
-                  <span>{isPreorder ? 'Preorder' : 'Add'}</span>
+                  <span>{addButtonLabel}</span>
                 </button>
               )}
               <Link

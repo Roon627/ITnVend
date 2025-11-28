@@ -15,10 +15,18 @@ const STATUS_META = {
     label: 'IN STOCK',
     className: 'bg-emerald-100 text-emerald-600',
   },
+  out_of_stock: {
+    label: 'OUT OF STOCK',
+    className: 'bg-rose-100 text-rose-600',
+  },
 };
 
-export default function AvailabilityTag({ availabilityStatus = 'in_stock', className = '' }) {
-  const key = (availabilityStatus || '').toString().toLowerCase();
+export default function AvailabilityTag({ availabilityStatus = 'in_stock', className = '', stock }) {
+  let key = (availabilityStatus || '').toString().toLowerCase();
+  const numericStock = Number(stock);
+  if (Number.isFinite(numericStock) && numericStock <= 0) {
+    key = 'out_of_stock';
+  }
   const meta = STATUS_META[key] || STATUS_META.in_stock;
   return (
     <span
